@@ -220,6 +220,17 @@ input:focus{border-color:var(--accent); outline:none;}
 .meal-btn{border:1px solid var(--border-strong); background:var(--surface); border-radius:var(--r-sm); padding:7px 12px; font-size:12.5px; cursor:pointer; color:var(--text-2);}
 .meal-btn.on{background:var(--ok-soft); border-color:var(--ok-line); color:var(--ok); font-weight:700;}
 
+/* Strength Performance Benchmark — ผลลัพธ์ใต้แต่ละท่าหลังบันทึก set (ดู app.js: perfBlockFor) */
+.perf-block{margin-top:8px; padding-top:8px; border-top:1px dashed var(--border-strong); display:flex; flex-direction:column; gap:3px;}
+.perf-line{font-size:12.5px; color:var(--text-2);}
+.perf-line.mono{font-family:ui-monospace,monospace; color:var(--text);}
+.perf-badge{font-size:12.5px; font-weight:700; margin-top:1px;}
+.perf-badge.below{color:var(--warn);}
+.perf-badge.near{color:var(--branch);}
+.perf-badge.above{color:var(--ok);}
+.perf-badge.advanced{color:var(--sleep);}
+.perf-badge.none{color:var(--text-4); font-weight:500;}
+
 .rail{display:flex; flex-direction:column; gap:12px; position:sticky; top:18px;}
 @media (max-width:1060px){ .rail{position:static;} }
 .prog-card{background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); padding:14px 16px; display:flex; flex-direction:column; gap:8px;}

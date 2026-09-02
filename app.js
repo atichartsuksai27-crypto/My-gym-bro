@@ -653,7 +653,7 @@ var track = {
   weights: lsGet("gymbro_weights", {}),
   viewMonth:null, weekStart:null,
   openDate:null, openSets:{}, saveStatus:'', openSwap:null,
-  schedTab:'week', editing:false, progressEx:null
+  schedTab:'week', editing:false, progressEx:null, openBench:{}
 };
 function persistProgram(){ return lsSet("gymbro_program", track.program); }
 function persistLogs(){ return lsSet("gymbro_logs", track.logs); }
@@ -662,6 +662,17 @@ function persistWeights(){ return lsSet("gymbro_weights", track.weights); }
 /* ---------- อ่าน log ของวันหนึ่ง ---------- */
 function logFor(iso){ return track.logs[iso] || null; }
 function weightFor(iso){ var w = track.weights[iso]; return w && w.kg!=null ? w.kg : null; }
+/* น้ำหนักตัวล่าสุดที่รู้ ณ วันที่ iso (เอาบันทึกน้ำหนักที่ใกล้ iso ที่สุดแต่ไม่เกิน iso —
+   ใช้สำหรับ Relative Strength ให้สะท้อนน้ำหนักตัวจริงช่วงนั้น แม่นกว่าใช้ค่าตอนทำ
+   แบบสอบถามครั้งเดียวตายตัว) ถ้ายังไม่เคยชั่งน้ำหนักเลย fallback ไปน้ำหนักตอนเริ่มโปรแกรม */
+function bodyweightAsOf(iso){
+  var keys = Object.keys(track.weights).filter(function(k){
+    return track.weights[k] && track.weights[k].kg!=null && k<=iso;
+  }).sort();
+  if(keys.length) return Number(track.weights[keys[keys.length-1]].kg);
+  var p = track.program;
+  return (p && p.startWeight!=null) ? Number(p.startWeight) : null;
+}
 
 function sessionKeyFor(program, iso){
   var wd = thaiWeekdayOfDate(parseISO(iso));
@@ -811,7 +822,11 @@ function exerciseHistory(exId){
       var reps = s.reps==null? null : Number(s.reps);
       if(wgt==null || isNaN(wgt) || wgt<=0) return;
       if(reps!=null && !isNaN(reps)) vol += wgt*reps;
-      var e1 = (reps!=null && !isNaN(reps)) ? wgt*(1+reps/30) : wgt;
+      // e1RM มาจาก GymBroBenchmark.calculateEstimated1RM (สูตร Epley) เสมอ — จุดเดียว
+      // ที่คำนวณสูตรนี้ในระบบ ห้ามเขียนสูตรซ้ำที่นี่ ถ้า reps ไม่ใช่จำนวนเต็ม/ไม่มีค่า
+      // (เช่น log น้ำหนักเฉยๆ) ใช้น้ำหนักตรงๆ แทนเหมือนพฤติกรรมเดิม
+      var e1 = GymBroBenchmark.calculateEstimated1RM(wgt, reps);
+      if(e1==null) e1 = wgt;
       if(!best || e1 > best.e1rm) best = {weight:wgt, reps:reps, e1rm:e1};
     });
     if(best) out.push({date:iso, weight:best.weight, reps:best.reps, e1rm:Math.round(best.e1rm*10)/10, volume:Math.round(vol)});
@@ -872,6 +887,62 @@ function lastBestBefore(exId, iso){
   return hist.length ? hist[hist.length-1] : null;
 }
 
+/* ---------- Strength Performance Benchmark (เลเยอร์เสริม — logic จริงอยู่ใน
+   benchmarks.js/GymBroBenchmark ทั้งหมด สองฟังก์ชันนี้แค่ประกอบ HTML จากผลลัพธ์
+   ห้ามคำนวณ e1RM/Relative Strength/จับคู่ benchmark ซ้ำที่นี่หรือที่ไหนอื่นในหน้า UI) ---------- */
+function benchDetailHTML(perf, relStrength, pb, progress, benchmark, bw){
+  var rows = '';
+  rows += '<div class="side-row"><span class="k">Benchmark ของคุณ</span><span class="v">'+
+    (benchmark
+      ? fmt1(benchmark.e1rmKg)+' กก. · '+esc(benchmark.sourceName||benchmark.benchmarkSource||'ไม่ระบุแหล่งที่มา')
+      : 'ยังไม่มี Benchmark สำหรับข้อมูลนี้')+
+    '</span></div>';
+  rows += '<div class="side-row"><span class="k">Relative Strength</span><span class="v">'+
+    (relStrength!=null ? (Math.round(relStrength*100)/100)+'× น้ำหนักตัว'+(bw!=null?' ('+fmt1(bw)+' กก.)':'') : 'ยังไม่มีข้อมูลน้ำหนักตัว')+
+    '</span></div>';
+  rows += '<div class="side-row"><span class="k">Personal Best</span><span class="v">'+
+    (pb ? fmt1(pb.e1rm)+' กก. ('+esc(shortDateTH(pb.date))+')' : 'ยังไม่เคยบันทึกท่านี้มาก่อน')+
+    '</span></div>';
+  rows += '<div class="side-row"><span class="k">Personal Progress</span><span class="v">'+
+    (progress
+      ? (progress.direction==='up'?'📈 +':(progress.direction==='down'?'📉 ':'▪️ '))+fmt1(Math.abs(progress.deltaPct))+'% เทียบกับครั้งก่อน ('+esc(shortDateTH(progress.baselineDate))+')'
+      : 'ยังไม่มีข้อมูลครั้งก่อนให้เทียบ')+
+    '</span></div>';
+  rows += '<div class="side-row"><span class="k">ระดับ Performance</span><span class="v">'+(perf.icon||'')+' '+esc(perf.label)+'</span></div>';
+  return '<div class="setbox">'+rows+'</div>';
+}
+function perfBlockFor(ex, iso, e, isBW){
+  if(isBW || ex.timeBased) return ''; // ท่า bodyweight/จับเวลาไม่มีน้ำหนักให้ประเมิน e1RM
+  var pick = GymBroBenchmark.pickAssessmentSet(e.sets||[]);
+  if(!pick) return ''; // ยังไม่มีเซ็ตที่กรอกน้ำหนัก+ครั้งครบสำหรับวันนี้
+  var a = state.answers;
+  var bw = bodyweightAsOf(iso);
+  var relStrength = GymBroBenchmark.calculateRelativeStrength(pick.e1rm, bw);
+  var benchKey = GymBroBenchmark.resolveBenchmarkKey(ex.id);
+  var benchmark = benchKey ? GymBroBenchmark.getStrengthBenchmark({
+    exercise: benchKey, sex: a.Q9, bodyweightKg: bw, experience: a.Q16
+  }) : null;
+  var perf = GymBroBenchmark.getPerformanceLevel({e1rmKg: pick.e1rm, benchmark: benchmark});
+  var histAll = exerciseHistory(ex.id).filter(function(h){ return h.date<=iso; });
+  var histBefore = histAll.filter(function(h){ return h.date<iso; });
+  var pb = histAll.length ? histAll.reduce(function(m,h){ return h.e1rm>m.e1rm?h:m; }) : null;
+  var progress = histBefore.length ? GymBroBenchmark.getPersonalProgress(pick.e1rm, histBefore) : null;
+
+  var openBench = !!track.openBench[iso+':'+ex.id];
+  var lowConfNote = pick.lowConfidence
+    ? '<div class="hint" style="margin-top:2px">⚠️ เซ็ตนี้ทำมากกว่า 12 ครั้ง — Estimated 1RM อาจคลาดเคลื่อนกว่าปกติ</div>'
+    : '';
+  var levelClass = perf.level || 'none';
+  return '<div class="perf-block">'+
+    '<div class="perf-line mono">'+pick.weight+' กก. × '+pick.reps+' ครั้ง</div>'+
+    '<div class="perf-line">Estimated 1RM: <b>'+fmt1(pick.e1rm)+' กก.</b></div>'+
+    '<div class="perf-badge '+levelClass+'">'+(perf.icon||'')+' '+esc(perf.label)+'</div>'+
+    lowConfNote+
+    '<button type="button" class="ex-open" data-act="bench-toggle" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">'+(openBench?'ซ่อนรายละเอียด ▴':'ดูรายละเอียด ▾')+'</button>'+
+    (openBench ? benchDetailHTML(perf, relStrength, pb, progress, benchmark, bw) : '')+
+    '</div>';
+}
+
 function sectionWorkout(iso){
   var p = track.program, t = targetsOf(p);
   var sKey = sessionKeyFor(p, iso);
@@ -911,6 +982,7 @@ function sectionWorkout(iso){
         '<div class="s">'+esc(ex.setsReps)+' · '+esc(PATTERN_SHORT[ex.pattern]||ex.pattern)+' · '+esc(prevTxt)+'</div>'+
         '<button type="button" class="ex-open" data-act="ex-toggle" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">'+(open?'ซ่อนช่องบันทึกเซ็ต ▴':(isBW?'บันทึกจำนวนครั้งต่อเซ็ต ▾':'บันทึกน้ำหนัก/ครั้งต่อเซ็ต ▾'))+'</button>'+
         (open? '<div class="setbox">'+setRows+'</div>' : '')+
+        perfBlockFor(ex, iso, e, isBW)+
       '</div></div>';
   }).join('');
   return '<div class="sec-card">'+
@@ -1831,6 +1903,11 @@ document.addEventListener("click", function(ev){
   if(act==='ex-toggle'){
     var key = iso+':'+el.getAttribute('data-ex');
     track.openSets[key] = !track.openSets[key];
+    render(); return;
+  }
+  if(act==='bench-toggle'){
+    var bkey = iso+':'+el.getAttribute('data-ex');
+    track.openBench[bkey] = !track.openBench[bkey];
     render(); return;
   }
   if(act==='meal'){

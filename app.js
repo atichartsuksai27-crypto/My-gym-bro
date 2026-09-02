@@ -392,42 +392,19 @@ function sanityIssues(a){
   return issues;
 }
 
-/* ---------- BMR/TDEE: single source of truth (สูตร Mifflin-St Jeor) ----------
-   calculateBMR()/calculateTDEE() คือจุดคำนวณเดียวของทั้งระบบ ห้ามเขียนสูตรซ้ำที่อื่น
-   ทุกจุดที่ต้องใช้ BMR/TDEE (computeTDEE, computeCalorieTarget, computeTargets, generator
-   ตารางฝึก/โภชนาการ) ต้องเรียกผ่านสองฟังก์ชันนี้เท่านั้น */
-var ACTIVITY_FACTOR = { // mapping จากคำตอบ Q36 (ลักษณะงาน/กิจกรรมนอกเวลาออกกำลังกาย)
-  'นั่งโต๊ะเป็นหลัก': 1.20,  // Sedentary
-  'ยืน-เดินเยอะ': 1.375,    // Lightly Active
-  'ใช้แรงงาน': 1.55         // Moderately Active
-  // หมายเหตุ: Q36 ในแบบสอบถามปัจจุบันมี 3 ตัวเลือก (ไม่แตะ UI/Questionnaire) จึงยังไม่มี
-  // ตัวเลือก Very Active (1.725) / Extremely Active (1.90) ให้เลือกในระบบนี้
-};
-/**
- * calculateBMR — สูตร Mifflin-St Jeor (Basal Metabolic Rate)
- * คืนค่า BMR แบบไม่ปัดเศษ (ใช้ต่อในการคำนวณ TDEE/แคลอรี่เป้าหมาย) หรือ null ถ้าข้อมูลไม่ครบ/ไม่ถูกต้อง
- */
-function calculateBMR(weightKg, heightCm, age, sex){
-  weightKg = parseFloat(weightKg);
-  heightCm = parseFloat(heightCm);
-  age = parseFloat(age);
-  if(!(weightKg>0) || !(heightCm>0) || !(age>0)) return null; // ห้ามคำนวณเป็น 0/ค่าปลอมถ้าข้อมูลไม่ครบ
-  if(sex!=='ชาย' && sex!=='หญิง') return null;
-  var base = 10*weightKg + 6.25*heightCm - 5*age;
-  return sex==='ชาย' ? base+5 : base-161;
-}
-/**
- * calculateTDEE — TDEE = BMR × Activity Factor
- * คืนค่าแบบไม่ปัดเศษ หรือ null ถ้า bmr/activityFactor ไม่ถูกต้อง
- */
-function calculateTDEE(bmr, activityFactor){
-  if(bmr==null || isNaN(bmr) || !(activityFactor>0)) return null;
-  return bmr*activityFactor;
-}
+/* ---------- BMR/TDEE ----------
+   สูตรจริงอยู่ใน calculations.js (GymBroCalc) จุดเดียวของทั้งระบบ — ที่นี่เป็นแค่
+   adapter ที่แปลงคำตอบแบบสอบถาม (Q9/Q10/Q11/Q12/Q36) ไปเป็น input ของสูตร
+   ห้ามเขียนสูตร BMR/TDEE ซ้ำที่ไฟล์นี้หรือที่อื่นเด็ดขาด */
 function computeTDEE(a){
-  var bmr = calculateBMR(a.Q12, a.Q11, a.Q10, a.Q9);
-  var factor = ACTIVITY_FACTOR[a.Q36]; // undefined ถ้า Q36 ยังไม่ตอบ/ไม่รู้จัก
-  return calculateTDEE(bmr, factor); // null ถ้าข้อมูลไม่ครบ — ห้ามใครทับด้วยค่า default
+  var bmr = GymBroCalc.calculateBMR({
+    weightKg: a.Q12,   // น้ำหนักตัว (kg)
+    heightCm: a.Q11,   // ส่วนสูง (cm)
+    age: a.Q10,        // อายุ (ปี)
+    sex: a.Q9          // 'ชาย' | 'หญิง'
+  });
+  var factor = GymBroCalc.activityFactorFromQ36(a.Q36); // null ถ้า Q36 ยังไม่ตอบ/ไม่รู้จัก
+  return GymBroCalc.calculateTDEE({bmr: bmr, activityFactor: factor}); // null ถ้าข้อมูลไม่ครบ
 }
 function computeCalorieTarget(tdee, a){
   var goal = a.Q1;
@@ -894,7 +871,7 @@ function benchDetailHTML(perf, relStrength, pb, progress, benchmark, bw){
   var rows = '';
   rows += '<div class="side-row"><span class="k">Benchmark ของคุณ</span><span class="v">'+
     (benchmark
-      ? fmt1(benchmark.e1rmKg)+' กก. · '+esc(benchmark.sourceName||benchmark.benchmarkSource||'ไม่ระบุแหล่งที่มา')
+      ? fmt1(benchmark.benchmarkValueKg)+' กก. · '+esc(benchmark.sourceName||benchmark.benchmarkSource||'ไม่ระบุแหล่งที่มา')
       : 'ยังไม่มี Benchmark สำหรับข้อมูลนี้')+
     '</span></div>';
   rows += '<div class="side-row"><span class="k">Relative Strength</span><span class="v">'+
@@ -926,21 +903,67 @@ function perfBlockFor(ex, iso, e, isBW){
   var histAll = exerciseHistory(ex.id).filter(function(h){ return h.date<=iso; });
   var histBefore = histAll.filter(function(h){ return h.date<iso; });
   var pb = histAll.length ? histAll.reduce(function(m,h){ return h.e1rm>m.e1rm?h:m; }) : null;
-  var progress = histBefore.length ? GymBroBenchmark.getPersonalProgress(pick.e1rm, histBefore) : null;
+  var progress = histBefore.length ? GymBroBenchmark.calculatePersonalProgress(pick.e1rm, histBefore) : null;
 
   var openBench = !!track.openBench[iso+':'+ex.id];
   var lowConfNote = pick.lowConfidence
     ? '<div class="hint" style="margin-top:2px">⚠️ เซ็ตนี้ทำมากกว่า 12 ครั้ง — Estimated 1RM อาจคลาดเคลื่อนกว่าปกติ</div>'
     : '';
-  var levelClass = perf.level || 'none';
+  /* Personal Progress แสดงแยกจาก Benchmark เสมอ (PART 11) — ต่ำกว่า Benchmark
+     แต่พัฒนาขึ้นจากตัวเอง ต้องเห็นทั้งสองอย่างพร้อมกัน */
+  var progLine = progress
+    ? '<div class="perf-line">Personal Progress: <b>'+(progress.direction==='up'?'📈 +':(progress.direction==='down'?'📉 ':'▪️ '))+
+        fmt1(Math.abs(progress.deltaPct))+'%</b> <span class="hint" style="display:inline">เทียบครั้งก่อน</span></div>'
+    : '';
   return '<div class="perf-block">'+
     '<div class="perf-line mono">'+pick.weight+' กก. × '+pick.reps+' ครั้ง</div>'+
     '<div class="perf-line">Estimated 1RM: <b>'+fmt1(pick.e1rm)+' กก.</b></div>'+
-    '<div class="perf-badge '+levelClass+'">'+(perf.icon||'')+' '+esc(perf.label)+'</div>'+
+    '<div class="perf-badge '+(perf.cssClass||'none')+'">'+(perf.icon||'')+' '+esc(perf.label)+'</div>'+
+    progLine+
     lowConfNote+
     '<button type="button" class="ex-open" data-act="bench-toggle" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">'+(openBench?'ซ่อนรายละเอียด ▴':'ดูรายละเอียด ▾')+'</button>'+
     (openBench ? benchDetailHTML(perf, relStrength, pb, progress, benchmark, bw) : '')+
     '</div>';
+}
+
+/* สรุป Strength รายท่าสำหรับหน้า "ความคืบหน้า" (PART 16) — เพิ่มเข้าไปในส่วน
+   Progression เดิม ไม่แตะกราฟ/ตาราง/ส่วนอื่นของหน้านั้น ค่าทุกตัวมาจาก function
+   กลางใน GymBroBenchmark เหมือนหน้า "วันนี้" ทุกประการ (ไม่คำนวณซ้ำเอง) */
+function strengthSummaryHTML(exDef, hist){
+  if(!exDef || !hist || !hist.length) return '';
+  var a = state.answers;
+  var latest = hist[hist.length-1];
+  var prev = hist.length>1 ? hist[hist.length-2] : null;
+  var pb = hist.reduce(function(m,h){ return h.e1rm>m.e1rm ? h : m; });
+  var bw = bodyweightAsOf(latest.date);
+  var rel = GymBroBenchmark.calculateRelativeStrength({e1rmKg: latest.e1rm, bodyweightKg: bw});
+  var perf = GymBroBenchmark.getPerformanceLevel({
+    exercise: exDef.id, sex: a.Q9, bodyweightKg: bw,
+    experience: a.Q16, e1rmKg: latest.e1rm, relativeStrength: rel
+  });
+  var progress = prev ? GymBroBenchmark.calculatePersonalProgress(latest.e1rm, hist.slice(0, -1)) : null;
+  function tile(label, value, detail){
+    return '<div class="stat-b"><div class="l">'+label+'</div><div class="v">'+value+'</div>'+
+      '<div class="d">'+detail+'</div></div>';
+  }
+  return '<div class="stat-strip" style="margin-top:14px">'+
+    tile('Estimated 1RM ล่าสุด', fmt1(latest.e1rm)+' <small>กก.</small>',
+      esc(shortDateTH(latest.date))+' · '+latest.weight+' กก. × '+(latest.reps!=null?latest.reps:'?')+' ครั้ง')+
+    tile('Personal Best (e1RM)', fmt1(pb.e1rm)+' <small>กก.</small>',
+      esc(shortDateTH(pb.date))+(pb.date===latest.date?' · ล่าสุดคือสถิติสูงสุด':''))+
+    tile('ครั้งก่อนหน้า', prev? fmt1(prev.e1rm)+' <small>กก.</small>' : '—',
+      progress
+        ? '<span class="'+(progress.direction==='up'?'down':(progress.direction==='down'?'up':''))+'">'+
+            (progress.direction==='up'?'+':'')+fmt1(progress.deltaPct)+'%</span> Personal Progress'
+        : 'ต้องมีอย่างน้อย 2 วันจึงเทียบได้')+
+    tile('Benchmark', (perf.icon||'')+' <span style="font-size:15px">'+esc(perf.label)+'</span>',
+      perf.hasBenchmark && perf.benchmark
+        ? 'มาตรฐาน '+fmt1(perf.benchmark.benchmarkValueKg)+' กก. · '+esc(perf.benchmark.sourceName||'ไม่ระบุแหล่งที่มา')
+        : 'เทียบกับกลุ่มอ้างอิง — คนละเรื่องกับ Personal Progress')+
+    tile('Relative Strength', rel!=null ? (Math.round(rel*100)/100)+'<small>× น้ำหนักตัว</small>' : '—',
+      bw!=null ? 'น้ำหนักตัว '+fmt1(bw)+' กก.' : 'ยังไม่มีข้อมูลน้ำหนักตัว')+
+    '</div>'+
+    '<p class="hint" style="margin-top:10px">ตัวเลขทั้งหมดเป็น <b>ประมาณการ 1RM (Estimated 1RM)</b> จากน้ำหนัก × ครั้งที่บันทึกไว้ ไม่ใช่ 1RM ที่ยกได้จริง — Benchmark เป็นข้อมูลเปรียบเทียบกับกลุ่มอ้างอิงเท่านั้น ไม่ใช่เป้าที่ต้องไปให้ถึง</p>';
 }
 
 function sectionWorkout(iso){
@@ -1374,6 +1397,7 @@ function renderProgress(){
     }).join('')+'</div>';
     var hist = exerciseHistory(cur);
     var exDef = allEx.filter(function(e){return e.id===cur;})[0];
+    html += strengthSummaryHTML(exDef, hist); // PART 16 — เพิ่มสรุป ไม่แทนที่กราฟ/ตารางเดิม
     if(hist.length>=2){
       var pts2 = hist.map(function(hh,i){ return {x: daysBetween(hist[0].date, hh.date), y: hh.e1rm, label: shortDateTH(hh.date)}; });
       html += '<div class="chart-wrap">'+plotSVG(pts2, {h:200, yfmt:function(v){return Math.round(v)+' กก.';}, aria:'กราฟความแข็งแรงโดยประมาณของท่า '+exDef.th})+'</div>';

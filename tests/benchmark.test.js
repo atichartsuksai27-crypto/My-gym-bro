@@ -41,8 +41,9 @@ test('bodyweight missing -> null', function(){
 
 console.log('3) Benchmark matching (against a seeded fixture dataset, NOT the shipped empty one)');
 var fixture = [
-  {exercise:'bench_press', sex:'ชาย', bodyweightRange:{min:70,max:89}, experience:'ออกกำลังกายประจำ',
-   level:'intermediate', e1rmKg:80, unit:'kg', benchmarkSource:'test-fixture', sourceName:'unit test fixture', sourceUrl:null, lastUpdated:'2026-01-01'}
+  {exerciseId:'bench_press', sex:'ชาย', bodyweightMinKg:70, bodyweightMaxKg:89,
+   experienceLevel:'ออกกำลังกายประจำ', benchmarkLevel:'intermediate', benchmarkValueKg:80, unit:'kg',
+   benchmarkSource:'test-fixture', sourceName:'unit test fixture', sourceUrl:null, lastUpdated:'2026-01-01'}
 ];
 function withFixture(fn){
   var real = B.BENCHMARK_DATASET.slice();
@@ -54,7 +55,7 @@ test('matches exercise+sex+bodyweight range+experience', function(){
   withFixture(function(){
     var b = B.getStrengthBenchmark({exercise:'hp4', sex:'ชาย', bodyweightKg:80, experience:'ออกกำลังกายประจำ'});
     assert.ok(b);
-    assert.strictEqual(b.e1rmKg, 80);
+    assert.strictEqual(b.benchmarkValueKg, 80);
   });
 });
 test('resolves via EXERCISE_BENCHMARK_KEY (hp4 -> bench_press)', function(){
@@ -73,44 +74,70 @@ test('shipped dataset is empty (no invented numbers) -> always null until popula
   assert.strictEqual(b, null);
 });
 
-console.log('4) Performance classification');
-test('ratio < 0.90 -> below (red)', function(){
-  var lvl = B.getPerformanceLevel({e1rmKg:60, benchmark:{e1rmKg:80}});
-  assert.strictEqual(lvl.level, 'below');
+console.log('4) Performance classification (enum per PART 10)');
+test('ratio < 0.90 -> LOWER_THAN_BENCHMARK (red)', function(){
+  var lvl = B.getPerformanceLevel({e1rmKg:60, benchmark:{benchmarkValueKg:80}});
+  assert.strictEqual(lvl.level, B.PERFORMANCE_LEVEL.LOWER_THAN_BENCHMARK);
+  assert.strictEqual(lvl.icon, '🔴');
+  assert.ok(lvl.label.length > 0, 'colour must always be paired with text (PART 15)');
 });
-test('ratio in [0.90,1.10] -> near (yellow)', function(){
-  var lvl = B.getPerformanceLevel({e1rmKg:76, benchmark:{e1rmKg:80}});
-  assert.strictEqual(lvl.level, 'near');
+test('ratio in [0.90,1.10] -> NEAR_BENCHMARK (yellow)', function(){
+  var lvl = B.getPerformanceLevel({e1rmKg:76, benchmark:{benchmarkValueKg:80}});
+  assert.strictEqual(lvl.level, B.PERFORMANCE_LEVEL.NEAR_BENCHMARK);
+  assert.strictEqual(lvl.icon, '🟡');
 });
-test('ratio in (1.10,1.50] -> above (green)', function(){
-  var lvl = B.getPerformanceLevel({e1rmKg:100, benchmark:{e1rmKg:80}});
-  assert.strictEqual(lvl.level, 'above');
+test('ratio in (1.10,1.50] -> ABOVE_BENCHMARK (green)', function(){
+  var lvl = B.getPerformanceLevel({e1rmKg:100, benchmark:{benchmarkValueKg:80}});
+  assert.strictEqual(lvl.level, B.PERFORMANCE_LEVEL.ABOVE_BENCHMARK);
+  assert.strictEqual(lvl.icon, '🟢');
 });
-test('ratio > 1.50 -> advanced (purple)', function(){
-  var lvl = B.getPerformanceLevel({e1rmKg:130, benchmark:{e1rmKg:80}});
-  assert.strictEqual(lvl.level, 'advanced');
+test('ratio > 1.50 -> ADVANCED (purple)', function(){
+  var lvl = B.getPerformanceLevel({e1rmKg:130, benchmark:{benchmarkValueKg:80}});
+  assert.strictEqual(lvl.level, B.PERFORMANCE_LEVEL.ADVANCED);
+  assert.strictEqual(lvl.icon, '🟣');
+});
+test('no wording implies the user is good/bad at lifting (PART 10)', function(){
+  Object.keys(B.PERFORMANCE_PRESENTATION).forEach(function(k){
+    var label = B.PERFORMANCE_PRESENTATION[k].label;
+    assert.ok(label.indexOf('เก่ง') === -1, k + ' label must stay neutral');
+  });
+});
+test('full-parameter signature does the benchmark lookup itself', function(){
+  withFixture(function(){
+    var lvl = B.getPerformanceLevel({
+      exercise:'hp4', sex:'ชาย', bodyweightKg:80, experience:'ออกกำลังกายประจำ',
+      e1rmKg:76, relativeStrength:0.95
+    });
+    assert.strictEqual(lvl.level, B.PERFORMANCE_LEVEL.NEAR_BENCHMARK);
+    assert.strictEqual(lvl.benchmark.benchmarkValueKg, 80);
+  });
 });
 
 console.log('5) Personal Progress (must be independent of Benchmark)');
-test('70kg -> 76kg e1RM = +8.6% progress, regardless of benchmark status', function(){
+test('70kg -> 76kg e1RM = +8.5714% progress, regardless of benchmark status', function(){
   var hist = [{date:'2026-08-01', e1rm:70}];
-  var prog = B.getPersonalProgress(76, hist);
-  assert.strictEqual(prog.deltaPct, 8.6);
+  var prog = B.calculatePersonalProgress(76, hist);
+  assert.strictEqual(prog.deltaPct, 8.6);            // rounded for display
+  assert.ok(Math.abs(prog.deltaPctRaw - 8.571428) < 0.0001); // raw value kept
   assert.strictEqual(prog.direction, 'up');
 });
 test('still below benchmark AND progressing are both reportable at once (not merged)', function(){
-  var perf = B.getPerformanceLevel({e1rmKg:76, benchmark:{e1rmKg:100}});
-  var prog = B.getPersonalProgress(76, [{date:'2026-08-01', e1rm:70}]);
-  assert.strictEqual(perf.level, 'below');   // still below benchmark
-  assert.strictEqual(prog.direction, 'up');  // yet personally improving
+  var perf = B.getPerformanceLevel({e1rmKg:76, benchmark:{benchmarkValueKg:100}});
+  var prog = B.calculatePersonalProgress(76, [{date:'2026-08-01', e1rm:70}]);
+  assert.strictEqual(perf.level, B.PERFORMANCE_LEVEL.LOWER_THAN_BENCHMARK); // still below benchmark
+  assert.strictEqual(prog.direction, 'up');                                 // yet personally improving
 });
 
 console.log('6) No benchmark available');
-test('getPerformanceLevel with no matching benchmark -> explicit "no benchmark" message, not "below"', function(){
+test('getPerformanceLevel with no matching benchmark -> NO_BENCHMARK, never LOWER_THAN_BENCHMARK', function(){
   var lvl = B.getPerformanceLevel({e1rmKg:76, benchmark:null});
-  assert.strictEqual(lvl.level, null);
+  assert.strictEqual(lvl.level, B.PERFORMANCE_LEVEL.NO_BENCHMARK);
   assert.strictEqual(lvl.hasBenchmark, false);
   assert.strictEqual(lvl.label, 'ยังไม่มี Benchmark สำหรับข้อมูลนี้');
+});
+test('unmapped exercise (machine/isolation) -> NO_BENCHMARK, not a guessed comparison', function(){
+  var lvl = B.getPerformanceLevel({exercise:'sq3', sex:'ชาย', bodyweightKg:80, experience:'ออกกำลังกายประจำ', e1rmKg:200});
+  assert.strictEqual(lvl.level, B.PERFORMANCE_LEVEL.NO_BENCHMARK);
 });
 
 console.log('7) Incomplete / invalid data');
@@ -176,9 +203,9 @@ test('all sets >12 reps -> still returns best, flagged lowConfidence:true', func
   assert.ok(pick);
   assert.strictEqual(pick.lowConfidence, true);
 });
-test('getPersonalProgress over multi-entry history uses most recent prior entry as baseline by default', function(){
+test('calculatePersonalProgress over multi-entry history uses most recent prior entry as baseline by default', function(){
   var hist = [{date:'2026-06-01', e1rm:60}, {date:'2026-07-01', e1rm:70}];
-  var prog = B.getPersonalProgress(76, hist);
+  var prog = B.calculatePersonalProgress(76, hist);
   assert.strictEqual(prog.baselineDate, '2026-07-01'); // latest prior, not the oldest
 });
 

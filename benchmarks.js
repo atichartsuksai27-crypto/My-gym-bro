@@ -32,7 +32,10 @@ function calculateEstimated1RM(weightKg, reps){
 /* ------------------------------------------------------------
    2) Relative Strength = e1RM / bodyweight
    ------------------------------------------------------------ */
-function calculateRelativeStrength(e1rmKg, bodyweightKg){
+function calculateRelativeStrength(a, b){
+  var e1rmKg, bodyweightKg;
+  if(a && typeof a==='object'){ e1rmKg = a.e1rmKg; bodyweightKg = a.bodyweightKg; }
+  else { e1rmKg = a; bodyweightKg = b; }
   e1rmKg = Number(e1rmKg);
   bodyweightKg = Number(bodyweightKg);
   if(!(e1rmKg>0) || !(bodyweightKg>0)) return null;
@@ -52,7 +55,8 @@ var EXERCISE_BENCHMARK_KEY = {
   hg4: 'deadlift',        // Barbell Deadlift
   hp4: 'bench_press',     // Barbell Bench Press
   vp4: 'overhead_press',  // Barbell Overhead Press
-  vl4: 'pull_up'          // Pull-up (bodyweight แต่มี standard เรื่อง reps/added-weight แยกต่างหาก — ยังไม่ผูก dataset ให้ตอนนี้)
+  hl4: 'barbell_row',     // Barbell Bent-over Row
+  vl4: 'pull_up'          // Pull-up (bodyweight แต่ standard วัดคนละแบบ — reps/added weight)
 };
 function resolveBenchmarkKey(exercise){
   if(exercise==null || exercise==='') return null;
@@ -71,13 +75,16 @@ function resolveBenchmarkKey(exercise){
 
    schema ของแต่ละ entry (ทุก field จำเป็น ยกเว้น sourceUrl):
    {
-     exercise: string,          // ตรงกับ key ฝั่งขวาใน EXERCISE_BENCHMARK_KEY เช่น 'bench_press'
+     exerciseId: string,        // ตรงกับ key ฝั่งขวาใน EXERCISE_BENCHMARK_KEY เช่น 'bench_press'
      sex: 'ชาย' | 'หญิง',        // ใช้ค่าเดียวกับคำตอบ Q9 ในแบบสอบถามตรงๆ (ไม่แปลภาษา
                                  // เพื่อลดจุดเสี่ยง bug จากการ map ค่าไปมา)
-     bodyweightRange: {min:Number, max:Number}, // kg, inclusive ทั้งสองด้าน
-     experience: 'มือใหม่' | 'เคยออกบ้าง' | 'ออกกำลังกายประจำ' | 'นักกีฬา-เทรนมานาน', // ใช้ค่าเดียวกับ Q16
-     level: string,             // ป้ายกำกับของ entry นี้ในชุด standard ต้นทาง (เช่น "intermediate") — เก็บไว้เพื่อสืบย้อนกลับไป source เท่านั้น ไม่ใช่ตัวตัดสิน performance level ที่แสดงผล
-     e1rmKg: Number,            // ค่ามาตรฐานสำหรับกลุ่มนี้ (kg)
+     bodyweightMinKg: Number,   // ช่วงน้ำหนักตัว (kg) — inclusive ทั้งสองด้าน
+     bodyweightMaxKg: Number,
+     experienceLevel: 'มือใหม่' | 'เคยออกบ้าง' | 'ออกกำลังกายประจำ' | 'นักกีฬา-เทรนมานาน', // ใช้ค่าเดียวกับ Q16
+     benchmarkLevel: string,    // ป้ายกำกับของ entry นี้ในชุด standard ต้นทาง (เช่น "intermediate")
+                                 // เก็บไว้เพื่อสืบย้อนกลับไป source เท่านั้น ไม่ใช่ตัวตัดสิน
+                                 // performance level ที่แสดงผลให้ผู้ใช้
+     benchmarkValueKg: Number,  // ค่ามาตรฐาน e1RM ของกลุ่มนี้ (kg)
      unit: 'kg',
      benchmarkSource: string,   // ประเภทของแหล่งข้อมูล เช่น 'published-standard' | 'internal-testing'
      sourceName: string,        // ชื่อแหล่งอ้างอิงแบบเต็ม (ต้องระบุเสมอ ตรวจสอบย้อนกลับได้)
@@ -93,6 +100,26 @@ var BENCHMARK_DATASET = [];
    benchmarkSource/sourceName/sourceUrl ข้างบน) ปรับแถบนี้ได้ที่จุดเดียวนี้จุดเดียว */
 var PERFORMANCE_BAND = { belowMax: 0.90, nearMax: 1.10, aboveMax: 1.50 };
 
+/* ระดับผลลัพธ์ (PART 10) — ใช้ enum ชุดนี้ชุดเดียวทั้งระบบ
+   ถ้อยคำเป็นกลาง ไม่มีคำว่าเก่ง/ไม่เก่ง และทุกระดับมีข้อความกำกับคู่กับสีเสมอ
+   (PART 15: ห้ามสื่อความหมายด้วยสีอย่างเดียว) */
+var PERFORMANCE_LEVEL = {
+  LOWER_THAN_BENCHMARK: 'LOWER_THAN_BENCHMARK',
+  NEAR_BENCHMARK: 'NEAR_BENCHMARK',
+  ABOVE_BENCHMARK: 'ABOVE_BENCHMARK',
+  ADVANCED: 'ADVANCED',
+  NO_BENCHMARK: 'NO_BENCHMARK',
+  INSUFFICIENT_DATA: 'INSUFFICIENT_DATA'
+};
+var PERFORMANCE_PRESENTATION = {
+  LOWER_THAN_BENCHMARK: {label:'ต่ำกว่า Benchmark',   icon:'🔴', cssClass:'below'},
+  NEAR_BENCHMARK:       {label:'ใกล้เคียง Benchmark', icon:'🟡', cssClass:'near'},
+  ABOVE_BENCHMARK:      {label:'สูงกว่า Benchmark',   icon:'🟢', cssClass:'above'},
+  ADVANCED:             {label:'ระดับ Advanced',      icon:'🟣', cssClass:'advanced'},
+  NO_BENCHMARK:         {label:'ยังไม่มี Benchmark สำหรับข้อมูลนี้', icon:'⚪', cssClass:'none'},
+  INSUFFICIENT_DATA:    {label:'ข้อมูลไม่ครบสำหรับประเมิน Performance', icon:'⚪', cssClass:'none'}
+};
+
 /* ------------------------------------------------------------
    getStrengthBenchmark — หา benchmark entry ที่ตรงกับผู้ใช้ที่สุด
    ต้องมีครบ: exercise ที่รู้จัก (ผ่าน EXERCISE_BENCHMARK_KEY หรือ key ตรงๆ),
@@ -101,41 +128,65 @@ var PERFORMANCE_BAND = { belowMax: 0.90, nearMax: 1.10, aboveMax: 1.50 };
    ------------------------------------------------------------ */
 function getStrengthBenchmark(params){
   params = params || {};
-  var key = resolveBenchmarkKey(params.exercise);
+  var key = resolveBenchmarkKey(params.exercise != null ? params.exercise : params.exerciseId);
   var bw = Number(params.bodyweightKg);
+  var experience = params.experience != null ? params.experience : params.experienceLevel;
   if(!key) return null;
   if(params.sex!=='ชาย' && params.sex!=='หญิง') return null;
   if(!(bw>0)) return null;
-  if(!params.experience) return null;
+  if(!experience) return null;
   var rows = BENCHMARK_DATASET.filter(function(b){
-    return b.exercise===key && b.sex===params.sex && b.experience===params.experience &&
-      b.bodyweightRange && bw>=b.bodyweightRange.min && bw<=b.bodyweightRange.max;
+    return b.exerciseId===key && b.sex===params.sex && b.experienceLevel===experience &&
+      bw>=Number(b.bodyweightMinKg) && bw<=Number(b.bodyweightMaxKg);
   });
   return rows.length ? rows[0] : null;
 }
 
 /* ------------------------------------------------------------
-   4) getPerformanceLevel — จัดระดับ e1RM ของผู้ใช้เทียบกับ benchmark ที่ match ได้
-   ไม่มี benchmark ที่ match -> {level:null, hasBenchmark:false, label:'ยังไม่มี
-   Benchmark สำหรับข้อมูลนี้'} เสมอ (ไม่ใช่ "ต่ำกว่า Benchmark" — ตามที่สั่งห้ามเดา)
+   4) getPerformanceLevel — จัดระดับ e1RM ของผู้ใช้เทียบกับ benchmark (PART 10)
+   รับได้ 2 แบบ:
+     - ส่ง benchmark ที่หามาแล้วเข้ามาเอง: {e1rmKg, benchmark}
+     - ส่งข้อมูลผู้ใช้ให้ไปหา benchmark เอง: {exercise, sex, bodyweightKg, experience,
+       e1rmKg, relativeStrength}
+   ไม่มี benchmark ที่ match -> level NO_BENCHMARK เสมอ ห้ามตกไปเป็น LOWER_THAN_BENCHMARK
    ------------------------------------------------------------ */
 function getPerformanceLevel(input){
   input = input || {};
   var e1rmKg = Number(input.e1rmKg);
-  if(!(e1rmKg>0)){
-    return {level:null, hasBenchmark:false, label:'ข้อมูลไม่ครบสำหรับประเมิน Performance', icon:''};
+  function present(levelKey, extra){
+    var p = PERFORMANCE_PRESENTATION[levelKey];
+    var out = {
+      level: levelKey,
+      label: p.label,
+      icon: p.icon,
+      cssClass: p.cssClass,
+      hasBenchmark: levelKey!==PERFORMANCE_LEVEL.NO_BENCHMARK && levelKey!==PERFORMANCE_LEVEL.INSUFFICIENT_DATA
+    };
+    if(extra) Object.keys(extra).forEach(function(k){ out[k]=extra[k]; });
+    return out;
   }
+  if(!(e1rmKg>0)) return present(PERFORMANCE_LEVEL.INSUFFICIENT_DATA);
+
   var benchmark = input.benchmark;
-  if(!benchmark){
-    return {level:null, hasBenchmark:false, label:'ยังไม่มี Benchmark สำหรับข้อมูลนี้', icon:'⚪'};
+  if(benchmark===undefined){
+    // ไม่ได้ส่ง benchmark มา -> หาให้จากข้อมูลผู้ใช้ (single lookup path เดียวกับข้างบน)
+    benchmark = getStrengthBenchmark({
+      exercise: input.exercise != null ? input.exercise : input.exerciseId,
+      sex: input.sex,
+      bodyweightKg: input.bodyweightKg,
+      experience: input.experience != null ? input.experience : input.experienceLevel
+    });
   }
-  var ratio = e1rmKg / benchmark.e1rmKg;
-  var level, label, icon;
-  if(ratio < PERFORMANCE_BAND.belowMax){ level='below'; label='ต่ำกว่า Benchmark'; icon='🔴'; }
-  else if(ratio <= PERFORMANCE_BAND.nearMax){ level='near'; label='ใกล้เคียง Benchmark'; icon='🟡'; }
-  else if(ratio <= PERFORMANCE_BAND.aboveMax){ level='above'; label='สูงกว่า Benchmark'; icon='🟢'; }
-  else { level='advanced'; label='สูงมาก / ระดับ Advanced'; icon='🟣'; }
-  return {level:level, hasBenchmark:true, label:label, icon:icon, ratio:ratio, benchmark:benchmark};
+  if(!benchmark) return present(PERFORMANCE_LEVEL.NO_BENCHMARK);
+
+  var ratio = e1rmKg / Number(benchmark.benchmarkValueKg);
+  if(!(ratio>0)) return present(PERFORMANCE_LEVEL.NO_BENCHMARK); // benchmark เสีย/ไม่มีตัวเลข = ถือว่าไม่มี
+  var levelKey;
+  if(ratio < PERFORMANCE_BAND.belowMax) levelKey = PERFORMANCE_LEVEL.LOWER_THAN_BENCHMARK;
+  else if(ratio <= PERFORMANCE_BAND.nearMax) levelKey = PERFORMANCE_LEVEL.NEAR_BENCHMARK;
+  else if(ratio <= PERFORMANCE_BAND.aboveMax) levelKey = PERFORMANCE_LEVEL.ABOVE_BENCHMARK;
+  else levelKey = PERFORMANCE_LEVEL.ADVANCED;
+  return present(levelKey, {ratio: ratio, benchmark: benchmark});
 }
 
 /* ------------------------------------------------------------
@@ -146,7 +197,7 @@ function getPerformanceLevel(input){
    historyEntries: [{date, e1rm}, ...] เรียงวันที่เก่า->ใหม่ (ใช้ผลจาก exerciseHistory()
    ของ app.js ได้ตรงๆ)
    ------------------------------------------------------------ */
-function getPersonalProgress(currentE1rm, historyEntries, opts){
+function calculatePersonalProgress(currentE1rm, historyEntries, opts){
   opts = opts || {};
   currentE1rm = Number(currentE1rm);
   if(!(currentE1rm>0) || !Array.isArray(historyEntries) || !historyEntries.length) return null;
@@ -161,6 +212,9 @@ function getPersonalProgress(currentE1rm, historyEntries, opts){
     currentE1rm: Math.round(currentE1rm*10)/10,
     deltaKg: Math.round(deltaKg*10)/10,
     deltaPct: Math.round(deltaPct*10)/10,
+    // ค่าดิบไม่ปัดเศษ เก็บไว้ให้ผู้เรียกที่ต้องการความละเอียด (ปัดเศษเฉพาะตอนแสดงผล)
+    deltaKgRaw: deltaKg,
+    deltaPctRaw: deltaPct,
     direction: deltaKg>0.05 ? 'up' : (deltaKg<-0.05 ? 'down' : 'flat')
   };
 }
@@ -208,13 +262,16 @@ global.GymBroBenchmark = {
   calculateRelativeStrength: calculateRelativeStrength,
   getStrengthBenchmark: getStrengthBenchmark,
   getPerformanceLevel: getPerformanceLevel,
-  getPersonalProgress: getPersonalProgress,
+  calculatePersonalProgress: calculatePersonalProgress,
+  getPersonalProgress: calculatePersonalProgress, // ชื่อเดิม เก็บไว้เพื่อความเข้ากันได้
   pickAssessmentSet: pickAssessmentSet,
   resolveBenchmarkKey: resolveBenchmarkKey,
   validateBenchmarkInput: validateBenchmarkInput,
   EXERCISE_BENCHMARK_KEY: EXERCISE_BENCHMARK_KEY,
   BENCHMARK_DATASET: BENCHMARK_DATASET,
-  PERFORMANCE_BAND: PERFORMANCE_BAND
+  PERFORMANCE_BAND: PERFORMANCE_BAND,
+  PERFORMANCE_LEVEL: PERFORMANCE_LEVEL,
+  PERFORMANCE_PRESENTATION: PERFORMANCE_PRESENTATION
 };
 
 })(typeof window!=='undefined' ? window : this);

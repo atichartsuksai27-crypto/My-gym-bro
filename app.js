@@ -888,8 +888,12 @@ function sectionWorkout(iso){
     var e = exData[ex.id] || {};
     var open = !!track.openSets[iso+':'+ex.id];
     var prev = lastBestBefore(ex.id, iso);
+    var isBW = ex.equip==='bodyweight' && !ex.timeBased; // bodyweight (ไม่นับ core ที่วัดเวลา) — ไม่ต้องมีช่องน้ำหนัก
     var prevTxt = prev
-      ? ('ครั้งก่อน '+(prev.date===iso?'':shortDateTH(prev.date)+' · ')+prev.weight+(ex.timeBased?' วิ':' กก.')+(prev.reps!=null&&!ex.timeBased?' × '+prev.reps+' ครั้ง':''))
+      ? ('ครั้งก่อน '+(prev.date===iso?'':shortDateTH(prev.date)+' · ')+
+          (isBW
+            ? (prev.reps!=null ? prev.reps+' ครั้ง' : '—')
+            : prev.weight+(ex.timeBased?' วิ':' กก.')+(prev.reps!=null&&!ex.timeBased?' × '+prev.reps+' ครั้ง':'')))
       : 'ยังไม่เคยบันทึกท่านี้';
     var sets = e.sets || [];
     var n = setCountFor(ex.setsReps);
@@ -897,7 +901,7 @@ function sectionWorkout(iso){
     for(var i=0;i<n;i++){
       var sv = sets[i]||{};
       setRows += '<div class="set-row"><span class="sr-label">เซ็ต '+(i+1)+'</span>'+
-        '<input type="number" inputmode="decimal" placeholder="'+(ex.timeBased?'วินาที':'น.น.(กก.)')+'" data-act="set" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" data-field="weight" data-idx="'+i+'" data-fkey="set-'+iso+'-'+ex.id+'-w'+i+'" value="'+num(sv.weight)+'">'+
+        (isBW?'':'<input type="number" inputmode="decimal" placeholder="'+(ex.timeBased?'วินาที':'น.น.(กก.)')+'" data-act="set" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" data-field="weight" data-idx="'+i+'" data-fkey="set-'+iso+'-'+ex.id+'-w'+i+'" value="'+num(sv.weight)+'">')+
         (ex.timeBased?'':'<input type="number" inputmode="numeric" placeholder="ครั้ง" data-act="set" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" data-field="reps" data-idx="'+i+'" data-fkey="set-'+iso+'-'+ex.id+'-r'+i+'" value="'+num(sv.reps)+'">')+
         '</div>';
     }
@@ -905,7 +909,7 @@ function sectionWorkout(iso){
       '<input type="checkbox" data-act="ex-done" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" '+(e.done?'checked':'')+' aria-label="ทำท่า '+esc(ex.th)+' แล้ว">'+
       '<div class="cb"><div class="t">'+esc(ex.th)+'</div>'+
         '<div class="s">'+esc(ex.setsReps)+' · '+esc(PATTERN_SHORT[ex.pattern]||ex.pattern)+' · '+esc(prevTxt)+'</div>'+
-        '<button type="button" class="ex-open" data-act="ex-toggle" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">'+(open?'ซ่อนช่องบันทึกเซ็ต ▴':'บันทึกน้ำหนัก/ครั้งต่อเซ็ต ▾')+'</button>'+
+        '<button type="button" class="ex-open" data-act="ex-toggle" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">'+(open?'ซ่อนช่องบันทึกเซ็ต ▴':(isBW?'บันทึกจำนวนครั้งต่อเซ็ต ▾':'บันทึกน้ำหนัก/ครั้งต่อเซ็ต ▾'))+'</button>'+
         (open? '<div class="setbox">'+setRows+'</div>' : '')+
       '</div></div>';
   }).join('');

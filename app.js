@@ -392,14 +392,49 @@ function sanityIssues(a){
   return issues;
 }
 
+/* ---------- BMR/TDEE: single source of truth (สูตร Mifflin-St Jeor) ----------
+   calculateBMR()/calculateTDEE() คือจุดคำนวณเดียวของทั้งระบบ ห้ามเขียนสูตรซ้ำที่อื่น
+   ทุกจุดที่ต้องใช้ BMR/TDEE (computeTDEE, computeCalorieTarget, computeTargets, generator
+   ตารางฝึก/โภชนาการ) ต้องเรียกผ่านสองฟังก์ชันนี้เท่านั้น */
+var ACTIVITY_FACTOR = { // mapping จากคำตอบ Q36 (ลักษณะงาน/กิจกรรมนอกเวลาออกกำลังกาย)
+  'นั่งโต๊ะเป็นหลัก': 1.20,  // Sedentary
+  'ยืน-เดินเยอะ': 1.375,    // Lightly Active
+  'ใช้แรงงาน': 1.55         // Moderately Active
+  // หมายเหตุ: Q36 ในแบบสอบถามปัจจุบันมี 3 ตัวเลือก (ไม่แตะ UI/Questionnaire) จึงยังไม่มี
+  // ตัวเลือก Very Active (1.725) / Extremely Active (1.90) ให้เลือกในระบบนี้
+};
+/**
+ * calculateBMR — สูตร Mifflin-St Jeor (Basal Metabolic Rate)
+ * คืนค่า BMR แบบไม่ปัดเศษ (ใช้ต่อในการคำนวณ TDEE/แคลอรี่เป้าหมาย) หรือ null ถ้าข้อมูลไม่ครบ/ไม่ถูกต้อง
+ */
+function calculateBMR(weightKg, heightCm, age, sex){
+  weightKg = parseFloat(weightKg);
+  heightCm = parseFloat(heightCm);
+  age = parseFloat(age);
+  if(!(weightKg>0) || !(heightCm>0) || !(age>0)) return null; // ห้ามคำนวณเป็น 0/ค่าปลอมถ้าข้อมูลไม่ครบ
+  if(sex!=='ชาย' && sex!=='หญิง') return null;
+  var base = 10*weightKg + 6.25*heightCm - 5*age;
+  return sex==='ชาย' ? base+5 : base-161;
+}
+/**
+ * calculateTDEE — TDEE = BMR × Activity Factor
+ * คืนค่าแบบไม่ปัดเศษ หรือ null ถ้า bmr/activityFactor ไม่ถูกต้อง
+ */
+function calculateTDEE(bmr, activityFactor){
+  if(bmr==null || isNaN(bmr) || !(activityFactor>0)) return null;
+  return bmr*activityFactor;
+}
 function computeTDEE(a){
-  var bmr = a.Q9==='ชาย' ? (10*a.Q12+6.25*a.Q11-5*a.Q10+5) : (10*a.Q12+6.25*a.Q11-5*a.Q10-161);
-  var mult = {'นั่งโต๊ะเป็นหลัก':1.2,'ยืน-เดินเยอะ':1.375,'ใช้แรงงาน':1.55}[a.Q36] || 1.2;
-  return bmr*mult;
+  var bmr = calculateBMR(a.Q12, a.Q11, a.Q10, a.Q9);
+  var factor = ACTIVITY_FACTOR[a.Q36]; // undefined ถ้า Q36 ยังไม่ตอบ/ไม่รู้จัก
+  return calculateTDEE(bmr, factor); // null ถ้าข้อมูลไม่ครบ — ห้ามใครทับด้วยค่า default
 }
 function computeCalorieTarget(tdee, a){
   var goal = a.Q1;
-  var floor = a.Q9==='ชาย' ? 1500 : 1200;
+  var floor = a.Q9==='ชาย' ? 1500 : (a.Q9==='หญิง' ? 1200 : null);
+  if(tdee==null || isNaN(tdee)){
+    return {kcal:null, floored:false, floor:floor, direction:'ข้อมูลไม่ครบ — กรอกเพศ/อายุ/ส่วนสูง/น้ำหนัก/กิจกรรมให้ครบก่อน'};
+  }
   var mult = 1.0, directionLabel = 'รักษาน้ำหนัก (maintenance)';
   if(goal==='ลดไขมัน'){
     var dmap = {'เข้มข้น':0.75,'ค่อยเป็นค่อยไป':0.85,'ไม่แน่ใจให้ระบบแนะนำ':0.80};
@@ -415,12 +450,15 @@ function computeCalorieTarget(tdee, a){
     directionLabel = 'Recomposition (ใกล้ maintenance ปรับตามคำตอบ Q6)';
   }
   var target = tdee*mult;
-  var floored = mult<1 && target < floor;
+  var floored = mult<1 && floor!=null && target < floor;
   return {kcal: floored?floor:target, floored:floored, floor:floor, direction:directionLabel};
 }
 function computeMacro(kcal, weightKg){
-  var proteinG = Math.round(2.0*weightKg);
-  var proteinKcal = proteinG*4;
+  var proteinG = (weightKg>0) ? Math.round(2.0*weightKg) : null;
+  if(kcal==null || isNaN(kcal)){
+    return {proteinG:proteinG, fatG:null, carbG:null, clamped:false}; // ไม่ fabricate fat/carb ถ้าไม่มีเป้าแคลอรี่
+  }
+  var proteinKcal = (proteinG||0)*4;
   var fatKcal = kcal*0.28;
   var fatG = Math.round(fatKcal/9);
   var carbKcal = kcal - proteinKcal - fatKcal;
@@ -433,20 +471,22 @@ function computeMacro(kcal, weightKg){
 var MEALS_MAP = {'2 มื้อ':2,'3 มื้อ':3,'4-5 มื้อ':4,'ไม่แน่นอน':3};
 var WATER_NOW = {'น้อยกว่า 1 ลิตร':0.8,'1-2 ลิตร':1.5,'2-3 ลิตร':2.5,'มากกว่า 3 ลิตร':3.2};
 function computeTargets(a){
-  var w = parseFloat(a.Q12)||70;
-  var tdee = computeTDEE(a);
+  var w = parseFloat(a.Q12);
+  var hasWeight = w>0;
+  var tdee = computeTDEE(a); // null ถ้าข้อมูลไม่ครบ/ไม่ถูกต้อง — ไม่ fabricate ค่า
   var cal = computeCalorieTarget(tdee, a);
-  var macro = computeMacro(cal.kcal, w);
-  var water = Math.min(4.0, Math.max(1.5, Math.round(w*0.035*10)/10));
+  var macro = computeMacro(cal.kcal, hasWeight?w:null);
+  var water = hasWeight ? Math.min(4.0, Math.max(1.5, Math.round(w*0.035*10)/10)) : null;
   var already = WATER_NOW[a.Q43];
-  if(already && already > water) water = Math.min(4.0, already);
+  if(water!=null && already && already > water) water = Math.min(4.0, already);
   var sleepNow = parseFloat(a.Q37);
   var sleepH = Math.min(9, Math.max(7, isNaN(sleepNow)?7:sleepNow));
   return {
-    tdee: Math.round(tdee),
-    kcal: Math.round(cal.kcal),
+    tdee: (tdee==null||isNaN(tdee)) ? null : Math.round(tdee), // ปัดเศษเฉพาะตอนแสดงผลเท่านั้น
+    kcal: (cal.kcal==null||isNaN(cal.kcal)) ? null : Math.round(cal.kcal),
     kcalDirection: cal.direction,
     kcalFloored: cal.floored,
+    incomplete: (tdee==null || isNaN(tdee)),
     proteinG: macro.proteinG, fatG: macro.fatG, carbG: macro.carbG, macroClamped: macro.clamped,
     waterL: water,
     meals: MEALS_MAP[a.Q31] || 3,
@@ -456,7 +496,8 @@ function computeTargets(a){
   };
 }
 
-function kcalOk(v, target){ return v!=null && v >= target*0.9 && v <= target*1.1; }
+function kcalOk(v, target){ return v!=null && target!=null && v >= target*0.9 && v <= target*1.1; }
+function fmtKcal(v){ return (v==null || isNaN(v)) ? 'ข้อมูลไม่ครบ' : v.toLocaleString(); }
 
 function safetyGate(a){
   if(a.Q25==='มี' && a.Q28 && a.Q28!=='ได้รับอนุญาตแล้ว'){
@@ -893,15 +934,15 @@ function sectionFood(iso){
   for(var j=0;j<t.meals;j++){ if(meals[j]) doneN++; }
   return '<div class="sec-card">'+
     '<div class="sec-head"><span class="sq" style="background:var(--food)"></span><h2>โภชนาการ</h2>'+
-    '<span class="meta">'+t.kcal.toLocaleString()+' kcal · โปรตีน '+t.proteinG+' g · น้ำ '+fmt1(t.waterL)+' ล.</span>'+
+    '<span class="meta">'+fmtKcal(t.kcal)+' kcal · โปรตีน '+t.proteinG+' g · น้ำ '+fmt1(t.waterL)+' ล.</span>'+
     '<span class="cnt">'+doneN+'/'+(3+t.meals)+'</span></div>'+
     '<div class="chk-list">'+
       '<div class="chk'+((n.proteinG!=null&&n.proteinG>=t.proteinG*0.9)?' on':'')+'">'+
         '<div class="cb"><div class="t">โปรตีนวันนี้</div><div class="s">เป้า '+t.proteinG+' g (2 g ต่อน้ำหนักตัว 1 กก.) — ติ๊กผ่านเมื่อถึง 90% ขึ้นไป</div></div>'+
         '<div class="val"><input type="number" inputmode="decimal" data-act="nut" data-field="proteinG" data-date="'+iso+'" data-fkey="nut-p-'+iso+'" value="'+num(n.proteinG)+'" placeholder="g"><span class="tgt">/ '+t.proteinG+' g</span></div></div>'+
       '<div class="chk'+(kcalOk(n.kcal, t.kcal)?' on':'')+'">'+
-        '<div class="cb"><div class="t">พลังงานที่กินวันนี้</div><div class="s">เป้า '+t.kcal.toLocaleString()+' kcal · '+esc(t.kcalDirection)+' — ผ่านเมื่ออยู่ในช่วง '+Math.round(t.kcal*0.9).toLocaleString()+'–'+Math.round(t.kcal*1.1).toLocaleString()+' kcal (กินน้อยเกินไปก็ยังไม่ผ่าน)</div></div>'+
-        '<div class="val"><input type="number" inputmode="decimal" data-act="nut" data-field="kcal" data-date="'+iso+'" data-fkey="nut-k-'+iso+'" value="'+num(n.kcal)+'" placeholder="kcal"><span class="tgt">/ '+t.kcal.toLocaleString()+'</span></div></div>'+
+        '<div class="cb"><div class="t">พลังงานที่กินวันนี้</div><div class="s">เป้า '+fmtKcal(t.kcal)+' kcal · '+esc(t.kcalDirection)+(t.kcal!=null?' — ผ่านเมื่ออยู่ในช่วง '+Math.round(t.kcal*0.9).toLocaleString()+'–'+Math.round(t.kcal*1.1).toLocaleString()+' kcal (กินน้อยเกินไปก็ยังไม่ผ่าน)':'')+'</div></div>'+
+        '<div class="val"><input type="number" inputmode="decimal" data-act="nut" data-field="kcal" data-date="'+iso+'" data-fkey="nut-k-'+iso+'" value="'+num(n.kcal)+'" placeholder="kcal"><span class="tgt">/ '+fmtKcal(t.kcal)+'</span></div></div>'+
       '<div class="chk'+((n.waterL!=null&&n.waterL>=t.waterL)?' on':'')+'">'+
         '<div class="cb"><div class="t">น้ำดื่ม</div><div class="s">เป้า '+fmt1(t.waterL)+' ลิตร (≈35 มล. ต่อน้ำหนักตัว 1 กก.)</div></div>'+
         '<div class="val"><input type="number" inputmode="decimal" step="0.1" data-act="nut" data-field="waterL" data-date="'+iso+'" data-fkey="nut-w-'+iso+'" value="'+num(n.waterL)+'" placeholder="ลิตร"><span class="tgt">/ '+fmt1(t.waterL)+' ล.</span></div></div>'+
@@ -1306,8 +1347,8 @@ function renderPlan(){
   html += '<div class="card"><div class="stat-grid">'+
     '<div class="stat-tile"><div class="l">รูปแบบโปรแกรม</div><div class="v" style="font-size:17px">'+esc(p.splitLabel)+'</div><span class="pill">'+(p.days||[]).length+' วัน/สัปดาห์</span></div>'+
     '<div class="stat-tile"><div class="l">วันเริ่มโปรแกรม</div><div class="v" style="font-size:17px">'+esc(shortDateTH(p.startDate))+'</div><span class="pill">'+Math.max(0,daysBetween(p.startDate, todayISO()))+' วันที่ผ่านมา</span></div>'+
-    '<div class="stat-tile"><div class="l">TDEE โดยประมาณ</div><div class="v">'+t.tdee.toLocaleString()+' <small>kcal/วัน</small></div></div>'+
-    '<div class="stat-tile"><div class="l">เป้าแคลอรี่ต่อวัน</div><div class="v">'+t.kcal.toLocaleString()+' <small>kcal</small></div><span class="pill">'+esc(t.kcalDirection)+'</span>'+
+    '<div class="stat-tile"><div class="l">TDEE โดยประมาณ</div><div class="v">'+fmtKcal(t.tdee)+' <small>kcal/วัน</small></div></div>'+
+    '<div class="stat-tile"><div class="l">เป้าแคลอรี่ต่อวัน</div><div class="v">'+fmtKcal(t.kcal)+' <small>kcal</small></div><span class="pill">'+esc(t.kcalDirection)+'</span>'+
       (t.kcalFloored?'<span class="pill" style="background:var(--warn-soft);color:var(--warn);border-color:var(--warn-line)">ปรับขึ้นถึงขั้นต่ำ</span>':'')+'</div>'+
     '</div>'+
     '<div class="stat-tile"><div class="l">สัดส่วนมาโครที่แนะนำ</div>'+
@@ -1537,8 +1578,8 @@ function resultsHTML(){
   var statTiles =
     '<div class="stat-tile"><div class="l">BMI ปัจจุบัน</div><div class="v">'+bmiNow.toFixed(1)+'</div><span class="pill">'+bmiLabel(bmiNow)+'</span></div>'+
     (bmiTarget ? '<div class="stat-tile"><div class="l">BMI เป้าหมาย</div><div class="v">'+bmiTarget.toFixed(1)+'</div><span class="pill">'+bmiLabel(bmiTarget)+'</span></div>' : '')+
-    '<div class="stat-tile"><div class="l">TDEE โดยประมาณ</div><div class="v">'+t.tdee.toLocaleString()+' <small>kcal/วัน</small></div></div>'+
-    '<div class="stat-tile"><div class="l">เป้าแคลอรี่ต่อวัน</div><div class="v">'+t.kcal.toLocaleString()+' <small>kcal</small></div>'+
+    '<div class="stat-tile"><div class="l">TDEE โดยประมาณ</div><div class="v">'+fmtKcal(t.tdee)+' <small>kcal/วัน</small></div></div>'+
+    '<div class="stat-tile"><div class="l">เป้าแคลอรี่ต่อวัน</div><div class="v">'+fmtKcal(t.kcal)+' <small>kcal</small></div>'+
       '<span class="pill">'+esc(t.kcalDirection)+'</span>'+
       (t.kcalFloored ? '<span class="pill" style="background:var(--warn-soft);color:var(--warn);border-color:var(--warn-line)">ปรับขึ้นถึง floor ขั้นต่ำ</span>' : '')+'</div>';
 

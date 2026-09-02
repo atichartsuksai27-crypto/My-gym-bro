@@ -1998,5 +1998,15 @@ document.addEventListener("change", function(ev){
   if(act==='field'){ setField(el.getAttribute('data-fid'), el.value); return; }
 }, false);
 
+/* set (น้ำหนัก/ครั้ง ต่อเซ็ต) ต้องอัปเดตสด ๆ ระหว่างพิมพ์ ไม่ต้องรอ blur/change ก่อน —
+   ผลลัพธ์ Performance vs Benchmark ใต้ท่านั้นถึงจะขึ้นทันทีที่กรอกครบ ไม่ต้องคลิกออก
+   จาก field ก่อน (ฟิลด์อื่น เช่น โภชนาการ/การนอน ยังใช้ change ตามเดิม ไม่แตะ) */
+document.addEventListener("input", function(ev){
+  var el = ev.target && ev.target.closest ? ev.target.closest('[data-act="set"]') : null;
+  if(!el) return;
+  var iso = el.getAttribute('data-date');
+  patchExercise(iso, el.getAttribute('data-ex'), {sets: setsFromDom(el.getAttribute('data-ex'), iso)});
+}, false);
+
 render(true);
 })();

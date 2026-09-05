@@ -98,9 +98,9 @@ var QUESTIONS = [
     visible:function(a){return a.Q1==="เพิ่มความแข็งแรง-Performance";}},
 
   {id:"Q9", cat:2, kind:"single", main:true, label:"เพศ", options:["ชาย","หญิง"], visible:function(){return true;}},
-  {id:"Q10", cat:2, kind:"number", main:true, label:"อายุ", unit:"ปี", visible:function(){return true;}},
-  {id:"Q11", cat:2, kind:"number", main:true, label:"ส่วนสูง", unit:"cm", visible:function(){return true;}},
-  {id:"Q12", cat:2, kind:"number", main:true, label:"น้ำหนักปัจจุบัน", unit:"kg", visible:function(){return true;}},
+  {id:"Q10", cat:2, kind:"number", main:true, required:true, label:"อายุ", unit:"ปี", visible:function(){return true;}},
+  {id:"Q11", cat:2, kind:"number", main:true, required:true, label:"ส่วนสูง", unit:"cm", visible:function(){return true;}},
+  {id:"Q12", cat:2, kind:"number", main:true, required:true, label:"น้ำหนักปัจจุบัน", unit:"kg", visible:function(){return true;}},
   {id:"Q13", cat:2, kind:"single", main:true, label:"น้ำหนักเป้าหมาย (ถ้ามี)",
     options:["ระบุ","ยังไม่มีเป้าหมายตัวเลข"], visible:function(){return true;}},
   {id:"Q14", cat:2, kind:"single", main:true, label:"ทราบเปอร์เซ็นต์ไขมันตัวเองไหม?",
@@ -134,6 +134,7 @@ var QUESTIONS = [
   {id:"Q21", cat:4, kind:"multi", main:false, branchFrom:"Q20 = ที่บ้าน / ผสมผสาน",
     label:"มีอุปกรณ์อะไรบ้าง?", note:"multi-select",
     options:["ดัมเบล","บาร์เบล","ยางยืด","ม้านั่ง","บาร์โหน","ไม่มีอุปกรณ์เลย"],
+    exclusiveOption:"ไม่มีอุปกรณ์เลย", // N-01: เลือกตัวนี้แล้วต้องเลือกอุปกรณ์อื่นพร้อมกันไม่ได้
     visible:function(a){return a.Q20==="ที่บ้าน"||a.Q20==="ผสมผสาน";}},
   {id:"Q22", cat:4, kind:"single", main:false, branchFrom:"Q20 = ฟิตเนส-ยิม / ผสมผสาน",
     label:"ยิมที่ใช้มีอุปกรณ์ครบไหม?",
@@ -178,7 +179,7 @@ var QUESTIONS = [
 
   {id:"Q36", cat:8, kind:"single", main:true, label:"ลักษณะงาน/กิจกรรมนอกเวลาออกกำลังกาย?",
     options:["นั่งโต๊ะเป็นหลัก","ยืน-เดินเยอะ","ใช้แรงงาน"], visible:function(){return true;}},
-  {id:"Q37", cat:8, kind:"number", main:true, unit:"ชม./คืน", label:"ชั่วโมงนอนเฉลี่ยต่อคืน?", visible:function(){return true;}},
+  {id:"Q37", cat:8, kind:"number", main:true, required:true, unit:"ชม./คืน", label:"ชั่วโมงนอนเฉลี่ยต่อคืน?", visible:function(){return true;}},
   {id:"Q39", cat:8, kind:"single", main:false, branchFrom:"Q37 < 6 ชม.",
     label:"ต้องการคำแนะนำ sleep hygiene เบื้องต้นในแอปด้วยไหม?",
     options:["ต้องการ","ไม่ต้องการตอนนี้"],
@@ -351,10 +352,17 @@ function persist(){
 function visibleQsFor(catId){
   return QUESTIONS.filter(function(q){return q.cat===catId && q.visible(state.answers);});
 }
+/* คำถามชนิด number ที่ต้องตอบก่อนไปหมวดถัดไป (แยกจาก "main" ซึ่งเป็นแค่การจัดกลุ่ม
+   คำถามหลัก/รอง ไม่ใช่ตัวบอกว่าบังคับตอบหรือไม่) — คืนค่า true เมื่อกรอกเป็นตัวเลขจริง
+   ไม่ว่าง ไม่ตรวจช่วงค่า (ช่วงค่าตรวจอีกทีที่ sanityIssues ก่อนกดเริ่มโปรแกรม) */
+function numberAnswered(v){
+  return v!=null && v!=="" && !isNaN(parseFloat(v));
+}
 function catComplete(catId){
   return visibleQsFor(catId).every(function(q){
     if(q.kind==="single") return !!state.answers[q.id];
     if(q.kind==="multi") return Array.isArray(state.answers[q.id]) && state.answers[q.id].length>0;
+    if(q.kind==="number" && q.required) return numberAnswered(state.answers[q.id]);
     return true;
   });
 }
@@ -363,6 +371,14 @@ function setAnswer(id, val, kind){
     var arr = state.answers[id] ? state.answers[id].slice() : [];
     var i = arr.indexOf(val);
     if(i>-1) arr.splice(i,1); else arr.push(val);
+    // N-01: ตัวเลือกที่ตั้งเป็น exclusiveOption (เช่น "ไม่มีอุปกรณ์เลย") ต้องเลือกพร้อม
+    // ตัวเลือกอื่นในกลุ่มเดียวกันไม่ได้ — เลือกตัวนี้ให้ล้างตัวอื่น, เลือกตัวอื่นให้ล้างตัวนี้
+    var qDef = QUESTIONS.filter(function(q){return q.id===id;})[0];
+    var exOpt = qDef && qDef.exclusiveOption;
+    if(exOpt && i<=-1){ // i<=-1 หมายถึง "เพิ่งเลือกเพิ่ม" (ก่อนหน้านี้ยังไม่ได้เลือก val นี้)
+      if(val===exOpt) arr = [exOpt]; // เพิ่งเปิด exclusive option -> ล้างตัวอื่นทั้งหมด
+      else { var ei=arr.indexOf(exOpt); if(ei>-1) arr.splice(ei,1); } // เพิ่งเปิดตัวอื่น -> เอา exclusive ออก
+    }
     state.answers[id]=arr;
   } else {
     state.answers[id] = (state.answers[id]===val) ? undefined : val;
@@ -389,6 +405,9 @@ function sanityIssues(a){
   checkNum('ส่วนสูง ', a.Q11, 100, 250);
   checkNum('น้ำหนักปัจจุบัน ', a.Q12, 20, 300);
   if(a.Q13==="ระบุ") checkNum('น้ำหนักเป้าหมาย ', a.Q13_val, 20, 300);
+  // C-01/C-02: เช็คซ้ำที่ด่านสุดท้ายก่อนกด "เริ่มโปรแกรม" ด้วย เผื่อผู้ใช้ย้อนไปแก้ผ่าน
+  // rail navigation (ข้าม catComplete() ของ "ถัดไป" ได้) แล้วเผลอเคลียร์ Q37 ทิ้ง
+  checkNum('ชั่วโมงนอนเฉลี่ย ', a.Q37, 1, 16);
   return issues;
 }
 
@@ -456,8 +475,10 @@ function computeTargets(a){
   var water = hasWeight ? Math.min(4.0, Math.max(1.5, Math.round(w*0.035*10)/10)) : null;
   var already = WATER_NOW[a.Q43];
   if(water!=null && already && already > water) water = Math.min(4.0, already);
-  var sleepNow = parseFloat(a.Q37);
-  var sleepH = Math.min(9, Math.max(7, isNaN(sleepNow)?7:sleepNow));
+  // C-01: ห้าม fabricate เป้าหมายนอนเป็น 7 ชม. เงียบๆ ถ้า Q37 ไม่ได้ตอบจริง —
+  // numberAnswered() แยก "ไม่ตอบ" ออกจาก "ตอบเป็น 7" ให้ชัดเจน คืน null ถ้าไม่มีคำตอบ
+  var hasSleepAnswer = numberAnswered(a.Q37);
+  var sleepH = hasSleepAnswer ? Math.min(9, Math.max(7, parseFloat(a.Q37))) : null;
   return {
     tdee: (tdee==null||isNaN(tdee)) ? null : Math.round(tdee), // ปัดเศษเฉพาะตอนแสดงผลเท่านั้น
     kcal: (cal.kcal==null||isNaN(cal.kcal)) ? null : Math.round(cal.kcal),
@@ -475,6 +496,7 @@ function computeTargets(a){
 
 function kcalOk(v, target){ return v!=null && target!=null && v >= target*0.9 && v <= target*1.1; }
 function fmtKcal(v){ return (v==null || isNaN(v)) ? 'ข้อมูลไม่ครบ' : v.toLocaleString(); }
+function fmtHours(v){ return (v==null || isNaN(v)) ? 'ยังไม่ได้ตั้งเป้า (Q37 ยังไม่ได้ตอบ)' : fmt1(v)+' ชม.'; }
 
 function safetyGate(a){
   if(a.Q25==='มี' && a.Q28 && a.Q28!=='ได้รับอนุญาตแล้ว'){
@@ -630,7 +652,7 @@ var track = {
   weights: lsGet("gymbro_weights", {}),
   viewMonth:null, weekStart:null,
   openDate:null, openSets:{}, saveStatus:'', openSwap:null,
-  schedTab:'week', editing:false, progressEx:null, openBench:{}
+  schedTab:'week', editing:false, progressEx:null, openBench:{}, sleepHoursError:{}
 };
 function persistProgram(){ return lsSet("gymbro_program", track.program); }
 function persistLogs(){ return lsSet("gymbro_logs", track.logs); }
@@ -714,7 +736,7 @@ function dayItems(program, iso){
     items.push({group:'food', key:'meal'+i, done: !!(n.meals && n.meals[i])});
   }
   var sl = log.sleep || {};
-  items.push({group:'sleep', key:'hours', done: sl.hours!=null && sl.hours >= t.sleepH-0.5});
+  items.push({group:'sleep', key:'hours', done: sl.hours!=null && isFinite(sl.hours) && sl.hours>=0 && sl.hours<=24 && t.sleepH!=null && sl.hours >= t.sleepH-0.5});
   if(t.sleepHygiene) items.push({group:'sleep', key:'hygiene', done: !!sl.hygiene});
   items.push({group:'body', key:'weight', done: weightFor(iso)!=null});
   return items;
@@ -1056,15 +1078,22 @@ function sectionSleep(iso){
   var p = track.program, t = targetsOf(p);
   var log = logFor(iso) || {};
   var sl = log.sleep || {};
-  var okH = sl.hours!=null && sl.hours >= t.sleepH-0.5;
+  // N-02: ข้อมูลเก่าที่บันทึกไว้ก่อนมี validation (เช่น 99 ชม.) ต้องไม่นับว่าสำเร็จ
+  // และต้องขึ้นเตือนว่าค่าผิดปกติ โดยไม่ลบ/ทับค่าดิบที่บันทึกไว้เดิม
+  var hoursOutOfRange = sl.hours!=null && (!isFinite(sl.hours) || sl.hours<0 || sl.hours>24);
+  var okH = sl.hours!=null && !hoursOutOfRange && t.sleepH!=null && sl.hours >= t.sleepH-0.5;
   var total = t.sleepHygiene?2:1, doneN = (okH?1:0) + (t.sleepHygiene && sl.hygiene ?1:0);
+  var rejectedNote = track.sleepHoursError[iso]
+    ? '<div class="hint" style="color:var(--warn);margin-top:4px">ค่าที่กรอกต้องอยู่ระหว่าง 0-24 ชม. ระบบไม่ได้บันทึกค่านี้</div>' : '';
+  var legacyBadNote = (!track.sleepHoursError[iso] && hoursOutOfRange)
+    ? '<div class="hint" style="color:var(--warn);margin-top:4px">ค่าที่บันทึกไว้ ('+sl.hours+' ชม.) อยู่นอกช่วงที่เป็นไปได้จริง กรุณาแก้ไข — ระบบไม่นับเป็นวันที่ทำสำเร็จ</div>' : '';
   return '<div class="sec-card">'+
     '<div class="sec-head"><span class="sq" style="background:var(--sleep)"></span><h2>การนอน</h2>'+
-    '<span class="meta">เป้า '+fmt1(t.sleepH)+' ชม./คืน</span><span class="cnt">'+doneN+'/'+total+'</span></div>'+
+    '<span class="meta">เป้า '+fmtHours(t.sleepH)+'</span><span class="cnt">'+doneN+'/'+total+'</span></div>'+
     '<div class="chk-list">'+
       '<div class="chk'+(okH?' on':'')+'">'+
-        '<div class="cb"><div class="t">ชั่วโมงนอนคืนที่ผ่านมา</div><div class="s">ผ่านเมื่อได้ '+fmt1(t.sleepH-0.5)+' ชม. ขึ้นไป</div></div>'+
-        '<div class="val"><input type="number" inputmode="decimal" step="0.5" data-act="sleep-h" data-date="'+iso+'" data-fkey="sleep-'+iso+'" value="'+num(sl.hours)+'" placeholder="ชม."><span class="tgt">/ '+fmt1(t.sleepH)+' ชม.</span></div></div>'+
+        '<div class="cb"><div class="t">ชั่วโมงนอนคืนที่ผ่านมา</div><div class="s">'+(t.sleepH!=null?'ผ่านเมื่อได้ '+fmt1(t.sleepH-0.5)+' ชม. ขึ้นไป':'ยังไม่ได้ตั้งเป้า — กลับไปแก้แบบสอบถามข้อ Q37 เพื่อให้ระบบคำนวณเป้าให้')+'</div>'+rejectedNote+legacyBadNote+'</div>'+
+        '<div class="val"><input type="number" inputmode="decimal" step="0.5" min="0" max="24" data-act="sleep-h" data-date="'+iso+'" data-fkey="sleep-'+iso+'" value="'+num(sl.hours)+'" placeholder="ชม."><span class="tgt">/ '+fmtHours(t.sleepH)+'</span></div></div>'+
       (t.sleepHygiene ? '<div class="chk'+(sl.hygiene?' on':'')+'">'+
         '<input type="checkbox" data-act="sleep-hyg" data-date="'+iso+'" '+(sl.hygiene?'checked':'')+'>'+
         '<div class="cb"><div class="t">ทำ sleep hygiene ก่อนนอน</div><div class="s">คุณตอบว่าอยากได้คำแนะนำนี้ (นอนน้อยกว่า 6 ชม.) — เลี่ยงจอ 30 นาทีก่อนนอน เข้านอนเวลาเดิมทุกคืน</div></div></div>' : '')+
@@ -1457,7 +1486,7 @@ function renderPlan(){
       '<span><i style="background:var(--sleep)"></i>ไขมัน '+t.fatG+'g ('+fPct+'%)</span>'+
       '<span><i style="background:var(--branch)"></i>คาร์บ '+t.carbG+'g ('+cPct+'%)</span></div>'+
       (t.macroClamped?'<div class="opt-note">⚠️ ปรับสัดส่วนอัตโนมัติเพราะโปรตีน+ไขมันตั้งต้นเกินเป้าแคลอรี่ — เคสนี้ควรปรึกษาผู้เชี่ยวชาญเพิ่มเติม</div>':'')+
-      '<div class="opt-note" style="margin-top:8px">น้ำ '+fmt1(t.waterL)+' ลิตร/วัน · '+t.meals+' มื้อ/วัน · นอน '+fmt1(t.sleepH)+' ชม./คืน</div>'+
+      '<div class="opt-note" style="margin-top:8px">น้ำ '+fmt1(t.waterL)+' ลิตร/วัน · '+t.meals+' มื้อ/วัน · นอน '+fmtHours(t.sleepH)+'/คืน</div>'+
     '</div></div>';
 
   html += '<div class="section-title">เซสชันในแผน</div>';
@@ -1532,11 +1561,20 @@ function renderQuestion(q){
     body += '</div>';
     if(q.note) body += '<div class="opt-note">'+esc(q.note)+'</div>';
   } else if(q.kind==="number"){
-    body += '<div class="field-row"><input type="number" inputmode="decimal" data-act="field" data-fid="'+q.id+'" data-fkey="q-'+q.id+'" value="'+num(a[q.id])+'" placeholder="กรอกตัวเลข">'+(q.unit?'<span class="unit">'+esc(q.unit)+'</span>':"")+'</div>';
+    var missingReq = q.required && !numberAnswered(a[q.id]);
+    body += '<div class="field-row"><input type="number" inputmode="decimal" data-act="field" data-fid="'+q.id+'" data-fkey="q-'+q.id+'" value="'+num(a[q.id])+'" placeholder="กรอกตัวเลข">'+(q.unit?'<span class="unit">'+esc(q.unit)+'</span>':"")+'</div>'+
+      (missingReq ? '<div class="hint" style="color:var(--warn);margin-top:4px">* จำเป็นต้องกรอกก่อนไปข้อถัดไป</div>' : '');
   } else if(q.kind==="text"){
     body += '<div class="field-row"><input type="text" class="wide" data-act="field" data-fid="'+q.id+'" data-fkey="q-'+q.id+'" value="'+num(a[q.id])+'" placeholder="พิมพ์คำตอบ (ไม่บังคับ)"></div>';
   }
-  if(q.id==="Q1" && a.Q1){ body += benchTable(a.Q1); }
+  if(q.id==="Q1" && a.Q1){
+    body += benchTable(a.Q1);
+    if(SUPPORTED_GOALS.indexOf(a.Q1)===-1){
+      // N-03: แจ้งข้อจำกัด MVP ทันทีที่เลือก ไม่ปล่อยให้ตอบจนจบ 9 หมวดแล้วเพิ่งไปเจอที่หน้าสรุป
+      body += '<div class="note warn"><span class="eyebrow2">ข้อจำกัดของต้นแบบนี้ (MVP)</span>'+
+        '<p>เป้าหมาย "'+esc(a.Q1)+'" ยังไม่มี generator รองรับในเวอร์ชันนี้ — ตอบแบบสอบถามต่อได้ตามปกติ (คำตอบจะถูกเก็บไว้) แต่ระบบจะยังสร้างตารางออกกำลังกายให้ไม่ได้จนกว่าจะรองรับ ถ้าต้องการสร้างตารางตอนนี้ ให้กลับไปเลือกเป้าหมาย ลดไขมัน / เพิ่มกล้ามเนื้อ / Recomposition / รักษาสุขภาพทั่วไป แทน</p></div>';
+    }
+  }
   if(q.id==="Q3"){ body += timeFeedback(a); }
   if(q.id==="Q13" && a.Q13==="ระบุ"){
     body += '<div class="nested field-row"><input type="number" data-act="field" data-fid="Q13_val" data-fkey="q-Q13_val" value="'+num(a.Q13_val)+'" placeholder="น้ำหนักเป้าหมาย"><span class="unit">kg</span></div>';
@@ -1564,6 +1602,11 @@ function renderQuestion(q){
   if(q.id==="Q15"){
     body += '<div class="note warn"><span class="eyebrow2">คำเตือนด้านการแพทย์ (แสดงคู่กับคำถามนี้เสมอ)</span>'+
       '<p>เป้าหมายที่คุณตั้งไว้ค่อนข้างห่างจากน้ำหนักปัจจุบันมาก การไปถึงอย่างปลอดภัยอาจต้องใช้ระยะเวลานานกว่าที่คิด แนะนำให้ปรึกษาแพทย์หรือผู้เชี่ยวชาญก่อนเริ่มโปรแกรม</p></div>';
+  }
+  if(q.id==="Q20" && a.Q20 && a.Q20!=="ฟิตเนส-ยิม"){
+    // N-03: แจ้งข้อจำกัด MVP ทันทีที่เลือกสถานที่ ไม่ปล่อยให้ตอบจนจบแล้วเพิ่งไปเจอที่หน้าสรุป
+    body += '<div class="note warn"><span class="eyebrow2">ข้อจำกัดของต้นแบบนี้ (MVP)</span>'+
+      '<p>สถานที่ "'+esc(a.Q20)+'" ยังไม่มี generator รองรับในเวอร์ชันนี้ (รองรับเฉพาะ "ฟิตเนส-ยิม" เท่านั้น) — ตอบแบบสอบถามต่อได้ตามปกติ (คำตอบจะถูกเก็บไว้) แต่ระบบจะยังสร้างตารางออกกำลังกายให้ไม่ได้จนกว่าจะรองรับ ถ้าต้องการสร้างตารางตอนนี้ ให้กลับไปเลือก "ฟิตเนส-ยิม" แทน</p></div>';
   }
   if(q.id==="Q20" && a.Q20==="ผสมผสาน"){
     body += '<div class="note dev"><span class="eyebrow2">หมายเหตุต้นแบบ (deviation)</span>'+
@@ -1773,7 +1816,7 @@ function resultsHTML(){
       '<span><i style="background:var(--sleep)"></i>ไขมัน '+t.fatG+'g ('+fPct+'%)</span>'+
       '<span><i style="background:var(--branch)"></i>คาร์บ '+t.carbG+'g ('+cPct+'%)</span></div>'+
       (t.macroClamped?'<div class="opt-note">⚠️ ปรับสัดส่วนอัตโนมัติเพราะโปรตีน+ไขมันตั้งต้นเกินเป้าแคลอรี่ที่คำนวณได้</div>':'')+
-      '<div class="opt-note" style="margin-top:8px">น้ำ '+fmt1(t.waterL)+' ลิตร/วัน · '+t.meals+' มื้อ/วัน · นอน '+fmt1(t.sleepH)+' ชม./คืน'+(t.sleepHygiene?' · มีข้อ sleep hygiene ในเช็คลิสต์':'')+'</div></div>'+
+      '<div class="opt-note" style="margin-top:8px">น้ำ '+fmt1(t.waterL)+' ลิตร/วัน · '+t.meals+' มื้อ/วัน · นอน '+fmtHours(t.sleepH)+'/คืน'+(t.sleepHygiene?' · มีข้อ sleep hygiene ในเช็คลิสต์':'')+'</div></div>'+
 
     '<div class="section-title">รูปแบบโปรแกรมและตารางรายสัปดาห์</div>'+
     splitPicker + splitFooter +
@@ -1899,6 +1942,15 @@ function patchSleep(iso, patch){
   saveDay(iso, {sleep:s});
 }
 function numOrNull(v){ if(v===''||v==null) return null; var n=parseFloat(v); return isNaN(n)? null : n; }
+/* N-02: ตรวจช่วงค่าที่ชั้นข้อมูล ไม่พึ่ง HTML min/max อย่างเดียว (คนพิมพ์เลขในช่อง
+   type=number ข้าม min/max ของ HTML ได้ตรงๆ) — ว่าง = ไม่มีข้อมูล (valid, value:null)
+   ต่างจากค่านอกช่วง (invalid, ถูกปฏิเสธไม่ให้บันทึก) */
+function numInRange(v, lo, hi){
+  var n = numOrNull(v);
+  if(n==null) return {value:null, valid:true};
+  if(!isFinite(n) || n<lo || n>hi) return {value:null, valid:false, rejected:n};
+  return {value:n, valid:true};
+}
 
 function goto(view){ state.nav = view; track.openDate=null; track.saveStatus=''; persist(); render(true); }
 
@@ -1964,6 +2016,17 @@ document.addEventListener("click", function(ev){
       Object.keys(track.program).forEach(function(k){ snap[k]=track.program[k]; });
       snap.startDate = val;
     } else {
+      // C-01/C-02: ด่านสุดท้ายก่อนล็อกแผนจริง ต้องตรวจซ้ำเสมอ ไม่พึ่งแค่ "ready" ตอนอยู่
+      // หน้าสรุป — เพราะเข้าถึงหน้านี้ได้จากหลายทาง (rail jump, session เก่าที่ค้าง
+      // mode='results' จากก่อนมี gate นี้) ห้ามล็อกแผนที่มีข้อมูลไม่ครบ/ไม่ปลอดภัยเด็ดขาด
+      var gateIssues = sanityIssues(state.answers);
+      var gateSafety = safetyGate(state.answers);
+      if(!inScope(state.answers) || gateIssues.length || gateSafety.blocked){
+        track.saveStatus = 'ยังสร้างตารางไม่ได้ — ข้อมูลไม่ครบหรืออยู่นอกขอบเขตที่รองรับ ('+
+          (gateSafety.blocked ? gateSafety.reason : (gateIssues[0] || 'เป้าหมาย/สถานที่ยังไม่รองรับ'))+') กลับไปแก้แบบสอบถามก่อน';
+        render();
+        return;
+      }
       snap = buildPlanSnapshot(state.answers);
       snap.startDate = val;
       snap.planId = Date.now().toString(36);
@@ -2012,7 +2075,13 @@ document.addEventListener("change", function(ev){
   if(act==='set'){ patchExercise(iso, el.getAttribute('data-ex'), {sets: setsFromDom(el.getAttribute('data-ex'), iso)}); return; }
   if(act==='sess-complete'){ saveDay(iso, {completed: el.checked}); return; }
   if(act==='nut'){ var p={}; p[el.getAttribute('data-field')] = numOrNull(el.value); patchNutrition(iso, p); return; }
-  if(act==='sleep-h'){ patchSleep(iso, {hours: numOrNull(el.value)}); return; }
+  if(act==='sleep-h'){
+    var hr = numInRange(el.value, 0, 24); // N-02: ปฏิเสธค่านอก 0-24 ชม. ไม่บันทึก ไม่ clamp เงียบๆ
+    track.sleepHoursError[iso] = !hr.valid;
+    if(hr.valid) patchSleep(iso, {hours: hr.value});
+    else render(); // แสดง error โดยไม่เขียนทับค่าที่ถูกต้องล่าสุดในเครื่อง
+    return;
+  }
   if(act==='sleep-hyg'){ patchSleep(iso, {hygiene: el.checked}); return; }
   if(act==='weight'){
     var kg = numOrNull(el.value);

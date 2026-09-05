@@ -216,6 +216,7 @@ var EXERCISES = [
   {id:'hp4',pattern:'hpush',tier:4,equip:'barbell',th:'Barbell Bench Press',sub:'เบนช์เพรสบาร์เบล'},
 
   {id:'hl1',pattern:'hpull',tier:1,equip:'cable',th:'Seated Cable Row (น้ำหนักเบา)',sub:'พายเคเบิลนั่งเบา'},
+  {id:'hl1b',pattern:'hpull',tier:1,equip:'bodyweight',th:'Superman',sub:'เหยียดหลังท่าซุปเปอร์แมน (ไม่ใช้อุปกรณ์)'},
   {id:'hl2',pattern:'hpull',tier:2,equip:'cable',th:'Seated Cable Row',sub:'พายเคเบิลนั่ง'},
   {id:'hl3',pattern:'hpull',tier:3,equip:'dumbbell',th:'Dumbbell Bent-over Row',sub:'ก้มพายดัมเบล'},
   {id:'hl4',pattern:'hpull',tier:4,equip:'barbell',th:'Barbell Bent-over Row',sub:'ก้มพายบาร์เบล'},
@@ -223,9 +224,10 @@ var EXERCISES = [
   {id:'vl1',pattern:'vpull',tier:1,equip:'machine',th:'Assisted Pull-up Machine',sub:'ดึงข้อช่วยเครื่อง'},
   {id:'vl2',pattern:'vpull',tier:2,equip:'machine',th:'Lat Pulldown',sub:'ดึงลัทดาวน์'},
   {id:'vl3',pattern:'vpull',tier:3,equip:'dumbbell',th:'Dumbbell Pullover',sub:'พูลโอเวอร์ดัมเบล'},
-  {id:'vl4',pattern:'vpull',tier:4,equip:'bodyweight',th:'Pull-up',sub:'ดึงข้อ'},
+  {id:'vl4',pattern:'vpull',tier:4,equip:'pullupbar',th:'Pull-up',sub:'ดึงข้อ (ต้องมีบาร์โหน)'},
 
   {id:'vp1',pattern:'vpush',tier:1,equip:'machine',th:'Shoulder Press Machine (น้ำหนักเบา)',sub:'เครื่องดันไหล่เบา'},
+  {id:'vp1b',pattern:'vpush',tier:1,equip:'bodyweight',th:'Pike Push-up',sub:'พุชอัพท่าไพค์ เน้นไหล่ (ไม่ใช้อุปกรณ์)'},
   {id:'vp2',pattern:'vpush',tier:2,equip:'machine',th:'Shoulder Press Machine',sub:'เครื่องดันไหล่'},
   {id:'vp3',pattern:'vpush',tier:3,equip:'dumbbell',th:'Dumbbell Shoulder Press',sub:'ดันไหล่ดัมเบล'},
   {id:'vp4',pattern:'vpush',tier:4,equip:'barbell',th:'Barbell Overhead Press',sub:'ดันไหล่บาร์เบลเหนือศีรษะ'},
@@ -233,7 +235,7 @@ var EXERCISES = [
   {id:'co1',pattern:'core',tier:1,equip:'bodyweight',th:'Plank',sub:'แพลงก์'},
   {id:'co2',pattern:'core',tier:2,equip:'bodyweight',th:'Dead Bug',sub:'เดดบั๊ก'},
   {id:'co3',pattern:'core',tier:3,equip:'cable',th:'Cable Woodchopper',sub:'วู้ดช็อปเปอร์เคเบิล'},
-  {id:'co4',pattern:'core',tier:4,equip:'bodyweight',th:'Hanging Leg Raise',sub:'ยกขาห้อยตัว'},
+  {id:'co4',pattern:'core',tier:4,equip:'pullupbar',th:'Hanging Leg Raise',sub:'ยกขาห้อยตัว (ต้องมีบาร์โหน)'},
 
   {id:'bc1',pattern:'biceps',tier:1,equip:'cable',th:'Cable Curl (น้ำหนักเบา)',sub:'ดึงเคเบิลกล้ามแขนหน้าเบา'},
   {id:'bc2',pattern:'biceps',tier:2,equip:'dumbbell',th:'Dumbbell Bicep Curl',sub:'เคิร์ลดัมเบล'},
@@ -393,7 +395,8 @@ function bmiOf(w,h){ return w/((h/100)*(h/100)); }
 function bmiLabel(b){ if(b<18.5) return 'ต่ำกว่าเกณฑ์'; if(b<23) return 'ปกติ'; if(b<25) return 'ท้วม'; if(b<30) return 'อ้วนระดับ 1'; return 'อ้วนระดับ 2'; }
 
 var SUPPORTED_GOALS = ["ลดไขมัน","เพิ่มกล้ามเนื้อ","Recomposition (ลด+เพิ่มพร้อมกัน)","รักษาสุขภาพทั่วไป"];
-function inScope(a){ return SUPPORTED_GOALS.indexOf(a.Q1)>-1 && a.Q20==="ฟิตเนส-ยิม"; }
+var SUPPORTED_LOCATIONS = ["ฟิตเนส-ยิม","ที่บ้าน"]; // เพิ่ม "ที่บ้าน" เข้ามารองรับแล้ว — กลางแจ้ง/ผสมผสาน ยังไม่รองรับ
+function inScope(a){ return SUPPORTED_GOALS.indexOf(a.Q1)>-1 && SUPPORTED_LOCATIONS.indexOf(a.Q20)>-1; }
 
 function sanityIssues(a){
   var issues=[];
@@ -508,15 +511,37 @@ function safetyGate(a){
   return {blocked:false};
 }
 function equipAllowed(level){
-  if(level==='ครบมาก') return ['bodyweight','dumbbell','machine','barbell','cable'];
-  if(level==='ปานกลาง') return ['bodyweight','dumbbell','machine','cable'];
-  return ['bodyweight','dumbbell'];
+  // 'pullupbar' รวมอยู่ในทุกระดับ (เดิม Pull-up/Hanging Leg Raise ถูก tag เป็น 'bodyweight'
+  // ซึ่งอยู่ในทุกระดับอยู่แล้ว — ใส่ไว้ที่นี่เพื่อคงพฤติกรรมเดิมของยิมทุกประการ ไม่ใช่การเพิ่มสิทธิ์ใหม่)
+  if(level==='ครบมาก') return ['bodyweight','dumbbell','machine','barbell','cable','pullupbar'];
+  if(level==='ปานกลาง') return ['bodyweight','dumbbell','machine','cable','pullupbar'];
+  return ['bodyweight','dumbbell','pullupbar'];
+}
+/* ที่บ้าน: ต่างจากยิมตรงที่ไม่มีคำถามระดับอุปกรณ์ (Q22) ให้ใช้ — ต้องอ่าน Q21 (รายการ
+   อุปกรณ์ที่มีจริง) ตรงๆ แทน ไม่มี default "ครบมาก" แบบยิม เพราะจะเดาเกินจริงว่ามีอุปกรณ์
+   "ยางยืด"/"ม้านั่ง" ยังไม่มี equip type ให้จับคู่ในฐานข้อมูลท่า (ไม่มีท่าไหนต้องใช้) จึงยังไม่
+   มีผลต่อ allowed[] ตอนนี้ — เป็นข้อจำกัดที่รู้อยู่แล้ว ไม่ใช่บั๊ก */
+function equipAllowedHome(q21){
+  var list = Array.isArray(q21) ? q21 : [];
+  var allowed = ['bodyweight'];
+  if(list.indexOf('ไม่มีอุปกรณ์เลย')>-1) return allowed;
+  if(list.indexOf('ดัมเบล')>-1) allowed.push('dumbbell');
+  if(list.indexOf('บาร์เบล')>-1) allowed.push('barbell');
+  if(list.indexOf('บาร์โหน')>-1) allowed.push('pullupbar');
+  return allowed;
+}
+/* จุดเดียวที่ตัดสินว่า pattern ไหนใช้อุปกรณ์ชุดไหนได้ — แยกตามสถานที่ (Q20) ตอนนี้รองรับ
+   ฟิตเนส-ยิม (เดิม) กับ ที่บ้าน (ใหม่) เท่านั้น กลางแจ้ง/ผสมผสาน ยังใช้ค่า default ของยิมไปก่อน
+   จนกว่าจะออกแบบคำถามอุปกรณ์ของสองเส้นทางนั้นเพิ่ม */
+function allowedEquipFor(a){
+  if(a.Q20==='ที่บ้าน') return equipAllowedHome(a.Q21);
+  return equipAllowed(a.Q22||'ครบมาก');
 }
 function targetTier(exp){
   return {'มือใหม่':2,'เคยออกบ้าง':3,'ออกกำลังกายประจำ':3,'นักกีฬา-เทรนมานาน':4}[exp] || 2;
 }
 function candidatesFor(pattern, a){
-  var allowed = equipAllowed(a.Q22||'ครบมาก');
+  var allowed = allowedEquipFor(a);
   var injuries = a.Q26||[];
   return EXERCISES.filter(function(e){return e.pattern===pattern;}).map(function(e){
     var lockedBy = injuries.filter(function(inj){ return (EXCLUSION_MAP[inj]||[]).indexOf(e.id)>-1; });
@@ -628,6 +653,7 @@ function buildPlanSnapshot(a){
       if(!sel.picked) return null;
       return {
         pattern:p, id:sel.picked.id, th:sel.picked.th, sub:sel.picked.sub, tier:sel.picked.tier,
+        equip:sel.picked.equip, // เดิมไม่มีฟิลด์นี้ — sectionWorkout ต้องใช้แยกท่า bodyweight (ซ่อนช่องน้ำหนัก)
         setsReps: p==='core' ? '3 x 30-45 วิ' : repSchemeFor(a.Q1),
         timeBased: p==='core'
       };
@@ -1509,7 +1535,7 @@ function renderPlan(){
     '<li>ตารางยังหมุนวนซ้ำทุกสัปดาห์แบบเดิม ยังไม่มี mesocycle / progressive overload อัตโนมัติ — ระบบยัง<b>ไม่แนะนำ</b>ว่าควรเพิ่มน้ำหนักเมื่อไหร่ หน้า Progression แสดงข้อมูลย้อนหลังอย่างเดียว</li>'+
     '<li>เป้าแคลอรี่ใช้ static multiplier จากลักษณะงาน (Q36) ไม่ได้บวกแคลอรี่จากเซสชันที่ทำจริง</li>'+
     '<li>ข้อมูลทั้งหมดเก็บไว้ใน localStorage ของเบราว์เซอร์เครื่องนี้เท่านั้น — ล้างแคช/เปลี่ยนเครื่อง/เปิดโหมดไม่ระบุตัวตนจะไม่เห็นข้อมูลเดิม และยังไม่มีระบบซิงก์ข้ามอุปกรณ์หรือบัญชีผู้ใช้</li>'+
-    '<li>รองรับหน่วย kg/cm เท่านั้น และรองรับ 4 เป้าหมาย (ลดไขมัน / เพิ่มกล้ามเนื้อ / Recomposition / รักษาสุขภาพทั่วไป) เฉพาะสถานที่ฟิตเนส-ยิม</li>'+
+    '<li>รองรับหน่วย kg/cm เท่านั้น และรองรับ 4 เป้าหมาย (ลดไขมัน / เพิ่มกล้ามเนื้อ / Recomposition / รักษาสุขภาพทั่วไป) เฉพาะสถานที่ "ฟิตเนส-ยิม" หรือ "ที่บ้าน"</li>'+
     '<li>นี่คือต้นแบบสาธิต ไม่ใช่คำแนะนำทางการแพทย์หรือโภชนาการ หากมีอาการผิดปกติระหว่างออกกำลังกาย ควรหยุดและปรึกษาแพทย์ทันที</li>'+
   '</ul></div>';
 
@@ -1604,10 +1630,10 @@ function renderQuestion(q){
     body += '<div class="note warn"><span class="eyebrow2">คำเตือนด้านการแพทย์ (แสดงคู่กับคำถามนี้เสมอ)</span>'+
       '<p>เป้าหมายที่คุณตั้งไว้ค่อนข้างห่างจากน้ำหนักปัจจุบันมาก การไปถึงอย่างปลอดภัยอาจต้องใช้ระยะเวลานานกว่าที่คิด แนะนำให้ปรึกษาแพทย์หรือผู้เชี่ยวชาญก่อนเริ่มโปรแกรม</p></div>';
   }
-  if(q.id==="Q20" && a.Q20 && a.Q20!=="ฟิตเนส-ยิม"){
+  if(q.id==="Q20" && a.Q20 && SUPPORTED_LOCATIONS.indexOf(a.Q20)===-1){
     // N-03: แจ้งข้อจำกัด MVP ทันทีที่เลือกสถานที่ ไม่ปล่อยให้ตอบจนจบแล้วเพิ่งไปเจอที่หน้าสรุป
     body += '<div class="note warn"><span class="eyebrow2">ข้อจำกัดของต้นแบบนี้ (MVP)</span>'+
-      '<p>สถานที่ "'+esc(a.Q20)+'" ยังไม่มี generator รองรับในเวอร์ชันนี้ (รองรับเฉพาะ "ฟิตเนส-ยิม" เท่านั้น) — ตอบแบบสอบถามต่อได้ตามปกติ (คำตอบจะถูกเก็บไว้) แต่ระบบจะยังสร้างตารางออกกำลังกายให้ไม่ได้จนกว่าจะรองรับ ถ้าต้องการสร้างตารางตอนนี้ ให้กลับไปเลือก "ฟิตเนส-ยิม" แทน</p></div>';
+      '<p>สถานที่ "'+esc(a.Q20)+'" ยังไม่มี generator รองรับในเวอร์ชันนี้ (รองรับ "ฟิตเนส-ยิม" กับ "ที่บ้าน") — ตอบแบบสอบถามต่อได้ตามปกติ (คำตอบจะถูกเก็บไว้) แต่ระบบจะยังสร้างตารางออกกำลังกายให้ไม่ได้จนกว่าจะรองรับ ถ้าต้องการสร้างตารางตอนนี้ ให้กลับไปเลือก "ฟิตเนส-ยิม" หรือ "ที่บ้าน" แทน</p></div>';
   }
   if(q.id==="Q20" && a.Q20==="ผสมผสาน"){
     body += '<div class="note dev"><span class="eyebrow2">หมายเหตุต้นแบบ (deviation)</span>'+
@@ -1641,7 +1667,7 @@ function readinessPanel(scope, issues, gate, ready){
   }
   var parts = [];
   if(!scope){
-    parts.push('<p><b>ขอบเขต MVP v0.1:</b> generator สร้างตารางได้สำหรับ 4 เป้าหมาย (ลดไขมัน / เพิ่มกล้ามเนื้อ / Recomposition / รักษาสุขภาพทั่วไป) และเฉพาะสถานที่ = "ฟิตเนส-ยิม" เท่านั้น — "เพิ่มความแข็งแรง-Performance" และ "เดิน-วิ่ง (Cardio)" ยังไม่รองรับ เพราะต้องการ program logic คนละแบบ (1RM-based programming และตารางวิ่งแยกจาก exercise engine เดิม)</p>');
+    parts.push('<p><b>ขอบเขต MVP v0.1:</b> generator สร้างตารางได้สำหรับ 4 เป้าหมาย (ลดไขมัน / เพิ่มกล้ามเนื้อ / Recomposition / รักษาสุขภาพทั่วไป) และเฉพาะสถานที่ "ฟิตเนส-ยิม" หรือ "ที่บ้าน" เท่านั้น — "เพิ่มความแข็งแรง-Performance" และ "เดิน-วิ่ง (Cardio)" ยังไม่รองรับ เพราะต้องการ program logic คนละแบบ (1RM-based programming และตารางวิ่งแยกจาก exercise engine เดิม) "กลางแจ้ง-สวนสาธารณะ" และ "ผสมผสาน" ก็ยังไม่รองรับเช่นกัน เพราะยังไม่มีคำถามอุปกรณ์ที่แม่นยำพอสำหรับสองเส้นทางนั้น</p>');
   }
   if(gate.blocked){ parts.push('<p><b>Safety Gate:</b> '+gate.reason+'</p>'); }
   if(issues.length){ parts.push('<p><b>ตรวจค่านี้อีกครั้ง:</b> '+issues.join(' · ')+'</p>'); }

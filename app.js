@@ -30,6 +30,15 @@ var STORAGE_OK = (function(){
   catch(e){ return false; }
 })();
 
+/* ---------- multi-user (Supabase) — เลเยอร์ sync บนของเดิม ----------
+   local-first เสมอ: อ่าน/เขียนหน้าเว็บยังใช้ localStorage แบบเดิมทุกจุด ไม่บล็อก
+   UI รอ network เลย — sync ขึ้น Supabase เป็น background fire-and-forget
+   หลัง localStorage เขียนสำเร็จแล้วเท่านั้น ถ้า Supabase โหลดไม่ได้ (ออฟไลน์/บล็อก)
+   แอปยังใช้งานได้ปกติแบบเดิมเป๊ะ (local-only) — ไม่มีอะไรพังถ้า GymBroSync ไม่พร้อม */
+var auth = {session:null, ready:false};
+var authState = {mode:'signin', error:null, busy:false};
+function syncOn(){ return syncAvailable() && !!auth.session; }
+
 var CATEGORIES = [
   {id:1, name:"เป้าหมาย + Time Feasibility", short:"เป้าหมาย"},
   {id:2, name:"ข้อมูลร่างกาย", short:"ร่างกาย"},
@@ -350,6 +359,7 @@ if(PERSIST_ONBOARDING_STATE){
 function persist(){
   if(!PERSIST_ONBOARDING_STATE) return;
   lsSet("gymbro_onb_proto", state);
+  if(syncOn()) Promise.resolve(GymBroSync.pushOnboarding(auth.session.user.id, state)).catch(function(){});
 }
 
 function visibleQsFor(catId){
@@ -681,7 +691,11 @@ var track = {
   openDate:null, openSets:{}, saveStatus:'', openSwap:null,
   schedTab:'week', editing:false, progressEx:null, openBench:{}, sleepHoursError:{}
 };
-function persistProgram(){ return lsSet("gymbro_program", track.program); }
+function persistProgram(){
+  var ok = lsSet("gymbro_program", track.program);
+  if(ok && syncOn()) Promise.resolve(GymBroSync.pushProgram(auth.session.user.id, track.program)).catch(function(){});
+  return ok;
+}
 function persistLogs(){ return lsSet("gymbro_logs", track.logs); }
 function persistWeights(){ return lsSet("gymbro_weights", track.weights); }
 
@@ -731,6 +745,7 @@ function saveDay(iso, patch){
   Object.keys(patch).forEach(function(k){ body[k] = patch[k]; });
   track.logs[iso] = body;
   var ok = persistLogs();
+  if(ok && syncOn()) Promise.resolve(GymBroSync.pushDailyLog(auth.session.user.id, iso, body)).catch(function(){});
   track.saveStatus = ok ? "บันทึกแล้ว ✓" : "บันทึกไม่ได้ — พื้นที่จัดเก็บของเบราว์เซอร์ใช้ไม่ได้ตอนนี้";
   render();
 }
@@ -738,6 +753,7 @@ function saveWeight(iso, kg){
   var body = {date:iso, kg:kg, updatedAt:new Date().toISOString()};
   track.weights[iso] = body;
   var ok = persistWeights();
+  if(ok && syncOn()) Promise.resolve(GymBroSync.pushWeight(auth.session.user.id, iso, kg)).catch(function(){});
   track.saveStatus = ok ? "บันทึกแล้ว ✓" : "บันทึกไม่ได้ — พื้นที่จัดเก็บของเบราว์เซอร์ใช้ไม่ได้ตอนนี้";
   render();
 }
@@ -883,6 +899,10 @@ function renderNav(view){
   var el = document.getElementById("nav");
   var locked = (view==='onboarding');
   var html = '<div class="brand"><div class="brand-mark"></div><div class="brand-name">Gymbro</div></div>';
+  if(auth.session){
+    html += '<div class="hint" style="padding:0 6px;word-break:break-all">'+esc(auth.session.user.email||'')+
+      '<button type="button" class="ex-open" data-act="auth-signout" style="display:block;padding:2px 0">ออกจากระบบ</button></div>';
+  }
   html += '<div class="nav-group"><div class="nav-label">เมนู</div>';
   var counts = null;
   if(!locked && track.program) counts = dayCounts(track.program, todayISO());
@@ -1920,7 +1940,30 @@ function restoreFocus(f){
   try{ el.focus(); if(f.s!=null && el.setSelectionRange) el.setSelectionRange(f.s, f.e); }catch(err){}
 }
 
+function syncAvailable(){ return typeof GymBroSync!=='undefined' && GymBroSync.isReady(); }
+function renderAuthGate(){
+  var isSignup = authState.mode==='signup';
+  return '<div class="page" style="max-width:420px;margin:60px auto;">'+
+    '<div class="qcard">'+
+    '<div class="eyebrow">Gymbro Daily</div>'+
+    '<h1 style="margin-top:6px">'+(isSignup?'สมัครสมาชิก':'เข้าสู่ระบบ')+'</h1>'+
+    '<p class="sub" style="margin:8px 0 18px">เข้าสู่ระบบเพื่อให้ข้อมูลของคุณซิงก์ข้ามอุปกรณ์ได้</p>'+
+    (authState.error ? '<div class="note warn" style="margin-bottom:14px"><p>'+esc(authState.error)+'</p></div>' : '')+
+    '<div class="field-row" style="margin-bottom:10px"><input type="email" id="authEmail" class="wide" placeholder="อีเมล" autocomplete="email"></div>'+
+    '<div class="field-row" style="margin-bottom:16px"><input type="password" id="authPassword" class="wide" placeholder="รหัสผ่าน (อย่างน้อย 6 ตัวอักษร)" autocomplete="'+(isSignup?'new-password':'current-password')+'"></div>'+
+    '<button type="button" class="btn primary" data-act="auth-submit" data-mode="'+(isSignup?'signup':'signin')+'" '+(authState.busy?'disabled':'')+' style="width:100%;margin-bottom:10px">'+
+      (authState.busy ? 'กำลังดำเนินการ...' : (isSignup?'สมัครสมาชิก':'เข้าสู่ระบบ'))+'</button>'+
+    '<button type="button" class="btn ghost" data-act="auth-toggle-mode" '+(authState.busy?'disabled':'')+' style="width:100%">'+
+      (isSignup ? 'มีบัญชีอยู่แล้ว? เข้าสู่ระบบ' : 'ยังไม่มีบัญชี? สมัครสมาชิก')+'</button>'+
+    '</div></div>';
+}
 function render(toTop){
+  if(auth.ready && syncAvailable() && !auth.session){
+    document.getElementById('nav').innerHTML = '';
+    document.getElementById('page').innerHTML = renderAuthGate();
+    if(toTop) window.scrollTo({top:0, behavior:"auto"});
+    return;
+  }
   var view = currentView();
   var f = captureFocus();
   renderNav(view);
@@ -1987,6 +2030,30 @@ document.addEventListener("click", function(ev){
   var act = el.getAttribute('data-act');
   var iso = el.getAttribute('data-date');
 
+  if(act==='auth-toggle-mode'){ authState.mode = authState.mode==='signup'?'signin':'signup'; authState.error=null; render(); return; }
+  if(act==='auth-submit'){
+    var email = (document.getElementById('authEmail')||{}).value || '';
+    var password = (document.getElementById('authPassword')||{}).value || '';
+    email = email.trim();
+    if(!email || !password){ authState.error='กรอกอีเมลและรหัสผ่านให้ครบ'; render(); return; }
+    if(password.length<6){ authState.error='รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร'; render(); return; }
+    authState.busy = true; authState.error = null; render();
+    var isSignup = el.getAttribute('data-mode')==='signup';
+    var fn = isSignup ? GymBroSync.signUp : GymBroSync.signIn;
+    fn(email, password).then(function(res){
+      authState.busy = false;
+      if(res.error){ authState.error = res.error.message; render(); return; }
+      if(isSignup && res.data && res.data.user && !res.data.session){
+        // โปรเจกต์ตั้งให้ต้องยืนยันอีเมลก่อน — Supabase auth.onAuthStateChange จะยังไม่ยิง SIGNED_IN
+        authState.error = 'สมัครสำเร็จ — เช็คอีเมลเพื่อยืนยันบัญชีก่อนเข้าสู่ระบบครั้งแรก';
+        render();
+        return;
+      }
+      // สำเร็จแล้วปล่อยให้ onAuthChange listener (ผูกไว้ตอน boot) จัดการ hydrate + render ต่อ
+    }).catch(function(e){ authState.busy=false; authState.error='เชื่อมต่อไม่ได้: '+(e&&e.message?e.message:e); render(); });
+    return;
+  }
+  if(act==='auth-signout'){ GymBroSync.signOut(); return; } // onAuthChange จะเคลียร์ auth.session + render ให้เอง
   if(act==='nav'){ if(el.disabled) return; goto(el.getAttribute('data-view')); return; }
   if(act==='tab'){ track.schedTab = el.getAttribute('data-tab'); track.openDate=null; render(); return; }
   if(act==='week-prev'){ track.weekStart = fmtDateISO(addDays(parseISO(track.weekStart), -7)); render(); return; }
@@ -2128,5 +2195,85 @@ document.addEventListener("input", function(ev){
   patchExercise(iso, el.getAttribute('data-ex'), {sets: setsFromDom(el.getAttribute('data-ex'), iso)});
 }, false);
 
-render(true);
+/* ---------- ครั้งแรกหลัง sign in: ดึงข้อมูลจาก Supabase มาแทนของในเครื่อง ถ้ายังไม่เคย
+   มีข้อมูลบน Supabase เลย (บัญชีใหม่/เพิ่งย้ายจาก local-only) ให้ส่งของในเครื่องขึ้นไป
+   แทน (migrate ครั้งแรก) ทำทีละตารางเรียงลำดับ ไม่ Promise.all รวมเพราะไม่รีบและ debug ง่ายกว่า
+   ผิดพลาดจุดไหนก็ไม่ทำให้แอปพัง (catch เงียบ แล้วไปต่อขั้นถัดไป) */
+/* กติกา merge: "ของในเครื่องนี้ชนะเสมอถ้ามีอยู่แล้ว" — pull จาก remote มาทับเฉพาะตอนที่
+   ในเครื่องนี้ "ไม่มี" ข้อมูลนั้นอยู่เลย (เช่น เพิ่งสมัคร/เพิ่งเปิดเครื่องใหม่ที่ไม่เคยมีข้อมูล)
+   ป้องกันปัญหาที่เจอจริงตอนทดสอบ: ถ้า pull ทับเสมอไม่ว่าจะมีของในเครื่องอยู่แล้วหรือไม่ —
+   reload หน้าเว็บกลางคันตอนกำลังตอบแบบสอบถาม/พิมพ์ค่าอยู่ (ซึ่ง push ขึ้น remote แบบ
+   background อาจยังไปไม่ถึง) จะโดนข้อมูลเก่ากว่าจาก remote ทับข้อมูลที่เพิ่งพิมพ์ไปหายเงียบๆ
+   ทันที ขัดกับหลักการ "ห้ามทำข้อมูลผู้ใช้หายเงียบๆ" ที่ยึดมาตลอดทั้งโปรเจกต์
+   สำหรับ logs/weights (เป็น dict คีย์ด้วยวันที่) merge แบบ union ต่อวัน: วันที่มีในเครื่อง
+   แล้วใช้ของเครื่อง วันที่มีเฉพาะบน remote (เช่นบันทึกไว้จากอีกเครื่อง) ดึงมาเพิ่ม */
+function hydrateFromRemote(userId){
+  return GymBroSync.pullProgram(userId).then(function(res){
+    var remote = res && res.data && res.data.payload;
+    if(!track.program && remote){ track.program = remote; lsSet("gymbro_program", track.program); }
+    else if(track.program){ return GymBroSync.pushProgram(userId, track.program); }
+  }).catch(function(){}).then(function(){
+    return GymBroSync.pullDailyLogs(userId);
+  }).then(function(res){
+    var rows = (res && res.data) || [];
+    var merged = {}, toPush = [];
+    Object.keys(track.logs).forEach(function(d){ merged[d] = track.logs[d]; });
+    rows.forEach(function(r){ if(!(r.log_date in merged)) merged[r.log_date] = r.payload; });
+    Object.keys(track.logs).forEach(function(d){ toPush.push(GymBroSync.pushDailyLog(userId, d, track.logs[d])); });
+    track.logs = merged; lsSet("gymbro_logs", track.logs);
+    if(toPush.length) return Promise.all(toPush);
+  }).catch(function(){}).then(function(){
+    return GymBroSync.pullWeights(userId);
+  }).then(function(res){
+    var rows = (res && res.data) || [];
+    var merged = {}, toPush = [];
+    Object.keys(track.weights).forEach(function(d){ merged[d] = track.weights[d]; });
+    rows.forEach(function(r){ if(!(r.log_date in merged)) merged[r.log_date] = {date:r.log_date, kg:r.kg}; });
+    Object.keys(track.weights).forEach(function(d){ toPush.push(GymBroSync.pushWeight(userId, d, track.weights[d].kg)); });
+    track.weights = merged; lsSet("gymbro_weights", track.weights);
+    if(toPush.length) return Promise.all(toPush);
+  }).catch(function(){}).then(function(){
+    return GymBroSync.pullOnboarding(userId);
+  }).then(function(res){
+    var remote = res && res.data && res.data.payload;
+    var hasLocalAnswers = state.answers && Object.keys(state.answers).length>0;
+    if(!hasLocalAnswers && remote && typeof remote==='object'){
+      state.step = remote.step||0;
+      state.answers = remote.answers||{};
+      state.mode = remote.mode||null;
+      state.nav = remote.nav||'today';
+      state.editPlan = false;
+      if(remote.plan && typeof remote.plan==='object'){
+        state.plan.manualPick = remote.plan.manualPick||{};
+        state.plan.unlockedEx = remote.plan.unlockedEx||{};
+        state.plan.forceLowTier = remote.plan.forceLowTier||{};
+        state.plan.splitOverride = remote.plan.splitOverride||null;
+      }
+      lsSet("gymbro_onb_proto", state);
+    } else if(hasLocalAnswers){
+      return GymBroSync.pushOnboarding(userId, state);
+    }
+  }).catch(function(){});
+}
+
+/* ---------- boot: เช็ค session ก่อน render ครั้งแรกเสมอ ถ้า Supabase โหลดไม่ได้เลย
+   (ออฟไลน์/ถูกบล็อก) ข้ามระบบ auth ไปทั้งหมด ใช้แอปแบบ local-only เหมือนเดิมทุกประการ ---------- */
+function boot(){
+  if(!syncAvailable()){ auth.ready = true; render(true); return; }
+  GymBroSync.onAuthChange(function(event, session){
+    var hadSession = !!auth.session;
+    auth.session = session || null;
+    if(!auth.ready) return; // รอบแรกให้ getSession() ด้านล่างเป็นคนจัดการ render
+    if(session && !hadSession) hydrateFromRemote(session.user.id).then(function(){ render(true); });
+    else render(true);
+  });
+  GymBroSync.getSession().then(function(res){
+    var session = res && res.data && res.data.session;
+    auth.session = session || null;
+    auth.ready = true;
+    if(session) hydrateFromRemote(session.user.id).then(function(){ render(true); });
+    else render(true);
+  }).catch(function(){ auth.ready = true; render(true); });
+}
+boot();
 })();

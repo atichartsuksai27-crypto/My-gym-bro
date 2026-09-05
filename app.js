@@ -78,9 +78,10 @@ var QUESTIONS = [
     options:["บ่อย","เคยครั้งสองครั้ง","ไม่เคย"],
     visible:function(a){return a.Q1==="ลดไขมัน";}},
 
-  {id:"Q5a", cat:1, kind:"single", main:false, branchFrom:"Q1 = เพิ่มกล้ามเนื้อ",
-    label:"เน้นส่วนไหนเป็นพิเศษไหม?",
+  {id:"Q5a", cat:1, kind:"multi", main:false, branchFrom:"Q1 = เพิ่มกล้ามเนื้อ",
+    label:"เน้นส่วนไหนเป็นพิเศษไหม?", note:"multi-select — เลือกได้หลายส่วน",
     options:["อก","หลัง","ขา","ไหล่","แขน","ไม่เน้นส่วนไหนเป็นพิเศษ"],
+    exclusiveOption:"ไม่เน้นส่วนไหนเป็นพิเศษ", // เลือกตัวนี้แล้วเลือกส่วนอื่นพร้อมกันไม่ได้ (และกลับกัน)
     visible:function(a){return a.Q1==="เพิ่มกล้ามเนื้อ";}},
   {id:"Q5b", cat:1, kind:"single", main:false, branchFrom:"Q1 = เพิ่มกล้ามเนื้อ",
     label:"ยอมรับไขมันขึ้นเล็กน้อยระหว่างสร้างกล้ามได้ไหม?",

@@ -36,10 +36,7 @@ var STORAGE_OK = (function(){
    หลัง localStorage เขียนสำเร็จแล้วเท่านั้น ถ้า Supabase โหลดไม่ได้ (ออฟไลน์/บล็อก)
    แอปยังใช้งานได้ปกติแบบเดิมเป๊ะ (local-only) — ไม่มีอะไรพังถ้า GymBroSync ไม่พร้อม */
 var auth = {session:null, ready:false};
-/* stage: 'form' (กรอกอีเมล/รหัสผ่าน หรือกด Google) | 'verify' (กรอกรหัสยืนยัน 6 หลัก
-   ที่ส่งไปทางอีเมล — เฉพาะ signup ด้วยอีเมล/รหัสผ่านเท่านั้น อีเมลจาก Google ยืนยันจริง
-   มาจาก Google อยู่แล้ว ไม่ต้องยืนยันซ้ำ) */
-var authState = {mode:'signin', error:null, info:null, busy:false, stage:'form', pendingEmail:''};
+var authState = {mode:'signin', error:null, busy:false};
 function syncOn(){ return syncAvailable() && !!auth.session; }
 
 var CATEGORIES = [
@@ -1946,7 +1943,6 @@ function restoreFocus(f){
 function syncAvailable(){ return typeof GymBroSync!=='undefined' && GymBroSync.isReady(); }
 var GOOGLE_G_SVG = '<svg width="18" height="18" viewBox="0 0 48 48" style="flex:0 0 auto"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.5 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 16 19 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.5 29.6 4 24 4c-7.6 0-14.1 4.3-17.4 10.7z"/><path fill="#4CAF50" d="M24 44c5.5 0 10.4-1.9 14.3-5.1l-6.6-5.6C29.6 34.9 26.9 36 24 36c-5.3 0-9.7-3.3-11.3-8l-6.6 5.1C9.8 39.6 16.4 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.4l6.6 5.6C39.8 37.4 44 31.5 44 24c0-1.3-.1-2.7-.4-3.5z"/></svg>';
 function renderAuthGate(){
-  if(authState.stage==='verify') return renderAuthVerifyStage();
   var isSignup = authState.mode==='signup';
   return '<div class="page" style="max-width:420px;margin:60px auto;">'+
     '<div class="qcard">'+
@@ -1964,21 +1960,6 @@ function renderAuthGate(){
       (authState.busy ? 'กำลังดำเนินการ...' : (isSignup?'สมัครสมาชิก':'เข้าสู่ระบบ'))+'</button>'+
     '<button type="button" class="btn ghost" data-act="auth-toggle-mode" '+(authState.busy?'disabled':'')+' style="width:100%">'+
       (isSignup ? 'มีบัญชีอยู่แล้ว? เข้าสู่ระบบ' : 'ยังไม่มีบัญชี? สมัครสมาชิก')+'</button>'+
-    '</div></div>';
-}
-function renderAuthVerifyStage(){
-  return '<div class="page" style="max-width:420px;margin:60px auto;">'+
-    '<div class="qcard">'+
-    '<div class="eyebrow">Gymbro Daily</div>'+
-    '<h1 style="margin-top:6px">ยืนยันอีเมล</h1>'+
-    '<p class="sub" style="margin:8px 0 18px">ส่งรหัสยืนยัน 6 หลักไปที่ <b>'+esc(authState.pendingEmail)+'</b> แล้ว กรอกรหัสนั้นด้านล่างเพื่อเข้าสู่ระบบ</p>'+
-    (authState.error ? '<div class="note warn" style="margin-bottom:14px"><p>'+esc(authState.error)+'</p></div>' : '')+
-    (authState.info ? '<div class="note" style="margin-bottom:14px"><p>'+esc(authState.info)+'</p></div>' : '')+
-    '<div class="field-row" style="margin-bottom:16px"><input type="text" inputmode="numeric" autocomplete="one-time-code" id="authOtp" class="wide" placeholder="รหัสยืนยัน 6 หลัก" maxlength="6" style="letter-spacing:.3em;text-align:center;font-family:\'IBM Plex Mono\',monospace;font-size:18px"></div>'+
-    '<button type="button" class="btn primary" data-act="auth-verify-submit" '+(authState.busy?'disabled':'')+' style="width:100%;margin-bottom:10px">'+
-      (authState.busy ? 'กำลังตรวจสอบ...' : 'ยืนยันรหัส')+'</button>'+
-    '<button type="button" class="btn ghost" data-act="auth-resend-code" '+(authState.busy?'disabled':'')+' style="width:100%;margin-bottom:10px">ส่งรหัสอีกครั้ง</button>'+
-    '<button type="button" class="ex-open" data-act="auth-back-to-form" style="width:100%;text-align:center">← กลับไปหน้าสมัครสมาชิก</button>'+
     '</div></div>';
 }
 function render(toTop){
@@ -2077,11 +2058,10 @@ document.addEventListener("click", function(ev){
       authState.busy = false;
       if(res.error){ authState.error = res.error.message; render(); return; }
       if(isSignup && res.data && res.data.user && !res.data.session){
-        // user ใหม่ + ยังไม่มี session = ต้องยืนยันอีเมลก่อนเสมอ (บังคับตามที่ขอ) —
-        // สลับไปหน้ากรอกรหัส 6 หลักแทนที่จะให้ไปกดลิงก์ในอีเมล
-        authState.stage = 'verify';
-        authState.pendingEmail = email;
-        authState.error = null;
+        // user ใหม่ + ยังไม่มี session = ต้องยืนยันอีเมลก่อน (ใช้เทมเพลต default ของ
+        // Supabase ซึ่งเป็นลิงก์ให้กด ไม่ใช่รหัสให้กรอก — แก้เทมเพลตเป็นรหัสไม่ได้ถ้าไม่ตั้ง
+        // custom SMTP ก่อน ตามที่คุยกันแล้วว่าใช้ทางลิงก์นี้ไปก่อน)
+        authState.error = 'สมัครสำเร็จ — เช็คอีเมลของคุณแล้วกดลิงก์ยืนยันก่อนเข้าสู่ระบบครั้งแรก';
         render();
         return;
       }
@@ -2089,30 +2069,6 @@ document.addEventListener("click", function(ev){
     }).catch(function(e){ authState.busy=false; authState.error='เชื่อมต่อไม่ได้: '+(e&&e.message?e.message:e); render(); });
     return;
   }
-  if(act==='auth-verify-submit'){
-    var code = (document.getElementById('authOtp')||{}).value || '';
-    code = code.trim();
-    if(!code){ authState.error='กรอกรหัสยืนยันที่ได้รับทางอีเมล'; render(); return; }
-    authState.busy = true; authState.error = null; authState.info = null; render();
-    Promise.resolve(GymBroSync.verifyOtp(authState.pendingEmail, code)).then(function(res){
-      authState.busy = false;
-      if(res.error){ authState.error = res.error.message; render(); return; }
-      // ยืนยันสำเร็จ = ได้ session ทันที onAuthChange listener จัดการ hydrate + render ต่อเอง
-      authState.stage = 'form'; authState.pendingEmail = '';
-    }).catch(function(e){ authState.busy=false; authState.error='เชื่อมต่อไม่ได้: '+(e&&e.message?e.message:e); render(); });
-    return;
-  }
-  if(act==='auth-resend-code'){
-    authState.busy = true; authState.error = null; authState.info = null; render();
-    Promise.resolve(GymBroSync.resendOtp(authState.pendingEmail)).then(function(res){
-      authState.busy = false;
-      if(res.error){ authState.error = res.error.message; render(); return; }
-      authState.info = 'ส่งรหัสใหม่แล้ว เช็คอีเมลอีกครั้ง';
-      render();
-    }).catch(function(e){ authState.busy=false; authState.error='เชื่อมต่อไม่ได้: '+(e&&e.message?e.message:e); render(); });
-    return;
-  }
-  if(act==='auth-back-to-form'){ authState.stage='form'; authState.error=null; authState.info=null; authState.pendingEmail=''; render(); return; }
   if(act==='auth-signout'){ GymBroSync.signOut(); return; } // onAuthChange จะเคลียร์ auth.session + render ให้เอง
   if(act==='nav'){ if(el.disabled) return; goto(el.getAttribute('data-view')); return; }
   if(act==='tab'){ track.schedTab = el.getAttribute('data-tab'); track.openDate=null; render(); return; }

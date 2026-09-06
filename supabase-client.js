@@ -30,16 +30,6 @@ function signIn(email, password){ return client.auth.signInWithPassword({email:e
 function signOut(){ return client.auth.signOut(); }
 function getSession(){ return client.auth.getSession(); }
 function onAuthChange(cb){ return client.auth.onAuthStateChange(cb); }
-/* verifyOtp: ยืนยันรหัส 6 หลักที่ Supabase ส่งไปในอีเมลตอนสมัครสมาชิก (ต้องเปิด
-   "Confirm email" ไว้ที่ Authentication → Providers → Email ฝั่ง Supabase ก่อน
-   ถึงจะมีการส่งอีเมล/รหัสนี้จริง) ผ่านแล้วได้ session ทันที ไม่ต้องกดลิงก์ในอีเมลเลย */
-function verifyOtp(email, token){
-  return client.auth.verifyOtp({email:email, token:token, type:'signup'});
-}
-/* resendOtp: ส่งรหัสยืนยันซ้ำ ถ้าอีเมลแรกหาย/รหัสหมดอายุ */
-function resendOtp(email){
-  return client.auth.resend({type:'signup', email:email});
-}
 /* signInWithGoogle: redirect ทั้งหน้าไป Google แล้วกลับมาที่ origin เดิมพร้อม session —
    ต้องตั้งค่า Google provider ที่ Supabase Dashboard ก่อน (Client ID/Secret จาก Google
    Cloud Console) ไม่ต้องใช้ค่าลับใดๆ ในโค้ดฝั่งนี้เลย ความลับอยู่ใน Supabase ทั้งหมด */
@@ -79,7 +69,7 @@ global.GymBroSync = {
   isReady: isReady,
   signUp: signUp, signIn: signIn, signOut: signOut,
   getSession: getSession, onAuthChange: onAuthChange,
-  verifyOtp: verifyOtp, resendOtp: resendOtp, signInWithGoogle: signInWithGoogle,
+  signInWithGoogle: signInWithGoogle,
   pushProgram: pushProgram, pullProgram: pullProgram,
   pushOnboarding: pushOnboarding, pullOnboarding: pullOnboarding,
   pushDailyLog: pushDailyLog, pullDailyLogs: pullDailyLogs,

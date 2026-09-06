@@ -36,7 +36,7 @@ var STORAGE_OK = (function(){
    หลัง localStorage เขียนสำเร็จแล้วเท่านั้น ถ้า Supabase โหลดไม่ได้ (ออฟไลน์/บล็อก)
    แอปยังใช้งานได้ปกติแบบเดิมเป๊ะ (local-only) — ไม่มีอะไรพังถ้า GymBroSync ไม่พร้อม */
 var auth = {session:null, ready:false};
-var authState = {mode:'signin', error:null, busy:false};
+var authState = {error:null, busy:false};
 function syncOn(){ return syncAvailable() && !!auth.session; }
 
 var CATEGORIES = [
@@ -1942,24 +1942,18 @@ function restoreFocus(f){
 
 function syncAvailable(){ return typeof GymBroSync!=='undefined' && GymBroSync.isReady(); }
 var GOOGLE_G_SVG = '<svg width="18" height="18" viewBox="0 0 48 48" style="flex:0 0 auto"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.5 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 16 19 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.5 29.6 4 24 4c-7.6 0-14.1 4.3-17.4 10.7z"/><path fill="#4CAF50" d="M24 44c5.5 0 10.4-1.9 14.3-5.1l-6.6-5.6C29.6 34.9 26.9 36 24 36c-5.3 0-9.7-3.3-11.3-8l-6.6 5.1C9.8 39.6 16.4 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.4l6.6 5.6C39.8 37.4 44 31.5 44 24c0-1.3-.1-2.7-.4-3.5z"/></svg>';
+/* Google เท่านั้น — ตัดอีเมล/รหัสผ่านออกทั้งหมดตามที่ตัดสินใจ (กันอีเมลปลอมได้ฟรี
+   ไม่ต้องพึ่ง SMTP/SMS ที่มีค่าใช้จ่ายและขีดจำกัดตามที่เจอมา) ไม่มี signin/signup
+   แยกกันด้วยซ้ำ — ปุ่มเดียวจบ Google จัดการ "สมัครครั้งแรก = เข้าสู่ระบบเลย" ให้เอง */
 function renderAuthGate(){
-  var isSignup = authState.mode==='signup';
   return '<div class="page" style="max-width:420px;margin:60px auto;">'+
     '<div class="qcard">'+
     '<div class="eyebrow">Gymbro Daily</div>'+
-    '<h1 style="margin-top:6px">'+(isSignup?'สมัครสมาชิก':'เข้าสู่ระบบ')+'</h1>'+
-    '<p class="sub" style="margin:8px 0 18px">เข้าสู่ระบบเพื่อให้ข้อมูลของคุณซิงก์ข้ามอุปกรณ์ได้</p>'+
+    '<h1 style="margin-top:6px">เข้าสู่ระบบ</h1>'+
+    '<p class="sub" style="margin:8px 0 18px">เข้าสู่ระบบด้วย Google เพื่อให้ข้อมูลของคุณซิงก์ข้ามอุปกรณ์ได้</p>'+
     (authState.error ? '<div class="note warn" style="margin-bottom:14px"><p>'+esc(authState.error)+'</p></div>' : '')+
-    '<button type="button" class="btn" data-act="auth-google" '+(authState.busy?'disabled':'')+' style="width:100%;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:10px">'+
-      GOOGLE_G_SVG+'<span>ดำเนินการต่อด้วย Google</span></button>'+
-    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;color:var(--text-4);font-size:12px">'+
-      '<div style="flex:1;height:1px;background:var(--border)"></div>หรือ<div style="flex:1;height:1px;background:var(--border)"></div></div>'+
-    '<div class="field-row" style="margin-bottom:10px"><input type="email" id="authEmail" class="wide" placeholder="อีเมล" autocomplete="email"></div>'+
-    '<div class="field-row" style="margin-bottom:16px"><input type="password" id="authPassword" class="wide" placeholder="รหัสผ่าน (อย่างน้อย 6 ตัวอักษร)" autocomplete="'+(isSignup?'new-password':'current-password')+'"></div>'+
-    '<button type="button" class="btn primary" data-act="auth-submit" data-mode="'+(isSignup?'signup':'signin')+'" '+(authState.busy?'disabled':'')+' style="width:100%;margin-bottom:10px">'+
-      (authState.busy ? 'กำลังดำเนินการ...' : (isSignup?'สมัครสมาชิก':'เข้าสู่ระบบ'))+'</button>'+
-    '<button type="button" class="btn ghost" data-act="auth-toggle-mode" '+(authState.busy?'disabled':'')+' style="width:100%">'+
-      (isSignup ? 'มีบัญชีอยู่แล้ว? เข้าสู่ระบบ' : 'ยังไม่มีบัญชี? สมัครสมาชิก')+'</button>'+
+    '<button type="button" class="btn" data-act="auth-google" '+(authState.busy?'disabled':'')+' style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px">'+
+      GOOGLE_G_SVG+'<span>'+(authState.busy?'กำลังเชื่อมต่อ...':'ดำเนินการต่อด้วย Google')+'</span></button>'+
     '</div></div>';
 }
 function render(toTop){
@@ -2035,37 +2029,12 @@ document.addEventListener("click", function(ev){
   var act = el.getAttribute('data-act');
   var iso = el.getAttribute('data-date');
 
-  if(act==='auth-toggle-mode'){ authState.mode = authState.mode==='signup'?'signin':'signup'; authState.error=null; render(); return; }
   if(act==='auth-google'){
     authState.busy = true; authState.error = null; render();
     Promise.resolve(GymBroSync.signInWithGoogle()).then(function(res){
       // สำเร็จ = หน้าเว็บกำลังจะ redirect ไป Google ทันที (ไม่ต้อง render ต่อ)
       // ถ้ามี error กลับมาทันที (เช่นยังไม่ได้ตั้งค่า provider ฝั่ง Supabase) ค่อยแสดง
       if(res && res.error){ authState.busy=false; authState.error=res.error.message; render(); }
-    }).catch(function(e){ authState.busy=false; authState.error='เชื่อมต่อไม่ได้: '+(e&&e.message?e.message:e); render(); });
-    return;
-  }
-  if(act==='auth-submit'){
-    var email = (document.getElementById('authEmail')||{}).value || '';
-    var password = (document.getElementById('authPassword')||{}).value || '';
-    email = email.trim();
-    if(!email || !password){ authState.error='กรอกอีเมลและรหัสผ่านให้ครบ'; render(); return; }
-    if(password.length<6){ authState.error='รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร'; render(); return; }
-    authState.busy = true; authState.error = null; render();
-    var isSignup = el.getAttribute('data-mode')==='signup';
-    var fn = isSignup ? GymBroSync.signUp : GymBroSync.signIn;
-    fn(email, password).then(function(res){
-      authState.busy = false;
-      if(res.error){ authState.error = res.error.message; render(); return; }
-      if(isSignup && res.data && res.data.user && !res.data.session){
-        // user ใหม่ + ยังไม่มี session = ต้องยืนยันอีเมลก่อน (ใช้เทมเพลต default ของ
-        // Supabase ซึ่งเป็นลิงก์ให้กด ไม่ใช่รหัสให้กรอก — แก้เทมเพลตเป็นรหัสไม่ได้ถ้าไม่ตั้ง
-        // custom SMTP ก่อน ตามที่คุยกันแล้วว่าใช้ทางลิงก์นี้ไปก่อน)
-        authState.error = 'สมัครสำเร็จ — เช็คอีเมลของคุณแล้วกดลิงก์ยืนยันก่อนเข้าสู่ระบบครั้งแรก';
-        render();
-        return;
-      }
-      // สำเร็จแล้วปล่อยให้ onAuthChange listener (ผูกไว้ตอน boot) จัดการ hydrate + render ต่อ
     }).catch(function(e){ authState.busy=false; authState.error='เชื่อมต่อไม่ได้: '+(e&&e.message?e.message:e); render(); });
     return;
   }

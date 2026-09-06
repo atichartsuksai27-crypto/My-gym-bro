@@ -24,9 +24,9 @@ try{
 
 function isReady(){ return !!client; }
 
-/* ---------- auth ---------- */
-function signUp(email, password){ return client.auth.signUp({email:email, password:password}); }
-function signIn(email, password){ return client.auth.signInWithPassword({email:email, password:password}); }
+/* ---------- auth ----------
+   Google เท่านั้น (ตัดอีเมล/รหัสผ่านออกแล้ว — กันอีเมลปลอมได้ฟรีโดย Google เอง ไม่ต้อง
+   พึ่ง SMTP/SMS ที่มีค่าใช้จ่ายและขีดจำกัดตามที่เจอมาก่อนหน้า) */
 function signOut(){ return client.auth.signOut(); }
 function getSession(){ return client.auth.getSession(); }
 function onAuthChange(cb){ return client.auth.onAuthStateChange(cb); }
@@ -67,7 +67,7 @@ function pullWeights(userId){
 
 global.GymBroSync = {
   isReady: isReady,
-  signUp: signUp, signIn: signIn, signOut: signOut,
+  signOut: signOut,
   getSession: getSession, onAuthChange: onAuthChange,
   signInWithGoogle: signInWithGoogle,
   pushProgram: pushProgram, pullProgram: pullProgram,

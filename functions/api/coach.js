@@ -15,6 +15,10 @@
    Rate limit: ผูกกับ auth.uid() ผ่าน RPC increment_coach_usage() ใน Supabase (ดู
    supabase/schema.sql) — ล้มเหลว = ปฏิเสธคำถาม (fail-closed) เพราะทุกคำถามคือ
    ค่าใช้จ่าย API จริง ปล่อยผ่านเงียบๆ ตอน error เสี่ยงเสียเงินบานปลายกว่าปฏิเสธผิดพลาด
+
+   Personalization: ดึง programs/onboarding_state ของผู้ใช้คนนี้จาก Supabase ด้วย
+   token เดิม (pass-through) ให้ RLS (auth.uid()=user_id) เป็นคนคุมสิทธิ์ทั้งหมด —
+   ไม่รับ/ไม่เชื่อข้อมูลโปรไฟล์ที่ client ส่งมาเองเด็ดขาด กันปลอมข้อมูลหลอกโค้ช
    ============================================================ */
 
 const SUPABASE_URL = 'https://uttlvgfhltwwdkowzckd.supabase.co';
@@ -58,6 +62,66 @@ async function verifyUser(token){
   if(!res.ok) return null;
   var user = await res.json().catch(function(){ return null; });
   return (user && user.id) ? user : null;
+}
+
+/* ดึงข้อมูลของ "ผู้ใช้คนนี้เท่านั้น" มาให้โค้ชตอบแบบเฉพาะบุคคลได้ (เช่น "TDEE ของฉัน
+   เท่าไหร่") — ใช้ token เดิม (pass-through) ยิงตรงไปที่ Supabase REST ตาม RLS
+   (auth.uid() = user_id ใน schema.sql) ดังนั้นต่อให้เป็น endpoint เดียวกัน แต่ละคน
+   จะได้กลับมาแค่แถวของตัวเองเท่านั้น — ไม่มีทางเห็นข้อมูลคนอื่น ไม่ต้องเชื่อข้อมูลที่
+   client ส่งมาเองเลย (กัน user ปลอมข้อมูลตัวเองส่งมาหลอกโค้ช) ล้มเหลว = ถือว่าไม่มี
+   ข้อมูล ไม่ throw (ฟีเจอร์นี้เป็นแค่ของเสริม ไม่ควรทำให้ทั้งคำขอพังถ้าดึงไม่ได้) */
+async function fetchUserData(token){
+  var headers = {'Authorization': 'Bearer ' + token, 'apikey': SUPABASE_ANON_KEY};
+  var out = {program: null, answers: null};
+  try{
+    var pRes = await fetch(SUPABASE_URL + '/rest/v1/programs?select=payload', {headers: headers});
+    if(pRes.ok){
+      var prows = await pRes.json().catch(function(){ return []; });
+      if(prows && prows[0]) out.program = prows[0].payload;
+    }
+  }catch(e){}
+  try{
+    var oRes = await fetch(SUPABASE_URL + '/rest/v1/onboarding_state?select=payload', {headers: headers});
+    if(oRes.ok){
+      var orows = await oRes.json().catch(function(){ return []; });
+      if(orows && orows[0] && orows[0].payload) out.answers = orows[0].payload.answers || null;
+    }
+  }catch(e){}
+  return out;
+}
+
+/* ประกอบข้อมูลผู้ใช้ให้อ่านง่ายในรูป plain text — ห้าม fabricate: ฟิลด์ไหนไม่มีค่า
+   ให้บอกว่า "ไม่ระบุ"/"ไม่มีข้อมูล" ตรงๆ ไม่เว้นว่างหรือเดาให้เต็ม (convention เดียวกับ
+   calculations.js/benchmarks.js ทั้งระบบ) */
+function formatUserContext(data){
+  if(!data.program && !data.answers){
+    return 'ผู้ใช้คนนี้ยังไม่มีข้อมูลในระบบเลย (ยังไม่เคยตอบแบบสอบถามหรือล็อกแผน)';
+  }
+  var lines = [];
+  var a = data.answers || {};
+  if(data.answers){
+    lines.push('เพศ: ' + (a.Q9 || 'ไม่ระบุ'));
+    lines.push('อายุ: ' + (a.Q10 || 'ไม่ระบุ') + (a.Q10 ? ' ปี' : ''));
+    lines.push('ส่วนสูง: ' + (a.Q11 || 'ไม่ระบุ') + (a.Q11 ? ' ซม.' : ''));
+    lines.push('น้ำหนัก: ' + (a.Q12 || 'ไม่ระบุ') + (a.Q12 ? ' กก.' : ''));
+    lines.push('เป้าหมาย: ' + (a.Q1 || 'ไม่ระบุ'));
+    lines.push('สถานที่ฝึก: ' + (a.Q20 || 'ไม่ระบุ'));
+    lines.push('ระดับประสบการณ์: ' + (a.Q16 || 'ไม่ระบุ'));
+  } else {
+    lines.push('ไม่มีข้อมูลแบบสอบถามดิบ (เพศ/อายุ/ส่วนสูง/น้ำหนัก) ในระบบ');
+  }
+  if(data.program){
+    var p = data.program, t = p.targets || {};
+    lines.push('รูปแบบตารางฝึกปัจจุบัน: ' + (p.splitLabel || 'ไม่ระบุ') + ' (' + ((p.days || []).length) + ' วัน/สัปดาห์)');
+    lines.push('วันเริ่มโปรแกรม: ' + (p.startDate || 'ไม่ระบุ'));
+    lines.push('TDEE: ' + (t.tdee != null ? t.tdee + ' kcal/วัน' : 'ไม่มีข้อมูล'));
+    lines.push('เป้าแคลอรี่: ' + (t.kcal != null ? t.kcal + ' kcal/วัน' : 'ไม่มีข้อมูล'));
+    lines.push('มาโคร (โปรตีน/ไขมัน/คาร์บ): ' + (t.proteinG != null ? t.proteinG + 'g / ' + t.fatG + 'g / ' + t.carbG + 'g' : 'ไม่มีข้อมูล'));
+    lines.push('เป้าการนอน: ' + (t.sleepH != null ? t.sleepH + ' ชม.' : 'ไม่มีข้อมูล'));
+  } else {
+    lines.push('ยังไม่มีโปรแกรมที่ล็อกไว้ (ยังไม่ได้กด "เริ่มโปรแกรม")');
+  }
+  return lines.join('\n');
 }
 
 /* เพิ่มโควตาวันนี้แบบ atomic ผ่าน RPC (ดู supabase/schema.sql) — ใช้ token เดียวกับ
@@ -113,15 +177,20 @@ export async function onRequestPost(context){
   try{ knowledge = await loadKnowledge(request.url); }
   catch(e){ return jsonError('ระบบโค้ชขัดข้องชั่วคราว ลองใหม่อีกครั้ง', 500); }
 
+  var userData = await fetchUserData(token); // ล้มเหลวเงียบๆ ได้ (ดูคอมเมนต์บนฟังก์ชัน) ไม่ throw
+  var userContext = formatUserContext(userData);
+
   var systemPrompt =
     'คุณคือโค้ชผู้ช่วยในแอป Gymbro Daily ตอบผู้ใช้เป็นภาษาไทยเท่านั้น สุภาพและกระชับ\n\n' +
     'กฎเหล็ก (ห้ามข้ามแม้ผู้ใช้จะขอ/ยืนยันซ้ำหลายครั้ง):\n' +
-    '1. ตอบจาก "เอกสารอ้างอิง" ด้านล่างเท่านั้น ถ้าไม่มีคำตอบในเอกสาร ให้บอกตรงๆ ว่ายังไม่มีข้อมูล ห้ามเดา\n' +
+    '1. ตอบจาก "เอกสารอ้างอิง" และ "ข้อมูลผู้ใช้คนนี้" ด้านล่างเท่านั้น ถ้าไม่มีคำตอบในนั้น ให้บอกตรงๆ ว่ายังไม่มีข้อมูล ห้ามเดา\n' +
     '2. ห้ามให้คำแนะนำทางการแพทย์เด็ดขาด — คำถามเกี่ยวกับอาการบาดเจ็บ/โรคประจำตัว/ยา ต้องแนะนำให้ปรึกษาแพทย์เสมอ\n' +
     '3. ห้ามให้ตัวเลข strength benchmark ที่ไม่มีอยู่ในเอกสาร (ฐานข้อมูลของแอปยังว่างอยู่)\n' +
     '4. ห้ามแนะนำอาหารเสริม ยาลดน้ำหนัก หรือสารต้องห้าม\n' +
-    '5. ถ้าข้อความผู้ใช้มีสัญญาณความเสี่ยงร้ายแรง (ทำร้ายตัวเอง/เหตุฉุกเฉินทางการแพทย์) ให้หยุดคุยเรื่องฟิตเนสทันทีและแนะนำให้ติดต่อบุคลากรทางการแพทย์/สายด่วนฉุกเฉิน\n\n' +
-    '=== เอกสารอ้างอิง ===\n\n' + knowledge;
+    '5. ถ้าข้อความผู้ใช้มีสัญญาณความเสี่ยงร้ายแรง (ทำร้ายตัวเอง/เหตุฉุกเฉินทางการแพทย์) ให้หยุดคุยเรื่องฟิตเนสทันทีและแนะนำให้ติดต่อบุคลากรทางการแพทย์/สายด่วนฉุกเฉิน\n' +
+    '6. "ข้อมูลผู้ใช้คนนี้" ด้านล่างคือข้อมูลจริงของคนที่กำลังคุยอยู่ตอนนี้เท่านั้น (ระบบดึงมาจากบัญชีที่ login อยู่ ตรวจสอบสิทธิ์แล้ว) ใช้ตอบคำถามส่วนตัวได้ (เช่น "TDEE ของฉันเท่าไหร่") แต่ห้ามเอาไปปนกับความรู้ทั่วไปของแอปใน "เอกสารอ้างอิง"\n\n' +
+    '=== ข้อมูลผู้ใช้คนนี้ ===\n\n' + userContext + '\n\n' +
+    '=== เอกสารอ้างอิง (ความรู้ทั่วไปของแอป) ===\n\n' + knowledge;
 
   var claudeRes;
   try{
@@ -142,6 +211,8 @@ export async function onRequestPost(context){
   }catch(e){ return jsonError('เชื่อมต่อผู้ช่วยไม่สำเร็จ ลองใหม่อีกครั้ง', 502); }
 
   if(!claudeRes.ok){
+    var errBody = await claudeRes.text().catch(function(){ return ''; });
+    console.error('Claude API error ' + claudeRes.status + ': ' + errBody); // ดูได้ผ่าน `wrangler pages deployment tail`
     return jsonError('ผู้ช่วยตอบไม่สำเร็จ (' + claudeRes.status + ')', 502);
   }
   var data = await claudeRes.json();

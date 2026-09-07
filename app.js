@@ -885,7 +885,9 @@ function fmt1(n){ return (Math.round(n*10)/10).toFixed(1); }
 function currentView(){
   if(!track.program || state.editPlan) return 'onboarding';
   var v = state.nav||'today';
-  return ['today','schedule','progress','plan'].indexOf(v)>-1 ? v : 'today';
+  var allowed = ['today','schedule','progress','plan'];
+  if(auth.session) allowed.push('coach'); // ต้อง login ก่อนเท่านั้น (ต้องมี access token ส่งไป /api/coach)
+  return allowed.indexOf(v)>-1 ? v : 'today';
 }
 
 var NAV_ITEMS = [
@@ -894,6 +896,7 @@ var NAV_ITEMS = [
   {k:'progress', label:'ความคืบหน้า'},
   {k:'plan', label:'แผนของฉัน'}
 ];
+var NAV_ITEM_COACH = {k:'coach', label:'ถามโค้ช'}; // แสดงเฉพาะตอน login แล้วเท่านั้น (ดู renderNav)
 
 function renderNav(view){
   var el = document.getElementById("nav");
@@ -906,7 +909,9 @@ function renderNav(view){
   html += '<div class="nav-group"><div class="nav-label">เมนู</div>';
   var counts = null;
   if(!locked && track.program) counts = dayCounts(track.program, todayISO());
-  NAV_ITEMS.forEach(function(it){
+  var navItems = NAV_ITEMS.slice();
+  if(auth.session) navItems.push(NAV_ITEM_COACH);
+  navItems.forEach(function(it){
     var active = (!locked && view===it.k);
     var cnt = (it.k==='today' && counts) ? '<span class="cnt">'+counts.done+'/'+counts.total+'</span>' : '';
     html += '<button type="button" class="nav-item'+(active?' active':'')+'" data-act="nav" data-view="'+it.k+'"'+(locked?' disabled':'')+'>'+
@@ -1503,6 +1508,69 @@ function renderProgress(){
   document.getElementById("page").innerHTML = html;
 }
 
+/* ---------- หน้า: ถามโค้ช (เรียก /api/coach — Cloudflare Pages Function) ----------
+   ต้อง login แล้วเท่านั้น (ดู currentView()/renderNav()) เพราะ backend ต้องมี access
+   token ไปยืนยันตัวตน + เช็คโควตารายวัน ประวัติแชทเก็บแค่ใน session นี้เท่านั้น (ไม่
+   persist ลง localStorage/Supabase — เป็น scope ของ MVP รอบแรก) */
+var coachState = {messages:[], busy:false, error:null};
+var COACH_MAX_PER_DAY = 20; // ต้องตรงกับ MAX_QUESTIONS_PER_DAY ใน functions/api/coach.js เสมอ — แค่ไว้โชว์ผู้ใช้
+
+function renderCoach(){
+  var html = '<div class="page-head"><div><div class="eyebrow">ถามได้ทุกเรื่องเกี่ยวกับ Gymbro Daily</div><h1>ถามโค้ช</h1>'+
+    '<div class="sub">โค้ชตอบจากข้อมูลที่แอปมีจริงเท่านั้น ไม่ใช่คำแนะนำทางการแพทย์ — จำกัด '+COACH_MAX_PER_DAY+' คำถาม/วัน</div></div></div>';
+
+  html += '<div class="card coach-log">';
+  if(!coachState.messages.length){
+    html += '<p class="hint">ลองถามเช่น "ทำไมปุ่มเริ่มโปรแกรมกดไม่ได้" หรือ "ทำไมท่าออกกำลังกายบางท่าเป็นชื่อภาษาอังกฤษ"</p>';
+  }
+  coachState.messages.forEach(function(m){
+    html += '<div class="coach-msg '+esc(m.role)+'"><div class="coach-bubble">'+esc(m.text)+'</div></div>';
+  });
+  if(coachState.busy){
+    html += '<div class="coach-msg assistant"><div class="coach-bubble">กำลังพิมพ์...</div></div>';
+  }
+  html += '</div>';
+
+  if(coachState.error){
+    html += '<div class="note warn" style="margin-top:10px"><p>'+esc(coachState.error)+'</p></div>';
+  }
+
+  html += '<div class="coach-input-row">'+
+    '<input type="text" id="coachInput" placeholder="พิมพ์คำถาม..." maxlength="500" '+(coachState.busy?'disabled':'')+'>'+
+    '<button type="button" class="btn primary" data-act="coach-ask" '+(coachState.busy?'disabled':'')+'>ถาม</button>'+
+  '</div>';
+
+  document.getElementById("page").innerHTML = html;
+  var input = document.getElementById('coachInput');
+  if(input) input.focus();
+}
+
+function coachAsk(){
+  var input = document.getElementById('coachInput');
+  var q = input ? input.value.trim() : '';
+  if(!q || coachState.busy) return;
+  coachState.messages.push({role:'user', text:q});
+  coachState.busy = true; coachState.error = null;
+  render();
+  var token = (auth.session && auth.session.access_token) || '';
+  fetch('/api/coach', {
+    method: 'POST',
+    headers: {'content-type':'application/json', 'Authorization':'Bearer '+token},
+    body: JSON.stringify({question:q})
+  }).then(function(res){
+    return res.json().catch(function(){ return {}; }).then(function(data){ return {ok:res.ok, data:data}; });
+  }).then(function(r){
+    coachState.busy = false;
+    if(r.ok) coachState.messages.push({role:'assistant', text:r.data.answer||'(ไม่มีคำตอบ)'});
+    else coachState.error = (r.data && r.data.error) || 'เกิดข้อผิดพลาด ลองใหม่อีกครั้ง';
+    render();
+  }).catch(function(e){
+    coachState.busy = false;
+    coachState.error = 'เชื่อมต่อไม่สำเร็จ: '+(e && e.message ? e.message : e);
+    render();
+  });
+}
+
 /* ---------- หน้า: แผนของฉัน ---------- */
 function renderPlan(){
   var p = track.program, t = targetsOf(p);
@@ -1971,6 +2039,7 @@ function render(toTop){
   else if(view==='schedule') renderSchedule();
   else if(view==='progress') renderProgress();
   else if(view==='plan') renderPlan();
+  else if(view==='coach') renderCoach();
   restoreFocus(f);
   if(toTop) window.scrollTo({top:0, behavior:"auto"});
 }
@@ -2039,6 +2108,7 @@ document.addEventListener("click", function(ev){
     return;
   }
   if(act==='auth-signout'){ GymBroSync.signOut(); return; } // onAuthChange จะเคลียร์ auth.session + render ให้เอง
+  if(act==='coach-ask'){ coachAsk(); return; }
   if(act==='nav'){ if(el.disabled) return; goto(el.getAttribute('data-view')); return; }
   if(act==='tab'){ track.schedTab = el.getAttribute('data-tab'); track.openDate=null; render(); return; }
   if(act==='week-prev'){ track.weekStart = fmtDateISO(addDays(parseISO(track.weekStart), -7)); render(); return; }
@@ -2178,6 +2248,11 @@ document.addEventListener("input", function(ev){
   if(!el) return;
   var iso = el.getAttribute('data-date');
   patchExercise(iso, el.getAttribute('data-ex'), {sets: setsFromDom(el.getAttribute('data-ex'), iso)});
+}, false);
+
+/* กด Enter ในช่องถามโค้ชให้ส่งคำถามได้เลย ไม่ต้องกดปุ่มเสมอไป */
+document.addEventListener("keydown", function(ev){
+  if(ev.key==='Enter' && ev.target && ev.target.id==='coachInput'){ ev.preventDefault(); coachAsk(); }
 }, false);
 
 /* ---------- ครั้งแรกหลัง sign in: ดึงข้อมูลจาก Supabase มาแทนของในเครื่อง ถ้ายังไม่เคย

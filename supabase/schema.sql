@@ -89,3 +89,40 @@ create trigger trg_body_weights_updated_at before update on public.body_weights
   for each row execute function public.set_updated_at();
 create trigger trg_onboarding_state_updated_at before update on public.onboarding_state
   for each row execute function public.set_updated_at();
+
+-- ------------------------------------------------------------
+-- 5) Coach agent — rate-limit counter (Phase 2, functions/api/coach.js)
+-- คนละ 1 แถวต่อผู้ใช้ต่อวัน เก็บแค่จำนวนคำถามที่ถามไปแล้ว ไม่เก็บเนื้อหาคำถาม/คำตอบ
+-- เหตุผลที่ต้องมีตารางนี้: ทุกคำถามคือการเรียก Claude API ที่มีค่าใช้จ่ายจริง —
+-- บทเรียนเดียวกับตอนเจอ Supabase email rate limit ตอนทำระบบ auth (ดู
+-- D:\Obsidian\coach-knowledge\ และ wiki/concepts/auth-provider-tradeoffs.md)
+-- ------------------------------------------------------------
+create table if not exists public.coach_usage (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  usage_date date not null default current_date,
+  count integer not null default 0,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, usage_date)
+);
+alter table public.coach_usage enable row level security;
+create policy "own rows only" on public.coach_usage
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- เพิ่มค่า count ของวันนี้แบบ atomic แล้วคืนค่าใหม่ทันที (กัน race condition ถ้ายิง
+-- คำถามพร้อมกันหลายแท็บ) — ตั้งใจไม่รับ user_id เป็นพารามิเตอร์ แต่ใช้ auth.uid()
+-- จาก JWT ของผู้เรียกโดยตรงเท่านั้น ป้องกันไม่ให้ผู้ใช้คนหนึ่งส่ง user_id ของคนอื่นมา
+-- เพิ่มโควตาแทนกันได้ (สำคัญเพราะฟังก์ชันนี้เป็น security definer ข้าม RLS ได้)
+create or replace function public.increment_coach_usage()
+returns integer
+language sql
+security definer
+set search_path = public
+as $$
+  insert into public.coach_usage (user_id, usage_date, count, updated_at)
+  values (auth.uid(), current_date, 1, now())
+  on conflict (user_id, usage_date)
+  do update set count = public.coach_usage.count + 1, updated_at = now()
+  returning count;
+$$;
+
+grant execute on function public.increment_coach_usage() to authenticated;

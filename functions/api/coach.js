@@ -216,7 +216,15 @@ export async function onRequestPost(context){
     return jsonError('ผู้ช่วยตอบไม่สำเร็จ (' + claudeRes.status + ')', 502);
   }
   var data = await claudeRes.json();
-  var answer = (data.content && data.content[0] && data.content[0].text) || '';
+  // รวมทุก text block เข้าด้วยกัน (ทนทานกว่าอ่านแค่ content[0]) เผื่อโมเดลคืนหลาย block
+  var answer = '';
+  if(data.content && Array.isArray(data.content)){
+    answer = data.content.filter(function(b){ return b && b.type==='text'; })
+      .map(function(b){ return b.text || ''; }).join('').trim();
+  }
+  if(!answer){
+    console.error('Empty answer from Claude. stop_reason=' + data.stop_reason + ' content=' + JSON.stringify(data.content));
+  }
   return jsonResponse({answer: answer});
 }
 

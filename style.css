@@ -542,6 +542,7 @@ table.bench tr.hit td{background:var(--accent-soft); font-weight:700; color:var(
 }
 .demo-yt:hover{background:var(--accent-hover);}
 .demo-yt-ic{font-size:11px;}
+.demo-yt-credit{font-size:11px; color:var(--text-4); text-align:center; margin-top:6px; line-height:1.5;}
 .demo-note{
   margin-top:12px; font-size:12px; line-height:1.6; color:var(--branch-ink);
   background:var(--branch-soft); border:1px solid var(--branch-line); border-radius:var(--r-md); padding:10px 12px;

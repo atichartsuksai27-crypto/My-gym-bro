@@ -211,7 +211,9 @@ var QUESTIONS = [
 var EXERCISES = [
   {id:'sq1',pattern:'squat',tier:1,equip:'bodyweight',th:'Bodyweight Squat',sub:'สควอทน้ำหนักตัว'},
   {id:'sq2',pattern:'squat',tier:2,equip:'dumbbell',th:'Goblet Squat',sub:'สควอทถือดัมเบล'},
-  {id:'sq3',pattern:'squat',tier:3,equip:'machine',th:'Leg Press Machine',sub:'เครื่องเลกเพรส'},
+  {id:'sq3',pattern:'squat',tier:3,equip:'machine',th:'45-Degree Leg Press',sub:'เลกเพรสมุมเอียง 45 องศา (แบบที่พบบ่อยที่สุดในยิม)'},
+  {id:'sq3c',pattern:'squat',tier:3,equip:'machine',th:'Horizontal Leg Press',sub:'เลกเพรสแนวนอน (นั่งดันไปข้างหน้า)'},
+  {id:'sq3d',pattern:'squat',tier:3,equip:'machine',th:'Vertical Leg Press',sub:'เลกเพรสแนวตั้ง (นอนหงายดันขึ้นเหนือตัว)'},
   {id:'sq3b',pattern:'squat',tier:3,equip:'stepper',th:'Step-up',sub:'ก้าวขึ้น-ลงสเต็ปเปอร์ (ทางเลือกที่บ้านแทนเครื่องเลกเพรส)'},
   {id:'sq4',pattern:'squat',tier:4,equip:'barbell',th:'Barbell Back Squat',sub:'สควอทบาร์เบล'},
 
@@ -287,7 +289,7 @@ var PATTERN_SHORT = {
 };
 
 var EXCLUSION_MAP = {
-  'เข่า':['sq3','sq4','sq3b'], // sq3b (Step-up) โหลดเข่าข้างเดียวหนักไม่ต่างจาก sq3/sq4
+  'เข่า':['sq3','sq3c','sq3d','sq4','sq3b'], // เลกเพรสทุกมุมเอียง (sq3/sq3c/sq3d) + sq3b (Step-up) โหลดเข่าหนักไม่ต่างกัน
   'ไหล่':['vp3','vp4','tc3','tc4'],
   'หลัง':['hg3','hg4','bc4','hg3b','co3b'], // hg3b ท่าเดียวกับ hg3 แค่เปลี่ยนอุปกรณ์ / co3b (Ab Wheel) โหลดหลังส่วนล่างมากถ้าคุมฟอร์มไม่ดี
   'ข้อมือ':['hp2a','hp3','hp4','bc4','tc4'],
@@ -1830,23 +1832,43 @@ function summaryHTML(){
   return html;
 }
 
+/* คลิปที่ตรวจสอบแล้วด้วยมือทีละคลิปจริง (เปิดเบราว์เซอร์เข้า YouTube กรองด้วยตัวกรอง
+   "Creative Commons" ของ YouTube เอง แล้วเปิดเข้าไปอ่านหน้า License ของคลิปนั้น
+   ยืนยันด้วยตาว่าขึ้น "Creative Commons Attribution license (reuse allowed)" จริง
+   ก่อนเอา id มาใส่ที่นี่) — ผูกกับ "รหัสท่า" (id ใน EXERCISES) ไม่ใช่ pattern เพราะ
+   ความถูกต้องของฟอร์มขึ้นกับท่าที่เจาะจง ไม่ใช่แค่กลุ่มการเคลื่อนไหว
+   ห้ามเติม id ใหม่ในนี้โดยไม่ได้ตรวจ License หน้าคลิปจริงก่อนทุกครั้ง — ห้ามเดา
+   ท่าไหนไม่มีอยู่ในนี้ = ยังไม่ได้ตรวจ ให้ตกไปใช้ลิงก์ค้นหา YouTube ตามปกติ (ปลอดภัยกว่า) */
+var VERIFIED_YT = {
+  sq3: {id:'M_xoJ0iRLFc', title:'How to LEG PRESS for Glutes | Improve Your Technique & Grow More Muscle', channel:'Physique Development'}
+};
+
 /* ปุ่มชื่อท่าที่กดดูภาพเคลื่อนไหวได้ — ใช้ทั้งท่าที่เลือกอยู่และท่าทางเลือกในหน้าตรวจแผน
-   ส่ง pattern/th/sub ผ่าน data-attr (esc เสมอ ป้องกันอักขระพิเศษทำ markup พัง) */
-function demoBtnHTML(pattern, th, sub, tierBadgeHtml, extraClass){
+   ส่ง exId/pattern/th/sub ผ่าน data-attr (esc เสมอ ป้องกันอักขระพิเศษทำ markup พัง) */
+function demoBtnHTML(exId, pattern, th, sub, tierBadgeHtml, extraClass){
   var cls = 'ex-demo-btn' + (extraClass ? ' '+extraClass : '');
-  return '<button type="button" class="'+cls+'" data-act="demo" data-pattern="'+esc(pattern)+'" data-th="'+esc(th)+'" data-sub="'+esc(sub||'')+'">'+
+  return '<button type="button" class="'+cls+'" data-act="demo" data-exid="'+esc(exId)+'" data-pattern="'+esc(pattern)+'" data-th="'+esc(th)+'" data-sub="'+esc(sub||'')+'">'+
     esc(th)+' '+(tierBadgeHtml||'')+' <span class="demo-ic" aria-hidden="true">▶ ดูท่า</span></button>';
 }
 
 /* โมดัลภาพเคลื่อนไหว — เปิดจาก track.demoExercise (set โดย action 'demo')
    ภาพมาจาก GymBroExerciseAnim ต่อ pattern ถ้าไม่มีก็บอกตรงๆ ว่ายังไม่มี ไม่เดา
-   มีข้อความกำกับเสมอว่านี่คือ "ลักษณะการเคลื่อนไหว" ไม่ใช่คู่มือฟอร์มเป๊ะรายท่า */
+   มีข้อความกำกับเสมอว่านี่คือ "ลักษณะการเคลื่อนไหว" ไม่ใช่คู่มือฟอร์มเป๊ะรายท่า
+   ลิงก์ YouTube: ถ้าท่านี้มีคลิปที่ตรวจสอบแล้วใน VERIFIED_YT ลิงก์ตรงไปคลิปนั้นเลย
+   (Creative Commons ยืนยันแล้ว) ไม่งั้น fallback ไปหน้าค้นหา YouTube ตามชื่อท่า */
 function demoModalHTML(){
   var d = track.demoExercise;
   if(!d) return '';
   var svg = (typeof GymBroExerciseAnim!=='undefined') ? GymBroExerciseAnim.svgFor(d.pattern) : null;
   var animBlock = svg ? '<div class="demo-anim">'+svg+'</div>'
     : '<div class="demo-anim demo-anim-empty"><p class="hint">ยังไม่มีภาพเคลื่อนไหวสำหรับกลุ่มท่านี้</p></div>';
+  var verified = VERIFIED_YT[d.exId];
+  var ytHtml = verified
+    ? '<a class="demo-yt" href="https://www.youtube.com/watch?v='+esc(verified.id)+'" target="_blank" rel="noopener noreferrer">'+
+        '<span class="demo-yt-ic" aria-hidden="true">▶</span> ดูคลิปสอนท่านี้บน YouTube</a>'+
+      '<div class="demo-yt-credit">คลิปตรวจสอบแล้ว (Creative Commons) — "'+esc(verified.title)+'" โดย '+esc(verified.channel)+'</div>'
+    : '<a class="demo-yt" href="https://www.youtube.com/results?search_query='+encodeURIComponent(d.th+' how to form')+'" target="_blank" rel="noopener noreferrer">'+
+        '<span class="demo-yt-ic" aria-hidden="true">▶</span> ค้นหาคลิปสอนท่านี้บน YouTube</a>';
   return '<div class="demo-overlay" data-act="demo-close">'+
     '<div class="demo-modal" role="dialog" aria-modal="true" data-act="demo-stop">'+
       '<button type="button" class="demo-x" data-act="demo-close" aria-label="ปิด">✕</button>'+
@@ -1854,8 +1876,7 @@ function demoModalHTML(){
       '<div class="demo-pattern">'+esc(PATTERN_LABEL[d.pattern]||d.pattern)+'</div>'+
       animBlock+
       (d.sub ? '<div class="demo-sub">'+esc(d.sub)+'</div>' : '')+
-      '<a class="demo-yt" href="https://www.youtube.com/results?search_query='+encodeURIComponent(d.th+' how to form')+'" target="_blank" rel="noopener noreferrer">'+
-        '<span class="demo-yt-ic" aria-hidden="true">▶</span> ดูคลิปสอนท่านี้บน YouTube</a>'+
+      ytHtml+
       '<div class="demo-note">ℹ️ ภาพเคลื่อนไหวด้านบนแสดง<b>ลักษณะการเคลื่อนไหวโดยรวม</b>ของกลุ่มท่านี้ ไม่ใช่คู่มือฟอร์มที่ถูกต้องเป๊ะรายท่า — กดปุ่มด้านบนเพื่อดูคลิปสอนจริงบน YouTube หรือปรึกษาเทรนเนอร์อีกครั้งก่อนทำจริง</div>'+
     '</div></div>';
 }
@@ -1915,7 +1936,7 @@ function resultsHTML(){
     var alts = sel.all.filter(function(e){return e.id!==sel.picked.id;});
     var altsHtml = alts.map(function(x){
       var pickedThis = state.plan.manualPick[pattern]===x.id;
-      var nameBtn = demoBtnHTML(pattern, x.th, x.sub, tierBadge(x.tier));
+      var nameBtn = demoBtnHTML(x.id, pattern, x.th, x.sub, tierBadge(x.tier));
       if(x.locked){
         return '<div class="swap-opt locked"><div>'+nameBtn+'<div class="lockmsg">ล็อกอยู่ — เนื่องจากอาการที่ '+x.lockedBy.join(', ')+' ที่คุณแจ้งไว้</div></div>'+
           '<button type="button" data-act="unlock" data-unlock="'+x.id+'" data-pattern="'+pattern+'">แจ้งว่าหายแล้ว</button></div>';
@@ -1927,7 +1948,7 @@ function resultsHTML(){
         '<button type="button" data-act="swap" data-swap="'+x.id+'" data-pattern="'+pattern+'">เลือกท่านี้แทน</button></div>';
     }).join('');
     return '<div class="ex-row"><div class="ex-row-top"><div><div class="ex-pattern">'+PATTERN_LABEL[pattern]+'</div>'+
-      demoBtnHTML(pattern, sel.picked.th, sel.picked.sub, tierBadge(sel.picked.tier), 'ex-name')+
+      demoBtnHTML(sel.picked.id, pattern, sel.picked.th, sel.picked.sub, tierBadge(sel.picked.tier), 'ex-name')+
       '<div class="ex-sub">'+sel.picked.sub+'</div></div>'+
       '<div class="ex-meta"><span class="ex-sets mono">'+setsReps+'</span>'+
       '<button type="button" class="swap-toggle" data-act="swap-toggle" data-pattern="'+pattern+'">สลับท่า ▾</button></div></div>'+
@@ -2248,7 +2269,7 @@ document.addEventListener("click", function(ev){
   if(act==='split'){ if(el.disabled) return; state.plan.splitOverride = el.getAttribute('data-split'); state.plan.manualPick={}; persist(); render(); return; }
   if(act==='split-auto'){ state.plan.splitOverride=null; state.plan.manualPick={}; persist(); render(); return; }
   if(act==='swap-toggle'){ var pt=el.getAttribute('data-pattern'); track.openSwap = (track.openSwap===pt? null : pt); render(); return; }
-  if(act==='demo'){ track.demoExercise = {pattern:el.getAttribute('data-pattern'), th:el.getAttribute('data-th'), sub:el.getAttribute('data-sub')}; render(); return; }
+  if(act==='demo'){ track.demoExercise = {exId:el.getAttribute('data-exid'), pattern:el.getAttribute('data-pattern'), th:el.getAttribute('data-th'), sub:el.getAttribute('data-sub')}; render(); return; }
   if(act==='demo-stop'){ return; } // คลิกภายในโมดัลไม่ปิด (กันคลิกทะลุไป backdrop)
   if(act==='demo-close'){ track.demoExercise = null; render(); return; }
   if(act==='swap'){ state.plan.manualPick[el.getAttribute('data-pattern')] = el.getAttribute('data-swap'); persist(); render(); return; }

@@ -700,7 +700,8 @@ var track = {
   weights: lsGet("gymbro_weights", {}),
   viewMonth:null, weekStart:null,
   openDate:null, openSets:{}, saveStatus:'', openSwap:null,
-  schedTab:'week', editing:false, progressEx:null, openBench:{}, sleepHoursError:{}
+  schedTab:'week', editing:false, progressEx:null, openBench:{}, sleepHoursError:{},
+  demoExercise:null // โมดัลภาพเคลื่อนไหวท่าในหน้าตรวจแผน (null = ปิด)
 };
 function persistProgram(){
   var ok = lsSet("gymbro_program", track.program);
@@ -1829,6 +1830,34 @@ function summaryHTML(){
   return html;
 }
 
+/* ปุ่มชื่อท่าที่กดดูภาพเคลื่อนไหวได้ — ใช้ทั้งท่าที่เลือกอยู่และท่าทางเลือกในหน้าตรวจแผน
+   ส่ง pattern/th/sub ผ่าน data-attr (esc เสมอ ป้องกันอักขระพิเศษทำ markup พัง) */
+function demoBtnHTML(pattern, th, sub, tierBadgeHtml, extraClass){
+  var cls = 'ex-demo-btn' + (extraClass ? ' '+extraClass : '');
+  return '<button type="button" class="'+cls+'" data-act="demo" data-pattern="'+esc(pattern)+'" data-th="'+esc(th)+'" data-sub="'+esc(sub||'')+'">'+
+    esc(th)+' '+(tierBadgeHtml||'')+' <span class="demo-ic" aria-hidden="true">▶ ดูท่า</span></button>';
+}
+
+/* โมดัลภาพเคลื่อนไหว — เปิดจาก track.demoExercise (set โดย action 'demo')
+   ภาพมาจาก GymBroExerciseAnim ต่อ pattern ถ้าไม่มีก็บอกตรงๆ ว่ายังไม่มี ไม่เดา
+   มีข้อความกำกับเสมอว่านี่คือ "ลักษณะการเคลื่อนไหว" ไม่ใช่คู่มือฟอร์มเป๊ะรายท่า */
+function demoModalHTML(){
+  var d = track.demoExercise;
+  if(!d) return '';
+  var svg = (typeof GymBroExerciseAnim!=='undefined') ? GymBroExerciseAnim.svgFor(d.pattern) : null;
+  var animBlock = svg ? '<div class="demo-anim">'+svg+'</div>'
+    : '<div class="demo-anim demo-anim-empty"><p class="hint">ยังไม่มีภาพเคลื่อนไหวสำหรับกลุ่มท่านี้</p></div>';
+  return '<div class="demo-overlay" data-act="demo-close">'+
+    '<div class="demo-modal" role="dialog" aria-modal="true" data-act="demo-stop">'+
+      '<button type="button" class="demo-x" data-act="demo-close" aria-label="ปิด">✕</button>'+
+      '<div class="demo-title">'+esc(d.th)+'</div>'+
+      '<div class="demo-pattern">'+esc(PATTERN_LABEL[d.pattern]||d.pattern)+'</div>'+
+      animBlock+
+      (d.sub ? '<div class="demo-sub">'+esc(d.sub)+'</div>' : '')+
+      '<div class="demo-note">ℹ️ ภาพนี้แสดง<b>ลักษณะการเคลื่อนไหวโดยรวม</b>ของกลุ่มท่านี้ ไม่ใช่คู่มือฟอร์มที่ถูกต้องเป๊ะรายท่า — โปรดดูฟอร์มจริงกับเทรนเนอร์หรือคลิปสอนที่น่าเชื่อถืออีกครั้งก่อนทำจริง</div>'+
+    '</div></div>';
+}
+
 function resultsHTML(){
   var a = state.answers;
   var t = computeTargets(a);
@@ -1884,18 +1913,19 @@ function resultsHTML(){
     var alts = sel.all.filter(function(e){return e.id!==sel.picked.id;});
     var altsHtml = alts.map(function(x){
       var pickedThis = state.plan.manualPick[pattern]===x.id;
+      var nameBtn = demoBtnHTML(pattern, x.th, x.sub, tierBadge(x.tier));
       if(x.locked){
-        return '<div class="swap-opt locked"><div><div>'+x.th+' '+tierBadge(x.tier)+'</div><div class="lockmsg">ล็อกอยู่ — เนื่องจากอาการที่ '+x.lockedBy.join(', ')+' ที่คุณแจ้งไว้</div></div>'+
+        return '<div class="swap-opt locked"><div>'+nameBtn+'<div class="lockmsg">ล็อกอยู่ — เนื่องจากอาการที่ '+x.lockedBy.join(', ')+' ที่คุณแจ้งไว้</div></div>'+
           '<button type="button" data-act="unlock" data-unlock="'+x.id+'" data-pattern="'+pattern+'">แจ้งว่าหายแล้ว</button></div>';
       }
       if(!x.equipOk){
-        return '<div class="swap-opt locked"><div><div>'+x.th+' '+tierBadge(x.tier)+'</div><div class="lockmsg">ต้องใช้อุปกรณ์ที่ยิมนี้ไม่มีตามที่แจ้งไว้</div></div></div>';
+        return '<div class="swap-opt locked"><div>'+nameBtn+'<div class="lockmsg">ต้องใช้อุปกรณ์ที่ยิมนี้ไม่มีตามที่แจ้งไว้</div></div></div>';
       }
-      return '<div class="swap-opt'+(pickedThis?' picked':'')+'"><div>'+x.th+' '+tierBadge(x.tier)+'</div>'+
+      return '<div class="swap-opt'+(pickedThis?' picked':'')+'">'+nameBtn+
         '<button type="button" data-act="swap" data-swap="'+x.id+'" data-pattern="'+pattern+'">เลือกท่านี้แทน</button></div>';
     }).join('');
     return '<div class="ex-row"><div class="ex-row-top"><div><div class="ex-pattern">'+PATTERN_LABEL[pattern]+'</div>'+
-      '<div class="ex-name">'+sel.picked.th+' '+tierBadge(sel.picked.tier)+'</div>'+
+      demoBtnHTML(pattern, sel.picked.th, sel.picked.sub, tierBadge(sel.picked.tier), 'ex-name')+
       '<div class="ex-sub">'+sel.picked.sub+'</div></div>'+
       '<div class="ex-meta"><span class="ex-sets mono">'+setsReps+'</span>'+
       '<button type="button" class="swap-toggle" data-act="swap-toggle" data-pattern="'+pattern+'">สลับท่า ▾</button></div></div>'+
@@ -1958,7 +1988,7 @@ function resultsHTML(){
       '<div class="sum-actions"><button type="button" class="btn primary" data-act="edit-start">'+(track.program?'บันทึกแผนใหม่ (ตั้งวันเริ่ม) →':'เริ่มโปรแกรม →')+'</button>'+
       '<button type="button" class="btn ghost" data-act="back-summary">← กลับไปหน้าสรุปคำตอบ</button>'+
       (track.program? '<button type="button" class="btn ghost" data-act="exit-edit">ยกเลิก กลับไปแอป</button>':'')+'</div>')+
-    '</div>';
+    '</div>' + demoModalHTML();
 }
 
 function renderOnboarding(){
@@ -2216,6 +2246,9 @@ document.addEventListener("click", function(ev){
   if(act==='split'){ if(el.disabled) return; state.plan.splitOverride = el.getAttribute('data-split'); state.plan.manualPick={}; persist(); render(); return; }
   if(act==='split-auto'){ state.plan.splitOverride=null; state.plan.manualPick={}; persist(); render(); return; }
   if(act==='swap-toggle'){ var pt=el.getAttribute('data-pattern'); track.openSwap = (track.openSwap===pt? null : pt); render(); return; }
+  if(act==='demo'){ track.demoExercise = {pattern:el.getAttribute('data-pattern'), th:el.getAttribute('data-th'), sub:el.getAttribute('data-sub')}; render(); return; }
+  if(act==='demo-stop'){ return; } // คลิกภายในโมดัลไม่ปิด (กันคลิกทะลุไป backdrop)
+  if(act==='demo-close'){ track.demoExercise = null; render(); return; }
   if(act==='swap'){ state.plan.manualPick[el.getAttribute('data-pattern')] = el.getAttribute('data-swap'); persist(); render(); return; }
   if(act==='unlock'){
     var pat = el.getAttribute('data-pattern');
@@ -2261,9 +2294,11 @@ document.addEventListener("input", function(ev){
   patchExercise(iso, el.getAttribute('data-ex'), {sets: setsFromDom(el.getAttribute('data-ex'), iso)});
 }, false);
 
-/* กด Enter ในช่องถามโค้ชให้ส่งคำถามได้เลย ไม่ต้องกดปุ่มเสมอไป */
+/* กด Enter ในช่องถามโค้ชให้ส่งคำถามได้เลย ไม่ต้องกดปุ่มเสมอไป
+   กด Escape ปิดโมดัลภาพเคลื่อนไหวท่า (ถ้าเปิดอยู่) */
 document.addEventListener("keydown", function(ev){
-  if(ev.key==='Enter' && ev.target && ev.target.id==='coachInput'){ ev.preventDefault(); coachAsk(); }
+  if(ev.key==='Enter' && ev.target && ev.target.id==='coachInput'){ ev.preventDefault(); coachAsk(); return; }
+  if(ev.key==='Escape' && track.demoExercise){ track.demoExercise = null; render(); }
 }, false);
 
 /* ---------- ครั้งแรกหลัง sign in: ดึงข้อมูลจาก Supabase มาแทนของในเครื่อง ถ้ายังไม่เคย

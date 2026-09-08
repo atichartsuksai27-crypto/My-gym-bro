@@ -496,3 +496,49 @@ table.bench tr.hit td{background:var(--accent-soft); font-weight:700; color:var(
 .coach-msg.assistant .coach-bubble{background:var(--surface-2); color:var(--text); border:1px solid var(--border);}
 .coach-input-row{display:flex; gap:10px; margin-top:14px;}
 .coach-input-row input{flex:1;}
+
+/* ---------- ปุ่มชื่อท่า (กดดูภาพเคลื่อนไหว) + โมดัล ---------- */
+.ex-demo-btn{
+  background:none; border:none; padding:0; cursor:pointer; text-align:left;
+  color:var(--text); font-weight:600; display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap;
+}
+.ex-demo-btn.ex-name{font-size:15px;}
+.ex-demo-btn:hover{color:var(--accent);}
+.ex-demo-btn .demo-ic{
+  font-size:10px; font-weight:700; color:var(--accent);
+  border:1px solid var(--accent-line); background:var(--accent-soft);
+  border-radius:999px; padding:1px 8px; white-space:nowrap;
+}
+.swap-opt .ex-demo-btn{font-weight:500; font-size:13.5px;}
+
+.demo-overlay{
+  position:fixed; inset:0; z-index:100; background:rgba(0,0,0,.55);
+  display:flex; align-items:center; justify-content:center; padding:20px;
+}
+.demo-modal{
+  position:relative; background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--r-lg); padding:22px; max-width:380px; width:100%;
+  max-height:90vh; overflow-y:auto; box-shadow:0 12px 40px rgba(0,0,0,.3);
+}
+.demo-x{
+  position:absolute; top:10px; right:10px; width:32px; height:32px; border-radius:var(--r-sm);
+  border:1px solid var(--border); background:var(--surface); cursor:pointer; color:var(--text-2); font-size:15px;
+}
+.demo-x:hover{border-color:var(--accent); color:var(--accent);}
+.demo-title{font-size:18px; font-weight:700; padding-right:36px;}
+.demo-pattern{font-size:12px; color:var(--text-3); margin-top:2px;}
+.demo-anim{
+  margin:14px 0; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--r-md);
+  display:flex; align-items:center; justify-content:center; padding:10px; color:var(--accent);
+}
+.demo-anim .move-anim{width:180px; height:180px; display:block;}
+.demo-anim-empty{min-height:120px; color:var(--text-4);}
+.demo-sub{font-size:13.5px; color:var(--text-2); line-height:1.6;}
+.demo-note{
+  margin-top:12px; font-size:12px; line-height:1.6; color:var(--branch-ink);
+  background:var(--branch-soft); border:1px solid var(--branch-line); border-radius:var(--r-md); padding:10px 12px;
+}
+.demo-note b{color:var(--branch);}
+@media (prefers-reduced-motion: reduce){
+  .move-anim *{animation:none !important;}
+}

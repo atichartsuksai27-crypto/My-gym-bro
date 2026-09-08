@@ -534,6 +534,14 @@ table.bench tr.hit td{background:var(--accent-soft); font-weight:700; color:var(
 .demo-anim .move-anim{width:180px; height:180px; display:block;}
 .demo-anim-empty{min-height:120px; color:var(--text-4);}
 .demo-sub{font-size:13.5px; color:var(--text-2); line-height:1.6;}
+.demo-yt{
+  display:flex; align-items:center; justify-content:center; gap:8px; margin-top:14px;
+  text-decoration:none; font-weight:600; font-size:14px;
+  background:var(--accent); color:var(--accent-ink);
+  border-radius:var(--r-sm); padding:11px 14px;
+}
+.demo-yt:hover{background:var(--accent-hover);}
+.demo-yt-ic{font-size:11px;}
 .demo-note{
   margin-top:12px; font-size:12px; line-height:1.6; color:var(--branch-ink);
   background:var(--branch-soft); border:1px solid var(--branch-line); border-radius:var(--r-md); padding:10px 12px;

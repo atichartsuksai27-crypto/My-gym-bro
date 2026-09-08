@@ -1854,7 +1854,9 @@ function demoModalHTML(){
       '<div class="demo-pattern">'+esc(PATTERN_LABEL[d.pattern]||d.pattern)+'</div>'+
       animBlock+
       (d.sub ? '<div class="demo-sub">'+esc(d.sub)+'</div>' : '')+
-      '<div class="demo-note">ℹ️ ภาพนี้แสดง<b>ลักษณะการเคลื่อนไหวโดยรวม</b>ของกลุ่มท่านี้ ไม่ใช่คู่มือฟอร์มที่ถูกต้องเป๊ะรายท่า — โปรดดูฟอร์มจริงกับเทรนเนอร์หรือคลิปสอนที่น่าเชื่อถืออีกครั้งก่อนทำจริง</div>'+
+      '<a class="demo-yt" href="https://www.youtube.com/results?search_query='+encodeURIComponent(d.th+' how to form')+'" target="_blank" rel="noopener noreferrer">'+
+        '<span class="demo-yt-ic" aria-hidden="true">▶</span> ดูคลิปสอนท่านี้บน YouTube</a>'+
+      '<div class="demo-note">ℹ️ ภาพเคลื่อนไหวด้านบนแสดง<b>ลักษณะการเคลื่อนไหวโดยรวม</b>ของกลุ่มท่านี้ ไม่ใช่คู่มือฟอร์มที่ถูกต้องเป๊ะรายท่า — กดปุ่มด้านบนเพื่อดูคลิปสอนจริงบน YouTube หรือปรึกษาเทรนเนอร์อีกครั้งก่อนทำจริง</div>'+
     '</div></div>';
 }
 

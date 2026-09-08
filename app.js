@@ -143,7 +143,8 @@ var QUESTIONS = [
     options:["ที่บ้าน","ฟิตเนส-ยิม","กลางแจ้ง-สวนสาธารณะ","ผสมผสาน"], visible:function(){return true;}},
   {id:"Q21", cat:4, kind:"multi", main:false, branchFrom:"Q20 = ที่บ้าน / ผสมผสาน",
     label:"มีอุปกรณ์อะไรบ้าง?", note:"multi-select",
-    options:["ดัมเบล","บาร์เบล","ยางยืด","ม้านั่ง","บาร์โหน","ไม่มีอุปกรณ์เลย"],
+    options:["ดัมเบล","บาร์เบล","ยางยืด","ม้านั่ง","บาร์โหน","สเต็ปเปอร์","ลูกบอลโยคะ",
+      "ลูกกลิ้งบริหารหน้าท้อง","เชือกกระโดด","ฮูลาฮูป","เสื่อโยคะ","ไม่มีอุปกรณ์เลย"],
     exclusiveOption:"ไม่มีอุปกรณ์เลย", // N-01: เลือกตัวนี้แล้วต้องเลือกอุปกรณ์อื่นพร้อมกันไม่ได้
     visible:function(a){return a.Q20==="ที่บ้าน"||a.Q20==="ผสมผสาน";}},
   {id:"Q22", cat:4, kind:"single", main:false, branchFrom:"Q20 = ฟิตเนส-ยิม / ผสมผสาน",
@@ -211,11 +212,13 @@ var EXERCISES = [
   {id:'sq1',pattern:'squat',tier:1,equip:'bodyweight',th:'Bodyweight Squat',sub:'สควอทน้ำหนักตัว'},
   {id:'sq2',pattern:'squat',tier:2,equip:'dumbbell',th:'Goblet Squat',sub:'สควอทถือดัมเบล'},
   {id:'sq3',pattern:'squat',tier:3,equip:'machine',th:'Leg Press Machine',sub:'เครื่องเลกเพรส'},
+  {id:'sq3b',pattern:'squat',tier:3,equip:'stepper',th:'Step-up',sub:'ก้าวขึ้น-ลงสเต็ปเปอร์ (ทางเลือกที่บ้านแทนเครื่องเลกเพรส)'},
   {id:'sq4',pattern:'squat',tier:4,equip:'barbell',th:'Barbell Back Squat',sub:'สควอทบาร์เบล'},
 
   {id:'hg1',pattern:'hinge',tier:1,equip:'bodyweight',th:'Glute Bridge',sub:'สะพานสะโพก'},
   {id:'hg2',pattern:'hinge',tier:2,equip:'dumbbell',th:'Romanian Deadlift (Dumbbell)',sub:'RDL ดัมเบล'},
   {id:'hg3',pattern:'hinge',tier:3,equip:'machine',th:'Hip Thrust Machine',sub:'เครื่องฮิปทรัสต์'},
+  {id:'hg3b',pattern:'hinge',tier:3,equip:'yogaball',th:'Stability Ball Hip Thrust',sub:'สะพานสะโพกบนลูกบอลโยคะ (ทางเลือกที่บ้านแทนเครื่องฮิปทรัสต์)'},
   {id:'hg4',pattern:'hinge',tier:4,equip:'barbell',th:'Barbell Deadlift',sub:'เดดลิฟต์บาร์เบล'},
 
   {id:'hp1',pattern:'hpush',tier:1,equip:'bodyweight',th:'Wall Push-up',sub:'พุชอัพกำแพง'},
@@ -244,6 +247,7 @@ var EXERCISES = [
   {id:'co1',pattern:'core',tier:1,equip:'bodyweight',th:'Plank',sub:'แพลงก์'},
   {id:'co2',pattern:'core',tier:2,equip:'bodyweight',th:'Dead Bug',sub:'เดดบั๊ก'},
   {id:'co3',pattern:'core',tier:3,equip:'cable',th:'Cable Woodchopper',sub:'วู้ดช็อปเปอร์เคเบิล'},
+  {id:'co3b',pattern:'core',tier:3,equip:'abroller',th:'Ab Wheel Rollout',sub:'ล้อโรลหน้าท้อง (ทางเลือกที่บ้านแทนวู้ดช็อปเปอร์เคเบิล)'},
   {id:'co4',pattern:'core',tier:4,equip:'pullupbar',th:'Hanging Leg Raise',sub:'ยกขาห้อยตัว (ต้องมีบาร์โหน)'},
 
   {id:'bc1',pattern:'biceps',tier:1,equip:'cable',th:'Cable Curl (น้ำหนักเบา)',sub:'ดึงเคเบิลกล้ามแขนหน้าเบา'},
@@ -283,9 +287,9 @@ var PATTERN_SHORT = {
 };
 
 var EXCLUSION_MAP = {
-  'เข่า':['sq3','sq4'],
+  'เข่า':['sq3','sq4','sq3b'], // sq3b (Step-up) โหลดเข่าข้างเดียวหนักไม่ต่างจาก sq3/sq4
   'ไหล่':['vp3','vp4','tc3','tc4'],
-  'หลัง':['hg3','hg4','bc4'],
+  'หลัง':['hg3','hg4','bc4','hg3b','co3b'], // hg3b ท่าเดียวกับ hg3 แค่เปลี่ยนอุปกรณ์ / co3b (Ab Wheel) โหลดหลังส่วนล่างมากถ้าคุมฟอร์มไม่ดี
   'ข้อมือ':['hp2a','hp3','hp4','bc4','tc4'],
   'หัวใจ-หลอดเลือด':['sq4','hg4','hp4','vp4','hl4','bc4','tc4']
 };
@@ -529,8 +533,12 @@ function equipAllowed(level){
 }
 /* ที่บ้าน: ต่างจากยิมตรงที่ไม่มีคำถามระดับอุปกรณ์ (Q22) ให้ใช้ — ต้องอ่าน Q21 (รายการ
    อุปกรณ์ที่มีจริง) ตรงๆ แทน ไม่มี default "ครบมาก" แบบยิม เพราะจะเดาเกินจริงว่ามีอุปกรณ์
-   "ยางยืด"/"ม้านั่ง" ยังไม่มี equip type ให้จับคู่ในฐานข้อมูลท่า (ไม่มีท่าไหนต้องใช้) จึงยังไม่
-   มีผลต่อ allowed[] ตอนนี้ — เป็นข้อจำกัดที่รู้อยู่แล้ว ไม่ใช่บั๊ก */
+   "ยางยืด"/"ม้านั่ง"/"เชือกกระโดด"/"ฮูลาฮูป"/"เสื่อโยคะ" ยังไม่มี equip type ให้จับคู่ใน
+   ฐานข้อมูลท่า (เป็นอุปกรณ์คาร์ดิโอ/รองพื้น ไม่ใช่อุปกรณ์เวทเทรนนิ่งที่ตรงกับ pattern ไหน
+   เลย) จึงยังไม่มีผลต่อ allowed[] ตอนนี้ — เป็นข้อจำกัดที่รู้อยู่แล้ว ไม่ใช่บั๊ก
+   "สเต็ปเปอร์"/"ลูกบอลโยคะ"/"ลูกกลิ้งบริหารหน้าท้อง" ผูก equip จริงแล้ว (sq3b/hg3b/co3b) —
+   เติมช่องว่าง tier 3 ของ squat/hinge/core ที่บ้านที่เดิมไม่มีทางไปถึงเลย (tier 3 เดิม
+   ใช้ machine/cable ซึ่งเป็นอุปกรณ์ยิมเท่านั้น) */
 function equipAllowedHome(q21){
   var list = Array.isArray(q21) ? q21 : [];
   var allowed = ['bodyweight'];
@@ -538,6 +546,9 @@ function equipAllowedHome(q21){
   if(list.indexOf('ดัมเบล')>-1) allowed.push('dumbbell');
   if(list.indexOf('บาร์เบล')>-1) allowed.push('barbell');
   if(list.indexOf('บาร์โหน')>-1) allowed.push('pullupbar');
+  if(list.indexOf('สเต็ปเปอร์')>-1) allowed.push('stepper');
+  if(list.indexOf('ลูกบอลโยคะ')>-1) allowed.push('yogaball');
+  if(list.indexOf('ลูกกลิ้งบริหารหน้าท้อง')>-1) allowed.push('abroller');
   return allowed;
 }
 /* จุดเดียวที่ตัดสินว่า pattern ไหนใช้อุปกรณ์ชุดไหนได้ — แยกตามสถานที่ (Q20) ตอนนี้รองรับ

@@ -1,3 +1,8 @@
 node_modules/
 .DS_Store
 Thumbs.db
+
+# Capacitor native shell (mobile/) — www/ ถูก generate จาก npm run sync-web
+# (คัดลอกจากไฟล์เว็บที่รากโปรเจกต์ ไม่ใช่ source of truth) ไม่ commit ของที่ generate ได้
+mobile/node_modules/
+mobile/www/

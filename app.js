@@ -1851,17 +1851,12 @@ function demoBtnHTML(exId, pattern, th, sub, tierBadgeHtml, extraClass){
     esc(th)+' '+(tierBadgeHtml||'')+' <span class="demo-ic" aria-hidden="true">▶ ดูท่า</span></button>';
 }
 
-/* โมดัลภาพเคลื่อนไหว — เปิดจาก track.demoExercise (set โดย action 'demo')
-   ภาพมาจาก GymBroExerciseAnim ต่อ pattern ถ้าไม่มีก็บอกตรงๆ ว่ายังไม่มี ไม่เดา
-   มีข้อความกำกับเสมอว่านี่คือ "ลักษณะการเคลื่อนไหว" ไม่ใช่คู่มือฟอร์มเป๊ะรายท่า
+/* โมดัลรายละเอียดท่า — เปิดจาก track.demoExercise (set โดย action 'demo')
    ลิงก์ YouTube: ถ้าท่านี้มีคลิปที่ตรวจสอบแล้วใน VERIFIED_YT ลิงก์ตรงไปคลิปนั้นเลย
    (Creative Commons ยืนยันแล้ว) ไม่งั้น fallback ไปหน้าค้นหา YouTube ตามชื่อท่า */
 function demoModalHTML(){
   var d = track.demoExercise;
   if(!d) return '';
-  var svg = (typeof GymBroExerciseAnim!=='undefined') ? GymBroExerciseAnim.svgFor(d.pattern) : null;
-  var animBlock = svg ? '<div class="demo-anim">'+svg+'</div>'
-    : '<div class="demo-anim demo-anim-empty"><p class="hint">ยังไม่มีภาพเคลื่อนไหวสำหรับกลุ่มท่านี้</p></div>';
   var verified = VERIFIED_YT[d.exId];
   var ytHtml = verified
     ? '<a class="demo-yt" href="https://www.youtube.com/watch?v='+esc(verified.id)+'" target="_blank" rel="noopener noreferrer">'+
@@ -1874,10 +1869,9 @@ function demoModalHTML(){
       '<button type="button" class="demo-x" data-act="demo-close" aria-label="ปิด">✕</button>'+
       '<div class="demo-title">'+esc(d.th)+'</div>'+
       '<div class="demo-pattern">'+esc(PATTERN_LABEL[d.pattern]||d.pattern)+'</div>'+
-      animBlock+
       (d.sub ? '<div class="demo-sub">'+esc(d.sub)+'</div>' : '')+
       ytHtml+
-      '<div class="demo-note">ℹ️ ภาพเคลื่อนไหวด้านบนแสดง<b>ลักษณะการเคลื่อนไหวโดยรวม</b>ของกลุ่มท่านี้ ไม่ใช่คู่มือฟอร์มที่ถูกต้องเป๊ะรายท่า — กดปุ่มด้านบนเพื่อดูคลิปสอนจริงบน YouTube หรือปรึกษาเทรนเนอร์อีกครั้งก่อนทำจริง</div>'+
+      '<div class="demo-note">ℹ️ กดปุ่มด้านบนเพื่อดูคลิปสอนจริงบน YouTube หรือปรึกษาเทรนเนอร์อีกครั้งก่อนทำจริง เพื่อฟอร์มที่ถูกต้องเป๊ะรายท่า</div>'+
     '</div></div>';
 }
 

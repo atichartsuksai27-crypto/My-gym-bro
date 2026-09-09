@@ -5,12 +5,15 @@
   "description": "Capacitor native shell for Gymbro Daily (wraps the static site in ../ as-is, no build step on the web side)",
   "scripts": {
     "sync-web": "node scripts/sync-web.js",
+    "brand": "node scripts/make-brand-assets.js",
     "cap:sync": "npm run sync-web && npx cap sync",
     "cap:open:android": "npx cap open android",
     "cap:open:ios": "npx cap open ios"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.1",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/browser": "^8.0.4",
     "@capacitor/cli": "^8.5.1",
     "@capacitor/core": "^8.5.1",
     "@capacitor/ios": "^8.5.1"

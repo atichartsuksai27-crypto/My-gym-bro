@@ -22,6 +22,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Deep link รับ redirect กลับจาก Supabase Google OAuth (ดู supabase-client.js
+                 NATIVE_REDIRECT) — ต้องตั้ง gymbrodaily://auth-callback ไว้ใน Supabase
+                 Dashboard > Authentication > URL Configuration > Redirect URLs ด้วย -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="gymbrodaily" android:host="auth-callback" />
+            </intent-filter>
+
         </activity>
 
         <provider

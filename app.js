@@ -904,21 +904,65 @@ function currentView(){
   return allowed.indexOf(v)>-1 ? v : 'today';
 }
 
+/* short = ป้ายสำหรับแท็บบาร์ล่างบนจอมือถือ (5 แท็บแบ่งความกว้างกัน คำเต็มยาวเกิน)
+   ป้ายทั้งสองแบบถูก render ลง HTML พร้อมกันเสมอ แล้วให้ CSS เลือกโชว์ตามความกว้างจอ
+   — ไม่ต้องรู้ขนาดจอฝั่ง JS และไม่ต้อง re-render เวลาหมุนจอ */
 var NAV_ITEMS = [
-  {k:'today', label:'วันนี้'},
-  {k:'schedule', label:'ตารางฝึก'},
-  {k:'progress', label:'ความคืบหน้า'},
-  {k:'plan', label:'แผนของฉัน'}
+  {k:'today', label:'วันนี้', short:'วันนี้'},
+  {k:'schedule', label:'ตารางฝึก', short:'ตาราง'},
+  {k:'progress', label:'ความคืบหน้า', short:'คืบหน้า'},
+  {k:'plan', label:'แผนของฉัน', short:'แผน'}
 ];
-var NAV_ITEM_COACH = {k:'coach', label:'ถามโค้ช'}; // แสดงเฉพาะตอน login แล้วเท่านั้น (ดู renderNav)
+var NAV_ITEM_COACH = {k:'coach', label:'ถามโค้ช', short:'โค้ช'}; // แสดงเฉพาะตอน login แล้วเท่านั้น (ดู renderNav)
 
+/* ไอคอนแท็บ — stroke ใช้ currentColor เพื่อให้เปลี่ยนสีตามสถานะ active/ธีมเองอัตโนมัติ
+   วาดเป็น SVG ฝังในโค้ดเพราะโปรเจกต์นี้ไม่มี build step และไม่ควรพึ่งไฟล์ไอคอนภายนอก */
+var NAV_ICONS = {
+  today:    '<path d="M4 5.5h16v15H4z"/><path d="M4 10h16M8.5 3v4M15.5 3v4"/><path d="m9 15 2 2 4-4"/>',
+  schedule: '<path d="M4 5.5h16v15H4z"/><path d="M4 10h16M8.5 3v4M15.5 3v4"/><path d="M8 13.5h2M14 13.5h2M8 17.5h2M14 17.5h2"/>',
+  progress: '<path d="M4 4v16h16"/><path d="m7.5 15 3.5-4 3 2.5L20 7"/>',
+  plan:     '<path d="M6 4h12v17H6z"/><path d="M9.5 2.5h5v3h-5z"/><path d="M9 11h6M9 15h6"/>',
+  coach:    '<path d="M4.5 5h15v11h-9l-4 3.5V16h-2z"/><path d="M9 10.5h6"/>'
+};
+function navIconHTML(k){
+  var d = NAV_ICONS[k];
+  if(!d) return '';
+  return '<svg class="ni" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" '+
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+d+'</svg>';
+}
+
+/* เปิด/ปิดแผงบัญชีบน app bar ของมือถือ — เป็นสถานะชั่วคราวของ UI ล้วนๆ ไม่ต้อง persist
+   (รีเฟรชแล้วปิดเองถือว่าถูกต้อง) จึงเก็บเป็นตัวแปรธรรมดา ไม่ยัดลง state/track ที่ถูกเซฟ */
+var acctOpen = false;
+
+/* โครง HTML ชุดเดียวเสิร์ฟทั้งสองหน้าตา — เดสก์ท็อป = แถบข้าง, มือถือ = app bar บน +
+   แท็บบาร์ล่างแบบแอป (CSS เป็นคนสลับ ดู @media ใน style.css) ฝั่ง JS จึงไม่ต้องรู้ขนาดจอเลย
+   .locked = อยู่ในแบบสอบถาม onboarding → มือถือซ่อนแท็บบาร์ให้เต็มจอไปเลยเหมือนแอปจริง */
 function renderNav(view){
   var el = document.getElementById("nav");
   var locked = (view==='onboarding');
-  var html = '<div class="brand"><div class="brand-mark"></div><div class="brand-name">Gymbro</div></div>';
+  el.className = "nav" + (locked ? " locked" : "");
+
+  /* app bar (เห็นเฉพาะมือถือ): ชื่อแอปซ้าย + ปุ่มบัญชีขวา
+     ปุ่มบัญชีเป็นวงกลมอักษรตัวแรกของอีเมล แตะแล้วกางแผงที่มีอีเมลเต็ม + ปุ่มออกจากระบบ
+     (เอาอีเมลยาวๆ ออกจากแถบหลัก ไม่ให้ไปเบียดเมนูเหมือนหน้าตาเดิม) */
+  var html = '<div class="appbar">'+
+    '<div class="appbar-brand"><span class="brand-mark"></span><span>Gymbro Daily</span></div>';
   if(auth.session){
-    html += '<div class="hint" style="padding:0 6px;word-break:break-all">'+esc(auth.session.user.email||'')+
-      '<button type="button" class="ex-open" data-act="auth-signout" style="display:block;padding:2px 0">ออกจากระบบ</button></div>';
+    var email = auth.session.user.email || '';
+    html += '<button type="button" class="acct-btn'+(acctOpen?' open':'')+'" data-act="acct-toggle" aria-label="บัญชีของฉัน">'+
+        esc((email.charAt(0) || '?').toUpperCase())+'</button>';
+    if(acctOpen){
+      html += '<div class="acct-panel"><div class="acct-mail">'+esc(email)+'</div>'+
+        '<button type="button" class="btn sm" data-act="auth-signout">ออกจากระบบ</button></div>';
+    }
+  }
+  html += '</div>';
+
+  html += '<div class="brand"><div class="brand-mark"></div><div class="brand-name">Gymbro</div></div>';
+  if(auth.session){
+    html += '<div class="nav-acct hint">'+esc(auth.session.user.email||'')+
+      '<button type="button" class="ex-open nav-acct-signout" data-act="auth-signout">ออกจากระบบ</button></div>';
   }
   html += '<div class="nav-group"><div class="nav-label">เมนู</div>';
   var counts = null;
@@ -929,7 +973,8 @@ function renderNav(view){
     var active = (!locked && view===it.k);
     var cnt = (it.k==='today' && counts) ? '<span class="cnt">'+counts.done+'/'+counts.total+'</span>' : '';
     html += '<button type="button" class="nav-item'+(active?' active':'')+'" data-act="nav" data-view="'+it.k+'"'+(locked?' disabled':'')+'>'+
-      '<span class="nd"></span><span>'+esc(it.label)+'</span>'+cnt+'</button>';
+      '<span class="nd"></span>'+navIconHTML(it.k)+
+      '<span class="nl">'+esc(it.label)+'</span><span class="nl-s">'+esc(it.short||it.label)+'</span>'+cnt+'</button>';
   });
   html += '</div>';
 
@@ -2148,14 +2193,23 @@ function numInRange(v, lo, hi){
   return {value:n, valid:true};
 }
 
-function goto(view){ state.nav = view; track.openDate=null; track.saveStatus=''; persist(); render(true); }
+function goto(view){ state.nav = view; track.openDate=null; track.saveStatus=''; acctOpen=false; persist(); render(true); }
 
 document.addEventListener("click", function(ev){
   var el = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
+
+  /* แผงบัญชีบน app bar: แตะที่ว่างนอกแผงแล้วปิด (พฤติกรรมที่คนคาดหวังจากเมนูแบบนี้)
+     ต้องเช็คก่อน return ของ el เพราะการแตะพื้นที่ว่างจะไม่เจอ [data-act] ใดๆ เลย */
+  if(acctOpen){
+    var insidePanel = ev.target && ev.target.closest && ev.target.closest('.acct-panel');
+    var onToggle = el && el.getAttribute('data-act')==='acct-toggle';
+    if(!insidePanel && !onToggle){ acctOpen = false; render(); }
+  }
   if(!el) return;
   var act = el.getAttribute('data-act');
   var iso = el.getAttribute('data-date');
 
+  if(act==='acct-toggle'){ acctOpen = !acctOpen; render(); return; }
   if(act==='auth-google'){
     authState.busy = true; authState.error = null; render();
     Promise.resolve(GymBroSync.signInWithGoogle()).then(function(res){
@@ -2383,6 +2437,23 @@ function hydrateFromRemote(userId){
    (ออฟไลน์/ถูกบล็อก) ข้ามระบบ auth ไปทั้งหมด ใช้แอปแบบ local-only เหมือนเดิมทุกประการ ---------- */
 function boot(){
   if(!syncAvailable()){ auth.ready = true; render(true); return; }
+  /* ดัก deep link ที่ Supabase ส่ง Google OAuth token กลับมาตอนรันเป็นแอป native
+     (ดู signInWithGoogle/handleNativeAuthCallback ใน supabase-client.js) — เช็ค
+     window.Capacitor ตรงๆ เฉยๆ เพราะเป็น global ที่ Capacitor inject ให้เองตอนรันจริง
+     บนเครื่อง ไม่มีทางเจอตอนเปิดผ่านเว็บปกติ จึงไม่กระทบเว็บเลย */
+  if(typeof window.Capacitor!=='undefined' && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()){
+    window.Capacitor.Plugins.App.addListener('appUrlOpen', function(data){
+      GymBroSync.handleNativeAuthCallback(data && data.url);
+    });
+    /* ผู้ใช้กด back/ปิด Custom Tab เองโดยไม่ทำ Google sign-in จนจบ (ยกเลิกกลางทาง) —
+       ถ้าไม่ดัก event นี้ไว้ ปุ่มจะค้างที่ "กำลังเชื่อมต่อ..." ตลอดไป เพราะ Promise ของ
+       Browser.open() resolve ไปตั้งแต่ตอนเปิดแท็บสำเร็จแล้ว (ไม่ได้รอจนกว่าจะปิด) จุดเดียว
+       ที่รู้ว่าแท็บปิดแล้วคือ event นี้ — เช็ค !auth.session ก่อนรีเซ็ต เผื่อ sign-in จริงๆ
+       สำเร็จไปแล้วและ handleNativeAuthCallback/onAuthChange กำลังจะ render หน้าอื่นอยู่ */
+    window.Capacitor.Plugins.Browser.addListener('browserFinished', function(){
+      if(authState.busy && !auth.session){ authState.busy = false; render(); }
+    });
+  }
   GymBroSync.onAuthChange(function(event, session){
     var hadSession = !!auth.session;
     auth.session = session || null;

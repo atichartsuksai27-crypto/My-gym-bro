@@ -90,7 +90,16 @@ body{
   background:var(--bg); color:var(--text);
   font-family:system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;
   font-size:15px; line-height:1.6;
+  /* ให้รู้สึกเป็นแอปมากกว่าหน้าเว็บ: ไม่เด้งขอบจอตอนสุดสกอร์ล (กัน pull-to-refresh ของ
+     WebView ด้วย) ไม่มีกรอบไฮไลต์ตอนแตะ และไม่ให้ระบบขยายฟอนต์เองตอนหมุนจอ
+     — ทั้งหมดไม่กระทบการใช้งานบนเดสก์ท็อป */
+  overscroll-behavior-y:none;
+  -webkit-tap-highlight-color:transparent;
+  -webkit-text-size-adjust:100%;
 }
+/* แถบนำทาง/หัวแอป = ส่วนควบคุม ไม่ใช่เนื้อหา จึงห้ามลากเลือกข้อความ (เนื้อหาในหน้ายังเลือกได้ปกติ) */
+.appbar,.nav-group{user-select:none; -webkit-user-select:none;}
+button{touch-action:manipulation;}   /* ตัดดีเลย์ 300ms / ดับเบิลแท็ปซูมบนปุ่ม */
 .mono{font-family:ui-monospace,"Courier New",monospace;}
 h1,h2,h3{margin:0;}
 p{margin:0;}
@@ -158,16 +167,76 @@ input:focus{border-color:var(--accent); outline:none;}
 .page-head .sub{font-size:13px; color:var(--text-2); margin-top:5px; max-width:68ch;}
 .head-actions{display:flex; gap:8px; flex-wrap:wrap;}
 
+/* ---------- หน้าตาแบบแอปมือถือ (app bar บน + แท็บบาร์ล่าง) ----------
+   HTML ชุดเดียวกับเดสก์ท็อป ต่างกันแค่ CSS: .nav กลาย display:contents ปล่อยลูกสองก้อน
+   (.appbar / .nav-group) ออกมา fix ติดขอบบน-ล่างเอง ที่เหลือของแถบข้างถูกซ่อน
+   ระยะขอบใช้ env(safe-area-inset-*) ทุกจุดที่ชนขอบจอ — จำเป็นเพราะ Android 15+ วาดแบบ
+   edge-to-edge (เนื้อหาไหลไปใต้ status bar/แถบปุ่ม) ส่วนบนเว็บปกติค่านี้เป็น 0 ไม่กระทบ */
 @media (max-width:900px){
-  .app{grid-template-columns:minmax(0,1fr);}
-  .nav{position:sticky; top:0; z-index:30; height:auto; flex-direction:row; align-items:center; gap:8px; border-right:none; border-bottom:1px solid var(--border); padding:8px 10px; overflow-x:auto;}
-  .brand{flex:0 0 auto;}
-  .brand-name{display:none;}
-  .nav-group{flex-direction:row; gap:4px; flex:1 1 auto;}
-  .nav-label,.nav-foot,.streak-card{display:none;}
-  .nav-item{width:auto; flex:0 0 auto; white-space:nowrap; padding:8px 10px;}
-  .main{padding:16px 12px 50px;}
+  :root{--appbar-h:52px; --tabbar-h:60px;}
+  .app{display:block;}
+  .nav{display:contents;}
+  .brand,.nav-acct,.nav-label,.nav-foot,.streak-card{display:none;}
+
+  .appbar{
+    position:fixed; top:0; left:0; right:0; z-index:40;
+    display:flex; align-items:center; gap:10px;
+    height:calc(var(--appbar-h) + env(safe-area-inset-top));
+    padding:0 14px; padding-top:env(safe-area-inset-top);
+    background:var(--surface); border-bottom:1px solid var(--border);
+  }
+  .appbar-brand{display:flex; align-items:center; gap:8px; font-size:15px; font-weight:700;}
+  .appbar-brand .brand-mark{width:18px; height:18px; border-radius:5px; background:var(--accent);}
+  .acct-btn{
+    margin-left:auto; width:32px; height:32px; flex:0 0 auto; border-radius:50%;
+    border:1px solid var(--border); background:var(--surface-2); color:var(--text-2);
+    font-size:13px; font-weight:700; cursor:pointer;
+  }
+  .acct-btn.open{border-color:var(--accent); color:var(--accent); background:var(--accent-soft);}
+  .acct-panel{
+    position:absolute; top:calc(100% + 6px); right:12px; z-index:41; min-width:210px; max-width:calc(100vw - 24px);
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--r-md);
+    box-shadow:0 10px 30px rgba(0,0,0,.16); padding:12px;
+    display:flex; flex-direction:column; gap:10px; align-items:flex-start;
+  }
+  .acct-mail{font-size:12.5px; color:var(--text-2); overflow-wrap:anywhere;}
+
+  .nav-group{
+    position:fixed; left:0; right:0; bottom:0; z-index:40;
+    flex-direction:row; gap:0;
+    background:var(--surface); border-top:1px solid var(--border);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .nav.locked .nav-group{display:none;}   /* ระหว่างตอบแบบสอบถาม: เต็มจอ ไม่มีแท็บบาร์กวน */
+  .nav-item{
+    position:relative; flex:1 1 0; min-width:0;
+    flex-direction:column; justify-content:center; gap:3px; text-align:center;
+    height:var(--tabbar-h); padding:6px 2px; border-radius:0; font-size:10.5px; line-height:1.25;
+  }
+  .nav-item:hover:not([disabled]){background:none;}     /* มือถือไม่มี hover จริง */
+  .nav-item.active{background:none; color:var(--accent); font-weight:700;}
+  .nav-item .nd{display:none;}
+  .nav-item .ni{display:block; width:23px; height:23px; flex:0 0 auto;}
+  .nav-item .nl{display:none;}
+  .nav-item .nl-s{display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .nav-item .cnt{                                        /* ป้ายนับ = badge มุมไอคอน */
+    position:absolute; top:4px; left:50%; margin-left:6px;
+    background:var(--accent); color:var(--accent-ink); border-radius:9px;
+    font-size:9.5px; font-weight:700; padding:1px 5px; line-height:1.4;
+  }
+  .nav-item.active .cnt{color:var(--accent-ink);}
+
+  .main{
+    padding:calc(var(--appbar-h) + env(safe-area-inset-top) + 14px) 12px
+            calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 20px);
+  }
+  .nav.locked ~ .main{padding-bottom:calc(env(safe-area-inset-bottom) + 24px);}
   .page-head h1{font-size:20px;}
+}
+/* เดสก์ท็อป: app bar/ไอคอน/ป้ายสั้น เป็นของมือถือล้วนๆ ไม่ต้องแสดง */
+@media (min-width:901px){
+  .appbar,.acct-panel{display:none;}
+  .nav-item .ni,.nav-item .nl-s{display:none;}
 }
 
 /* ============ generic blocks ============ */
@@ -185,6 +254,17 @@ input:focus{border-color:var(--accent); outline:none;}
 .note p b{color:var(--text);}
 .note.warn p b{color:var(--branch-ink);}
 .hint{font-size:12px; color:var(--text-4); line-height:1.6;}
+.nav-acct{padding:0 6px; overflow-wrap:break-word;}
+.nav-acct-signout{display:block; padding:2px 0;}
+/* ต้องอยู่ "หลัง" กฎ .nav-acct ด้านบนในไฟล์นี้เสมอ — @media (max-width:900px) ตัวหลักที่
+   .nav กลายเป็นแถบนอนอยู่ก่อนหน้านี้ในไฟล์ (บรรทัด ~161) ถ้า override นี้ไปอยู่ในนั้นแทน
+   กฎ .nav-acct ด้านบน (ซึ่งมาทีหลังในไฟล์) จะชนะและทำให้ overflow-wrap:break-word กลับมา
+   คุมที่หน้าจอแคบอยู่ดี (specificity เท่ากัน ลำดับในไฟล์เป็นตัวตัดสิน ไม่ใช่ตำแหน่ง media
+   query) — ถ้าอีเมลยาวจนล้น ให้เลื่อนดูแนวนอนได้เหมือนปุ่มเมนูอื่นใน .nav (มี overflow-x:auto
+   อยู่แล้ว) ดีกว่าตัดคำมั่ว */
+@media (max-width:900px){
+  .nav-acct{flex:0 0 auto; white-space:nowrap; overflow-wrap:normal;}
+}
 
 .chip{font-family:ui-monospace,monospace; font-size:10.5px; padding:2px 7px; border-radius:5px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-3); white-space:nowrap;}
 .chip.ok{background:var(--ok-soft); border-color:var(--ok-line); color:var(--ok);}

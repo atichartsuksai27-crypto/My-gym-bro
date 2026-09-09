@@ -2,7 +2,13 @@
 <html lang="th">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- viewport-fit=cover จำเป็นกับแอป native: Android 15+ (targetSdk 35+) บังคับวาดแบบ
+     edge-to-edge คือเนื้อหาไหลไปใต้ status bar/แถบปุ่ม ถ้าไม่เปิดค่านี้ env(safe-area-inset-*)
+     จะเป็น 0 เสมอ แล้วหัวแอปจะโดน status bar ทับ — บนเว็บปกติค่านี้ไม่มีผลอะไร
+     user-scalable=no: กันซูมสองนิ้ว/ดับเบิลแท็ปให้เหมือนแอปจริง -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)">
 <title>Gymbro Daily</title>
 <link rel="stylesheet" href="style.css">
 </head>

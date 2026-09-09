@@ -66,5 +66,17 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<!-- Deep link รับ redirect กลับจาก Supabase Google OAuth (ดู supabase-client.js
+	     NATIVE_REDIRECT) — ต้องตั้ง gymbrodaily://auth-callback ไว้ใน Supabase
+	     Dashboard > Authentication > URL Configuration > Redirect URLs ด้วย -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>gymbrodaily</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

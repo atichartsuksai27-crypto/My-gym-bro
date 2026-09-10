@@ -62,7 +62,10 @@ def swing_arm_down(armature, bone_name, lean_deg=24):
     pb.matrix = mat_world
 
 
-def render_one(gender_val, weight_val, muscle_val, out_path):
+def build_human(gender_val, weight_val, muscle_val):
+    """สร้างฉากใหม่ + ร่างคนตามค่า macro + จัดท่าแขน + ใส่วัสดุ clay — คืน basemesh
+    แยกออกมาเป็นฟังก์ชันเพื่อให้ render_spin.py (ภาพหมุน 360°) ใช้ตัวเดียวกันได้
+    ห้ามให้สองสคริปต์สร้างโมเดลคนละวิธี ไม่งั้นภาพหมุนกับภาพนิ่งจะเป็นคนละร่าง"""
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
     macro = TargetService.get_default_macro_info_dict()
@@ -89,6 +92,26 @@ def render_one(gender_val, weight_val, muscle_val, out_path):
     bsdf.inputs["Roughness"].default_value = 0.55
     basemesh.data.materials.clear()
     basemesh.data.materials.append(mat)
+    return basemesh
+
+
+def frame_and_light(basemesh, angle_deg=0.0):
+    """วางกล้อง ortho + ไฟ โดยหมุนรอบแกน Z ไปที่มุม angle_deg (0 = ด้านหน้าตรง)
+
+    หมุน "กล้องพร้อมไฟ" ไปด้วยกันเป็นชุดแข็ง ไม่ใช่หมุนตัวโมเดล — ทั้งชุดกล้อง+ไฟจึงมี
+    ตำแหน่งสัมพัทธ์กันคงที่ทุกเฟรม ผิวที่หันเข้าหากล้องจึงได้มุมแสงตกกระทบเท่ากันเสมอ
+    = สีเทาสม่ำเสมอทุกองศา (ถ้าตรึงไฟไว้กับโลกแล้วให้กล้องโคจรรอบแทน แต่ละด้านของ
+    ร่างกายจะสว่างไม่เท่ากันทันที เพราะไฟส่องด้านหนึ่งตรงกว่าอีกด้าน)
+
+    สำคัญ: ต้องลบกล้อง/ไฟของเฟรมก่อนหน้าทิ้งก่อนทุกครั้ง (โค้ดบรรทัดแรกด้านล่าง)
+    ฟังก์ชันนี้ "สร้าง" กล้องกับไฟดวงใหม่ทุกครั้งที่ถูกเรียก ตอนเรนเดอร์ภาพนิ่งไม่มีปัญหา
+    เพราะ build_human() รีเซ็ตฉากใหม่ทั้งหมดก่อนเรียกทุกครั้ง (เฟรมละ 1 ชุด) แต่ตอน
+    เรนเดอร์ภาพหมุน (render_spin.py) จะสร้างร่างครั้งเดียวแล้ววนเรียกฟังก์ชันนี้ 24 รอบ
+    ถ้าไม่ลบของเก่าทิ้ง ไฟจะสะสมทับกันเพิ่มขึ้นเรื่อยๆ (เฟรมที่ 24 = ไฟ 48 ดวง) ภาพจึง
+    ค่อยๆ สว่างขึ้นทีละเฟรมจนขาวโพลน — นี่คือต้นเหตุจริงของบั๊ก "หมุนแล้วโมเดลเป็นสีขาว
+    เรืองแสง" ไม่เกี่ยวกับค่าแสงหรือวัสดุแต่อย่างใด"""
+    for obj in [o for o in bpy.context.scene.objects if o.type in {'CAMERA', 'LIGHT'}]:
+        bpy.data.objects.remove(obj, do_unlink=True)
 
     bpy.context.view_layer.update()
     depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -107,44 +130,59 @@ def render_one(gender_val, weight_val, muscle_val, out_path):
     cam = bpy.data.objects.new("Cam", cam_data)
     bpy.context.scene.collection.objects.link(cam)
     dist = height * 3
-    cam.location = (cx, cy - dist, cz)
-    cam.rotation_euler = (math.radians(90), 0, 0)
+    a = math.radians(angle_deg)
+    cam.location = (cx + dist * math.sin(a), cy - dist * math.cos(a), cz)
+    cam.rotation_euler = (math.radians(90), 0, a)
     bpy.context.scene.camera = cam
 
     sun_data = bpy.data.lights.new("Key", type='SUN')
     sun_data.energy = 2.6
     sun_data.angle = math.radians(20)
     sun = bpy.data.objects.new("Key", sun_data)
-    sun.rotation_euler = (math.radians(55), 0, math.radians(-35))
+    sun.rotation_euler = (math.radians(55), 0, math.radians(-35) + a)
     bpy.context.scene.collection.objects.link(sun)
 
     fill_data = bpy.data.lights.new("Fill", type='SUN')
     fill_data.energy = 1.4
     fill_data.angle = math.radians(30)
     fill = bpy.data.objects.new("Fill", fill_data)
-    fill.rotation_euler = (math.radians(70), 0, math.radians(150))
+    fill.rotation_euler = (math.radians(70), 0, math.radians(150) + a)
     bpy.context.scene.collection.objects.link(fill)
 
+
+def render_to(out_path, file_format='PNG', quality=90):
     scene = bpy.context.scene
     scene.render.engine = 'BLENDER_EEVEE_NEXT'
     scene.render.resolution_x = 420
     scene.render.resolution_y = 720
     scene.render.film_transparent = True
-    scene.render.image_settings.file_format = 'PNG'
+    scene.render.image_settings.file_format = file_format
     scene.render.image_settings.color_mode = 'RGBA'
-    scene.render.image_settings.compression = 90  # PNG เป็น lossless อยู่แล้ว ค่านี้แค่ลดขนาดไฟล์ ไม่ลดคุณภาพ
+    if file_format == 'PNG':
+        scene.render.image_settings.compression = quality  # PNG lossless อยู่แล้ว ค่านี้แค่ลดขนาดไฟล์ ไม่ลดคุณภาพ
+    else:
+        scene.render.image_settings.quality = quality      # WEBP: lossy จริง (ใช้กับภาพหมุนที่มีหลายเฟรม)
     scene.render.filepath = out_path
 
     bpy.ops.render.render(write_still=True)
 
 
-count = 0
-for sex, bands in BANDS.items():
-    gender_val = 1.0 if sex == "male" else 0.0
-    for band_key, pct_label, weight_val, muscle_val in bands:
-        out_path = os.path.join(OUT_DIR, "bf-{}-{}.png".format(sex, band_key))
-        print("[render] {} {} ({}) -> {}".format(sex, band_key, pct_label, out_path))
-        render_one(gender_val, weight_val, muscle_val, out_path)
-        count += 1
+def render_one(gender_val, weight_val, muscle_val, out_path):
+    basemesh = build_human(gender_val, weight_val, muscle_val)
+    frame_and_light(basemesh, 0.0)
+    render_to(out_path)
 
-print("DONE: {} images -> {}".format(count, OUT_DIR))
+
+# ครอบด้วย __main__ guard เพราะ render_spin.py import ไฟล์นี้เพื่อใช้ LEVELS/build_human/
+# frame_and_light ร่วมกัน — ถ้าไม่ครอบ การ import จะสั่งเรนเดอร์ภาพนิ่งใหม่ทั้ง 12 ภาพทันที
+if __name__ == "__main__":
+    count = 0
+    for sex, bands in BANDS.items():
+        gender_val = 1.0 if sex == "male" else 0.0
+        for band_key, pct_label, weight_val, muscle_val in bands:
+            out_path = os.path.join(OUT_DIR, "bf-{}-{}.png".format(sex, band_key))
+            print("[render] {} {} ({}) -> {}".format(sex, band_key, pct_label, out_path))
+            render_one(gender_val, weight_val, muscle_val, out_path)
+            count += 1
+
+    print("DONE: {} images -> {}".format(count, OUT_DIR))

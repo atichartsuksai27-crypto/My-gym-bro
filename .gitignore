@@ -6,3 +6,10 @@ Thumbs.db
 # (คัดลอกจากไฟล์เว็บที่รากโปรเจกต์ ไม่ใช่ source of truth) ไม่ commit ของที่ generate ได้
 mobile/node_modules/
 mobile/www/
+
+# bytecode ที่ Python ใน Blender สร้างเองตอน render_spin.py import render_all.py
+__pycache__/
+
+# แคชของ Blender เอง (Cycles/OptiX denoiser) — สร้างที่ root โปรเจกต์เองตอนรัน Blender
+# โดยไม่ได้ตั้ง working directory ไว้ ไม่ใช่ข้อมูลของโปรเจกต์นี้ ไม่ควร commit เด็ดขาด
+optix7cache.db*

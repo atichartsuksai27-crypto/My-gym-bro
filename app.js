@@ -455,28 +455,59 @@ function computeTDEE(a){
   var factor = GymBroCalc.activityFactorFromQ36(a.Q36); // null ถ้า Q36 ยังไม่ตอบ/ไม่รู้จัก
   return GymBroCalc.calculateTDEE({bmr: bmr, activityFactor: factor}); // null ถ้าข้อมูลไม่ครบ
 }
+/* อัปเดตตามหลักการที่บันทึกไว้ที่ D:\Obsidian\coach-knowledge\หลักการ.md (หัวข้อ
+   "เป้าแคลอรี่ต่อวัน") — เพิ่ม "เพดานสัมบูรณ์" (kcal คงที่) กำกับเปอร์เซ็นต์ในทุกเส้นทาง
+   ที่หลักการระบุไว้ชัดเจน: ลดไขมัน = max(TDEE×pct, TDEE−cap) กันตัดแคลอรี่โหดเกินไปตอน
+   TDEE สูง, เพิ่มกล้ามเนื้อ = min(TDEE×pct, TDEE+cap) กันยัด surplus บวมเกินไป
+   เส้นทางที่หลักการไม่ได้ระบุไว้ (Q4a/Q5b ยังไม่ตอบ หรือตอบ "ไม่แน่ใจให้ระบบแนะนำ")
+   คงค่า multiplier เดิมไว้แบบไม่มีเพดานแยก — ไม่ fabricate กฎที่แหล่งอ้างอิงไม่ได้เขียนไว้ */
 function computeCalorieTarget(tdee, a){
   var goal = a.Q1;
   var floor = a.Q9==='ชาย' ? 1500 : (a.Q9==='หญิง' ? 1200 : null);
   if(tdee==null || isNaN(tdee)){
     return {kcal:null, floored:false, floor:floor, direction:'ข้อมูลไม่ครบ — กรอกเพศ/อายุ/ส่วนสูง/น้ำหนัก/กิจกรรมให้ครบก่อน'};
   }
-  var mult = 1.0, directionLabel = 'รักษาน้ำหนัก (maintenance)';
+  var target, directionLabel;
   if(goal==='ลดไขมัน'){
-    var dmap = {'เข้มข้น':0.75,'ค่อยเป็นค่อยไป':0.85,'ไม่แน่ใจให้ระบบแนะนำ':0.80};
-    mult = dmap[a.Q4a]||0.80;
-    directionLabel = 'ลดไขมัน (deficit '+Math.round((1-mult)*100)+'%)';
+    if(a.Q4a==='เข้มข้น'){
+      target = Math.max(tdee*0.75, tdee-1000);
+      directionLabel = 'ลดไขมัน (เข้มข้น — หัก 25% แต่ไม่เกิน 1,000 kcal)';
+    } else if(a.Q4a==='ค่อยเป็นค่อยไป'){
+      target = Math.max(tdee*0.85, tdee-500);
+      directionLabel = 'ลดไขมัน (ค่อยเป็นค่อยไป — หัก 15% แต่ไม่เกิน 500 kcal)';
+    } else {
+      target = tdee*0.80; // "ไม่แน่ใจให้ระบบแนะนำ"/ยังไม่ตอบ — หลักการยังไม่ระบุเพดานแยก
+      directionLabel = 'ลดไขมัน (deficit 20%)';
+    }
   } else if(goal==='เพิ่มกล้ามเนื้อ'){
-    var smap = {'ได้ (เน้นสร้างกล้ามให้เร็ว)':1.15,'ไม่ได้ (อยากคุมไขมันไปด้วย)':1.08};
-    mult = smap[a.Q5b] || 1.10;
-    directionLabel = 'เพิ่มกล้ามเนื้อ (surplus +'+Math.round((mult-1)*100)+'%)';
+    if(a.Q5b==='ได้ (เน้นสร้างกล้ามให้เร็ว)'){
+      target = Math.min(tdee*1.15, tdee+500);
+      directionLabel = 'เพิ่มกล้ามเนื้อ (รับไขมันได้ — เพิ่ม 15% แต่ไม่เกิน +500 kcal)';
+    } else if(a.Q5b==='ไม่ได้ (อยากคุมไขมันไปด้วย)'){
+      target = Math.min(tdee*1.08, tdee+300);
+      directionLabel = 'เพิ่มกล้ามเนื้อ (คุมไขมัน — เพิ่ม 8% แต่ไม่เกิน +300 kcal)';
+    } else {
+      target = tdee*1.10; // ยังไม่ตอบ Q5b — หลักการยังไม่ระบุเพดานแยก
+      directionLabel = 'เพิ่มกล้ามเนื้อ (surplus 10%)';
+    }
   } else if(goal==='Recomposition (ลด+เพิ่มพร้อมกัน)'){
-    var rmap = {'ห่างมาก':0.92,'ห่างปานกลาง':1.0,'ใกล้เป้าหมายแล้ว':1.03};
-    mult = rmap[a.Q6]!=null ? rmap[a.Q6] : 1.0;
-    directionLabel = 'Recomposition (ใกล้ maintenance ปรับตามคำตอบ Q6)';
+    if(a.Q6==='ห่างมาก'){
+      target = Math.max(tdee*0.92, tdee-300);
+      directionLabel = 'Recomposition (ห่างเป้ามาก — หัก 8% แต่ไม่เกิน 300 kcal)';
+    } else if(a.Q6==='ใกล้เป้าหมายแล้ว'){
+      target = Math.min(tdee*1.03, tdee+150);
+      directionLabel = 'Recomposition (ใกล้เป้าแล้ว — เพิ่ม 3% แต่ไม่เกิน +150 kcal)';
+    } else {
+      target = tdee*1.0; // "ห่างปานกลาง" หรือยังไม่ตอบ Q6 — maintenance ตรงตัว
+      directionLabel = 'Recomposition (ห่างปานกลาง — maintenance)';
+    }
+  } else {
+    target = tdee*1.0;
+    directionLabel = 'รักษาน้ำหนัก (maintenance)';
   }
-  var target = tdee*mult;
-  var floored = mult<1 && floor!=null && target < floor;
+  // ด่านสุดท้ายเสมอตามหลักการ: Final Target = max(Target, Floor) — เช็คหลังคำนวณ
+  // เปอร์เซ็นต์+เพดานข้างบนเสร็จหมดแล้วเท่านั้น ไม่ผูกกับทิศทาง (deficit/surplus) อีกต่อไป
+  var floored = floor!=null && target < floor;
   return {kcal: floored?floor:target, floored:floored, floor:floor, direction:directionLabel};
 }
 function computeMacro(kcal, weightKg){
@@ -945,6 +976,66 @@ function navIconHTML(k){
    (รีเฟรชแล้วปิดเองถือว่าถูกต้อง) จึงเก็บเป็นตัวแปรธรรมดา ไม่ยัดลง state/track ที่ถูกเซฟ */
 var acctOpen = false;
 
+/* สถานะโมดัลดูภาพหมุน 360° ของรูปร่างอ้างอิงระดับไขมัน — UI ชั่วคราว ไม่ persist
+   frame = เฟรมที่กำลังแสดง (0..BODYFAT_SPIN_FRAMES-1), drag = ข้อมูลระหว่างลากนิ้ว/เมาส์,
+   autoTimer = ตัวหมุนอัตโนมัติตอนเพิ่งเปิด (หยุดทันทีที่ผู้ใช้เริ่มลากเอง) */
+var bodyFatSpin = {open:false, sex:null, band:null, frame:0, drag:null, autoTimer:null};
+
+function bodyFatSpinSrc(sex, band, i){
+  return 'bodyfat/spin/bf-'+sex+'-'+band+'-'+(i<10?('0'+i):(''+i))+'.webp';
+}
+
+/* หยุดหมุนอัตโนมัติ — เรียกได้ปลอดภัยเสมอแม้ไม่มี timer ค้างอยู่ */
+function bodyFatSpinStopAuto(){
+  if(bodyFatSpin.autoTimer){ clearInterval(bodyFatSpin.autoTimer); bodyFatSpin.autoTimer = null; }
+}
+
+/* เปลี่ยนเฟรมที่แสดง "โดยไม่เรียก render()" — แตะ DOM ตรงๆ จุดเดียวในแอปที่ทำแบบนี้
+   เหตุผล: ตอนลากนิ้วหมุน เฟรมเปลี่ยนหลายสิบครั้งต่อวินาที ถ้าเรียก render() ทุกครั้ง
+   จะสร้าง innerHTML ของทั้งหน้าใหม่หมดทุกเฟรม (ช้ามากบนมือถือ) และ <img> ชุดใหม่จะถูก
+   สร้างใหม่ทุกรอบจนภาพกะพริบ อีกทั้ง pointer capture ที่กำลังลากอยู่จะหลุดกลางคัน
+   ทุกเฟรมถูกใส่ไว้ใน DOM ตั้งแต่ตอนเปิดโมดัลแล้ว (โหลดล่วงหน้าครบ) สลับด้วย .hidden เท่านั้น */
+function bodyFatSpinShow(frame){
+  var n = BODYFAT_SPIN_FRAMES;
+  frame = ((frame % n) + n) % n;   // วนรอบได้ทั้งสองทิศ ไม่ต้องกังวลค่าติดลบ
+  bodyFatSpin.frame = frame;
+  var stage = document.getElementById('bfSpinStage');
+  if(!stage) return;
+  var imgs = stage.getElementsByTagName('img');
+  for(var i=0;i<imgs.length;i++){ imgs[i].hidden = (i !== frame); }
+  var deg = document.getElementById('bfSpinDeg');
+  if(deg) deg.textContent = Math.round(frame * 360 / n) + '°';
+}
+
+function bodyFatSpinModalHTML(){
+  if(!bodyFatSpin.open) return '';
+  var b = null;
+  for(var k=0;k<BODYFAT_BANDS.length;k++){ if(BODYFAT_BANDS[k].key===bodyFatSpin.band) b = BODYFAT_BANDS[k]; }
+  if(!b) return '';
+  var sexLabel = bodyFatSpin.sex==='male' ? 'ชาย' : 'หญิง';
+  var frames = '';
+  for(var i=0;i<BODYFAT_SPIN_FRAMES;i++){
+    // ใส่ครบทุกเฟรมตั้งแต่แรกเพื่อให้เบราว์เซอร์โหลดล่วงหน้าพร้อมกัน (ห้ามใส่ loading="lazy"
+    // เพราะเฟรมที่ยังไม่แสดงจะไม่ถูกโหลด แล้วตอนลากหมุนจะเจอภาพว่างเป็นช่วงๆ)
+    frames += '<img src="'+bodyFatSpinSrc(bodyFatSpin.sex, bodyFatSpin.band, i)+'" alt=""'+
+      (i===bodyFatSpin.frame?'':' hidden')+' draggable="false">';
+  }
+  return '<div class="demo-overlay" data-act="bf-spin-close">'+
+    '<div class="demo-modal bf-spin-modal" role="dialog" aria-modal="true" aria-label="หมุนดูรูปร่าง 360 องศา" data-act="demo-stop">'+
+      '<button type="button" class="demo-x" data-act="bf-spin-close" aria-label="ปิด">✕</button>'+
+      '<div class="demo-title">ระดับไขมัน '+esc(b.pct)+' ('+sexLabel+')</div>'+
+      '<div class="bf-spin-stage" id="bfSpinStage" data-act="bf-spin-stage">'+frames+'</div>'+
+      '<div class="bf-spin-ctl">'+
+        '<button type="button" class="btn ghost bf-spin-step" data-act="bf-spin-prev" aria-label="หมุนซ้าย">‹</button>'+
+        '<input type="range" class="bf-spin-range" id="bfSpinRange" min="0" max="'+(BODYFAT_SPIN_FRAMES-1)+'" '+
+          'value="'+bodyFatSpin.frame+'" data-act="bf-spin-range" aria-label="มุมการหมุน">'+
+        '<button type="button" class="btn ghost bf-spin-step" data-act="bf-spin-next" aria-label="หมุนขวา">›</button>'+
+        '<span class="mono bf-spin-deg" id="bfSpinDeg">'+Math.round(bodyFatSpin.frame*360/BODYFAT_SPIN_FRAMES)+'°</span>'+
+      '</div>'+
+      '<p class="sub" style="margin-top:10px">ลากบนภาพเพื่อหมุนดูรอบตัว — เป็นภาพประกอบคร่าวๆ รูปร่างจริงอาจต่างกันแม้เปอร์เซ็นต์เท่ากัน</p>'+
+    '</div></div>';
+}
+
 /* สถานะโมดัลลบบัญชี — เป็น UI ชั่วคราวเช่นกัน ไม่ persist
    done:true = ลบสำเร็จแล้ว กำลังโชว์หน้ายืนยัน (ตอนนั้น session ถูกตัดไปแล้ว แต่ยังเห็น
    ข้อความยืนยันได้ เพราะ render() วาดโมดัลนี้ทับหน้า auth gate ให้ด้วย ดู render()) */
@@ -1057,6 +1148,7 @@ function renderNav(view){
     html += '<div class="nav-foot">ตอบแบบสอบถามและกด “เริ่มโปรแกรม” เพื่อปลดล็อกเมนูใช้งานประจำวัน</div>';
   }
   html += deleteAccountModalHTML(); // ต่อท้าย #nav (render ได้ทุกหน้า ไม่ใช่แค่ตอนรีวิวแผน)
+  html += bodyFatSpinModalHTML();   // เช่นกัน — เปิดจากการ์ดเลือกรูปร่างที่หน้าแบบสอบถาม
   el.innerHTML = html;
 }
 
@@ -1820,6 +1912,11 @@ function goalFeasibilityHint(a){
    คร่าวๆ" เสมอ ไม่ใช่เครื่องมือวัดจริง (สอดคล้องกับวินัยความซื่อสัตย์ของแอปทั้งระบบ —
    ดู CLAUDE.md) เป็นคำถามที่ไม่บังคับตอบ (ดู catComplete — kind "bodyfat" ไม่เข้าเงื่อนไข
    ที่บล็อกการกดถัดไป) เพราะเป็นแค่ตัวช่วยแนะนำ ไม่ใช่ข้อมูลที่ต้องมีถึงจะสร้างแผนได้ */
+/* จำนวนเฟรมของภาพหมุน 360° ต่อ 1 ร่าง — ต้องตรงกับ FRAMES ใน
+   mobile/scripts/bodyfat-renders/render_spin.py เสมอ (เฟรม 00 = ด้านหน้าตรง
+   แล้วหมุนทีละ 360/FRAMES องศาจนครบรอบ) ถ้าแก้ที่ไฟล์ใดไฟล์หนึ่งต้องแก้อีกไฟล์ด้วย */
+var BODYFAT_SPIN_FRAMES = 24;
+
 var BODYFAT_BANDS = [
   {key:"05-09", pct:"5-9%"},
   {key:"10-14", pct:"10-14%"},
@@ -1847,9 +1944,16 @@ function bodyFatPickerHTML(q, a){
   var folder = sex==="ชาย" ? "male" : "female";
   var cards = BODYFAT_BANDS.map(function(b){
     var sel = a[q.id]===b.key;
-    return '<button type="button" class="bf-card'+(sel?" sel":"")+'" data-act="opt" data-qid="'+q.id+'" data-kind="single" data-val="'+b.key+'">'+
-      '<img src="bodyfat/bf-'+folder+'-'+b.key+'.png" alt="'+esc(b.pct)+'" loading="lazy">'+
-      '<div class="bf-card-label mono">'+esc(b.pct)+'</div></button>';
+    /* ปุ่มเลือก กับ ปุ่มเปิดภาพหมุน 360° ต้องเป็น <button> พี่น้องกันใน .bf-cell ห้ามซ้อนกัน
+       (button ซ้อน button เป็น HTML ที่ไม่ถูกต้อง เบราว์เซอร์จะแยกแท็กออกจากกันเอง)
+       — closest('[data-act]') ที่ตัวจัดการคลิกใช้ จึงหยิบปุ่มที่ถูกกดจริงได้ถูกตัวเสมอ */
+    return '<div class="bf-cell">'+
+      '<button type="button" class="bf-card'+(sel?" sel":"")+'" data-act="opt" data-qid="'+q.id+'" data-kind="single" data-val="'+b.key+'">'+
+        '<img src="bodyfat/bf-'+folder+'-'+b.key+'.png" alt="'+esc(b.pct)+'" loading="lazy">'+
+        '<div class="bf-card-label mono">'+esc(b.pct)+'</div></button>'+
+      '<button type="button" class="bf-spin-btn" data-act="bf-spin" data-sex="'+folder+'" data-band="'+b.key+'" '+
+        'aria-label="หมุนดูรอบตัว 360 องศา ระดับ '+esc(b.pct)+'">⟳ 360°</button>'+
+      '</div>';
   }).join('');
   return '<div class="bf-ref">'+
     '<div class="hint" style="margin-bottom:8px">แตะรูปร่างที่ใกล้เคียงกับคุณตอนนี้มากที่สุด ระบบจะแนะนำเป้าหมายเบื้องต้นให้ (เปลี่ยนภายหลังได้เสมอ ไม่ผูกมัด) — รูปร่างจริงอาจต่างกันแม้เปอร์เซ็นต์เท่ากัน ไม่ใช่เครื่องมือวัดที่แม่นยำ ข้ามข้อนี้ได้ถ้าไม่อยากตอบ</div>'+
@@ -2028,17 +2132,6 @@ function summaryHTML(){
   return html;
 }
 
-/* คลิปที่ตรวจสอบแล้วด้วยมือทีละคลิปจริง (เปิดเบราว์เซอร์เข้า YouTube กรองด้วยตัวกรอง
-   "Creative Commons" ของ YouTube เอง แล้วเปิดเข้าไปอ่านหน้า License ของคลิปนั้น
-   ยืนยันด้วยตาว่าขึ้น "Creative Commons Attribution license (reuse allowed)" จริง
-   ก่อนเอา id มาใส่ที่นี่) — ผูกกับ "รหัสท่า" (id ใน EXERCISES) ไม่ใช่ pattern เพราะ
-   ความถูกต้องของฟอร์มขึ้นกับท่าที่เจาะจง ไม่ใช่แค่กลุ่มการเคลื่อนไหว
-   ห้ามเติม id ใหม่ในนี้โดยไม่ได้ตรวจ License หน้าคลิปจริงก่อนทุกครั้ง — ห้ามเดา
-   ท่าไหนไม่มีอยู่ในนี้ = ยังไม่ได้ตรวจ ให้ตกไปใช้ลิงก์ค้นหา YouTube ตามปกติ (ปลอดภัยกว่า) */
-var VERIFIED_YT = {
-  sq3: {id:'M_xoJ0iRLFc', title:'How to LEG PRESS for Glutes | Improve Your Technique & Grow More Muscle', channel:'Physique Development'}
-};
-
 /* ปุ่มชื่อท่าที่กดดูภาพเคลื่อนไหวได้ — ใช้ทั้งท่าที่เลือกอยู่และท่าทางเลือกในหน้าตรวจแผน
    ส่ง exId/pattern/th/sub ผ่าน data-attr (esc เสมอ ป้องกันอักขระพิเศษทำ markup พัง) */
 function demoBtnHTML(exId, pattern, th, sub, tierBadgeHtml, extraClass){
@@ -2048,26 +2141,18 @@ function demoBtnHTML(exId, pattern, th, sub, tierBadgeHtml, extraClass){
 }
 
 /* โมดัลรายละเอียดท่า — เปิดจาก track.demoExercise (set โดย action 'demo')
-   ลิงก์ YouTube: ถ้าท่านี้มีคลิปที่ตรวจสอบแล้วใน VERIFIED_YT ลิงก์ตรงไปคลิปนั้นเลย
-   (Creative Commons ยืนยันแล้ว) ไม่งั้น fallback ไปหน้าค้นหา YouTube ตามชื่อท่า */
+   เดิมมีลิงก์ไปคลิปสอน YouTube (ทั้งคลิปที่ตรวจสอบแล้วและลิงก์ค้นหา) ตัดออกทั้งหมดแล้ว
+   ตามที่ผู้ใช้ขอ — เหลือแค่ชื่อท่า/pattern/หมายเหตุความปลอดภัย ไม่มีลิงก์ออกนอกแอปแล้ว */
 function demoModalHTML(){
   var d = track.demoExercise;
   if(!d) return '';
-  var verified = VERIFIED_YT[d.exId];
-  var ytHtml = verified
-    ? '<a class="demo-yt" href="https://www.youtube.com/watch?v='+esc(verified.id)+'" target="_blank" rel="noopener noreferrer">'+
-        '<span class="demo-yt-ic" aria-hidden="true">▶</span> ดูคลิปสอนท่านี้บน YouTube</a>'+
-      '<div class="demo-yt-credit">คลิปตรวจสอบแล้ว (Creative Commons) — "'+esc(verified.title)+'" โดย '+esc(verified.channel)+'</div>'
-    : '<a class="demo-yt" href="https://www.youtube.com/results?search_query='+encodeURIComponent(d.th+' how to form')+'" target="_blank" rel="noopener noreferrer">'+
-        '<span class="demo-yt-ic" aria-hidden="true">▶</span> ค้นหาคลิปสอนท่านี้บน YouTube</a>';
   return '<div class="demo-overlay" data-act="demo-close">'+
     '<div class="demo-modal" role="dialog" aria-modal="true" data-act="demo-stop">'+
       '<button type="button" class="demo-x" data-act="demo-close" aria-label="ปิด">✕</button>'+
       '<div class="demo-title">'+esc(d.th)+'</div>'+
       '<div class="demo-pattern">'+esc(PATTERN_LABEL[d.pattern]||d.pattern)+'</div>'+
       (d.sub ? '<div class="demo-sub">'+esc(d.sub)+'</div>' : '')+
-      ytHtml+
-      '<div class="demo-note">ℹ️ กดปุ่มด้านบนเพื่อดูคลิปสอนจริงบน YouTube หรือปรึกษาเทรนเนอร์อีกครั้งก่อนทำจริง เพื่อฟอร์มที่ถูกต้องเป๊ะรายท่า</div>'+
+      '<div class="demo-note">ℹ️ ปรึกษาเทรนเนอร์ก่อนทำจริง เพื่อฟอร์มที่ถูกต้องเป๊ะรายท่า</div>'+
     '</div></div>';
 }
 
@@ -2448,6 +2533,33 @@ document.addEventListener("click", function(ev){
     });
     return;
   }
+  if(act==='bf-spin'){
+    bodyFatSpinStopAuto();
+    bodyFatSpin = {open:true, sex:el.getAttribute('data-sex'), band:el.getAttribute('data-band'),
+                   frame:0, drag:null, autoTimer:null};
+    render();
+    /* หมุนช้าๆ เองตอนเพิ่งเปิด เพื่อให้เห็นทันทีว่าภาพนี้หมุนดูรอบตัวได้ (ไม่ต้องอ่านคำอธิบาย
+       ก่อนถึงจะรู้) — หยุดถาวรทันทีที่ผู้ใช้เริ่มควบคุมเอง ไม่แย่งการควบคุมกลับคืน */
+    bodyFatSpin.autoTimer = setInterval(function(){
+      if(!bodyFatSpin.open){ bodyFatSpinStopAuto(); return; }
+      bodyFatSpinShow(bodyFatSpin.frame + 1);
+      var r = document.getElementById('bfSpinRange');
+      if(r) r.value = bodyFatSpin.frame;
+    }, 110);
+    return;
+  }
+  if(act==='bf-spin-close'){
+    bodyFatSpinStopAuto();
+    bodyFatSpin = {open:false, sex:null, band:null, frame:0, drag:null, autoTimer:null};
+    render(); return;
+  }
+  if(act==='bf-spin-prev' || act==='bf-spin-next'){
+    bodyFatSpinStopAuto();
+    bodyFatSpinShow(bodyFatSpin.frame + (act==='bf-spin-next' ? 1 : -1));
+    var rng = document.getElementById('bfSpinRange');
+    if(rng) rng.value = bodyFatSpin.frame;
+    return;
+  }
   if(act==='coach-ask'){ coachAsk(); return; }
   if(act==='nav'){ if(el.disabled) return; goto(el.getAttribute('data-view')); return; }
   if(act==='tab'){ track.schedTab = el.getAttribute('data-tab'); track.openDate=null; render(); return; }
@@ -2587,16 +2699,59 @@ document.addEventListener("change", function(ev){
    ผลลัพธ์ Performance vs Benchmark ใต้ท่านั้นถึงจะขึ้นทันทีที่กรอกครบ ไม่ต้องคลิกออก
    จาก field ก่อน (ฟิลด์อื่น เช่น โภชนาการ/การนอน ยังใช้ change ตามเดิม ไม่แตะ) */
 document.addEventListener("input", function(ev){
+  /* แถบเลื่อนมุมของภาพหมุน 360° — จัดการก่อน เพราะไม่ใช่ data-act="set" (ช่องกรอกเซ็ต) */
+  if(ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act')==='bf-spin-range'){
+    bodyFatSpinStopAuto();
+    bodyFatSpinShow(parseInt(ev.target.value, 10) || 0);
+    return;
+  }
   var el = ev.target && ev.target.closest ? ev.target.closest('[data-act="set"]') : null;
   if(!el) return;
   var iso = el.getAttribute('data-date');
   patchExercise(iso, el.getAttribute('data-ex'), {sets: setsFromDom(el.getAttribute('data-ex'), iso)});
 }, false);
 
+/* ---------- ลากเพื่อหมุนภาพ 360° ----------
+   ใช้ Pointer Events ตัวเดียวครอบทั้งเมาส์และนิ้ว (Android WebView รองรับครบ) ผูกไว้ที่
+   document แบบ delegated เหมือน listener อื่นๆ ของแอป เพราะโมดัลถูกสร้างใหม่ทุกครั้งที่
+   render() — ผูก listener ไว้ที่ตัว stage โดยตรงจะหลุดทุกครั้งที่หน้าถูกวาดใหม่
+   ระยะลากต่อ 1 เฟรม คิดจากความกว้างจริงของ stage หารด้วยจำนวนเฟรม เพื่อให้ "ลากสุดความ
+   กว้างภาพ = หมุนครบ 1 รอบ" เท่ากันทุกขนาดหน้าจอ ไม่ต้องปรับค่าคงที่ตามอุปกรณ์ */
+document.addEventListener("pointerdown", function(ev){
+  if(!bodyFatSpin.open) return;
+  var stage = ev.target && ev.target.closest ? ev.target.closest('.bf-spin-stage') : null;
+  if(!stage) return;
+  bodyFatSpinStopAuto();
+  var w = stage.getBoundingClientRect().width || 1;
+  bodyFatSpin.drag = {x: ev.clientX, startFrame: bodyFatSpin.frame, perFrame: w / BODYFAT_SPIN_FRAMES};
+  if(stage.setPointerCapture){ try{ stage.setPointerCapture(ev.pointerId); }catch(e){} }
+  ev.preventDefault();
+}, false);
+
+document.addEventListener("pointermove", function(ev){
+  var d = bodyFatSpin.drag;
+  if(!bodyFatSpin.open || !d) return;
+  // ลากไปทางขวา = ตัวแบบหมุนตามมือ (ทิศเดียวกับที่คนคาดหวังเวลาหมุนของจริงด้วยนิ้ว)
+  var steps = Math.round((ev.clientX - d.x) / d.perFrame);
+  bodyFatSpinShow(d.startFrame + steps);
+  var r = document.getElementById('bfSpinRange');
+  if(r) r.value = bodyFatSpin.frame;
+  ev.preventDefault();
+}, false);
+
+function bodyFatSpinEndDrag(){ if(bodyFatSpin.drag) bodyFatSpin.drag = null; }
+document.addEventListener("pointerup", bodyFatSpinEndDrag, false);
+document.addEventListener("pointercancel", bodyFatSpinEndDrag, false);
+
 /* กด Enter ในช่องถามโค้ชให้ส่งคำถามได้เลย ไม่ต้องกดปุ่มเสมอไป
    กด Escape ปิดโมดัลภาพเคลื่อนไหวท่า (ถ้าเปิดอยู่) */
 document.addEventListener("keydown", function(ev){
   if(ev.key==='Enter' && ev.target && ev.target.id==='coachInput'){ ev.preventDefault(); coachAsk(); return; }
+  if(ev.key==='Escape' && bodyFatSpin.open){
+    bodyFatSpinStopAuto();
+    bodyFatSpin = {open:false, sex:null, band:null, frame:0, drag:null, autoTimer:null};
+    render(); return;
+  }
   if(ev.key==='Escape' && track.demoExercise){ track.demoExercise = null; render(); }
 }, false);
 

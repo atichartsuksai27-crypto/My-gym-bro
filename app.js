@@ -2389,9 +2389,16 @@ document.addEventListener("click", function(ev){
         render(); return;
       }
       // สำเร็จ: บัญชีถูกลบที่ฝั่ง Supabase แล้ว (cascade ลบทุกตารางให้อัตโนมัติ) —
-      // เคลียร์ข้อมูลโลคัลทั้งหมดตามไปด้วย แล้วโชว์หน้ายืนยัน (ยังไม่ตัด auth.session
-      // จนกว่าจะกดปิด ดูคอมเมนต์บน delacct-close-final)
+      // ต้องเคลียร์ทั้ง localStorage "และ" ตัวแปรในหน่วยความจำ (track/state) สองชุดนี้
+      // แยกกันเด็ดขาด — ลืมเคลียร์ track/state แล้วปล่อยให้ hydrateFromRemote() เจอ
+      // track.program ที่ยังไม่ว่างตอน login ใหม่ (ด้วย user_id ใหม่ที่ยังไม่มีข้อมูล)
+      // มันจะ "push" ข้อมูลเก่าที่ยังค้างอยู่ในหน่วยความจำกลับขึ้นไปสร้างใหม่ในบัญชีที่
+      // เพิ่งลบไปทันที — เท่ากับข้อมูลไม่ได้หายจริงจากมุมมองผู้ใช้ (บั๊กที่เจอจริง แก้ตรงนี้)
+      // ใช้ pattern เดียวกับปุ่ม "ล้างข้อมูลและเริ่มแบบสอบถามใหม่" (data-act=hard-restart)
+      // ที่มีอยู่แล้วในแอป ซึ่งแก้ปัญหาเดียวกันนี้ถูกต้องอยู่ก่อนแล้ว
       lsRemove("gymbro_program"); lsRemove("gymbro_logs"); lsRemove("gymbro_weights"); lsRemove("gymbro_onb_proto");
+      track.program = null; track.logs = {}; track.weights = {};
+      state = freshState();
       deleteAccountUI = {open:true, reason:null, busy:false, error:null, done:true};
       render();
     }).catch(function(e){

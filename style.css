@@ -481,6 +481,14 @@ table.logtab th{color:var(--text-4); font-weight:700; font-size:10px; text-trans
 .opt:hover{border-color:var(--accent); background:var(--accent-soft);}
 .opt.sel{background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:700;}
 .opt-note{font-size:11.5px; color:var(--text-4); margin-top:6px;}
+
+.bf-ref{margin:10px 0 16px;}
+.bf-grid{display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px;}
+@media (max-width:560px){ .bf-grid{grid-template-columns:repeat(2, minmax(0,1fr));} }
+.bf-card{border:1px solid var(--border); border-radius:var(--r-md); padding:8px 6px; background:var(--surface-2); text-align:center;}
+.bf-card img{width:100%; height:auto; display:block; margin:0 auto;}
+.bf-card-label{font-size:11.5px; color:var(--text-2); margin-top:6px; line-height:1.4;}
+.bf-card-label .mono{color:var(--text-4);}
 .field-row{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
 .nested{margin-top:12px; padding-top:12px; border-top:1px dashed var(--border-strong);}
 table.bench{width:100%; border-collapse:collapse; margin-top:8px; font-size:12.5px;}

@@ -64,15 +64,21 @@ var BENCH = {
 };
 var Q3_MIN = {"น้อยกว่า 20 นาที":15, "20-45 นาที":32, "45-60 นาที":52, "มากกว่า 60 นาที":70};
 
+/* ลำดับ Q2/Q3 (วัน/เวลาที่มี) มาก่อน Q1 (เป้าหมาย) โดยตั้งใจ — ทั้งสามอยู่ใน cat:1
+   เดียวกัน (แสดงหน้าเดียวกันเสมอ) แต่ลำดับใน array นี้คือลำดับที่ขึ้นจริงบนจอ ให้ระบบรู้
+   ว่าผู้ใช้มีเวลาเท่าไหร่ก่อน แล้วค่อยเตือนความเป็นไปได้ของแต่ละเป้าหมายตอนแสดง Q1
+   (ดู goalFeasibilityNote ที่ renderQuestion) — id ยังใช้ชื่อเดิม (a.Q1=เป้าหมาย,
+   a.Q2=วัน, a.Q3=เวลา) ไม่เปลี่ยน เพราะเป็น data key ที่ทั้งไฟล์อ้างอิงอยู่ ไม่เกี่ยวกับ
+   ตำแหน่งแสดงผล เปลี่ยนแค่ลำดับใน array นี้พอ */
 var QUESTIONS = [
-  {id:"Q1", cat:1, kind:"single", main:true, label:"เป้าหมายหลักของคุณตอนนี้คืออะไร?",
-    options:Object.keys(BENCH), visible:function(){return true;}},
-
   {id:"Q2", cat:1, kind:"multi", main:true, label:"วันไหนบ้างที่คุณว่างสำหรับออกกำลังกาย?",
     options:DAYS, note:"multi-select — เลือกได้หลายวัน", visible:function(){return true;}},
 
   {id:"Q3", cat:1, kind:"single", main:true, label:"โดยเฉลี่ยแต่ละครั้งคุณมีเวลาเท่าไหร่?",
     options:["น้อยกว่า 20 นาที","20-45 นาที","45-60 นาที","มากกว่า 60 นาที"], visible:function(){return true;}},
+
+  {id:"Q1", cat:1, kind:"single", main:true, label:"เป้าหมายหลักของคุณตอนนี้คืออะไร?",
+    options:Object.keys(BENCH), visible:function(){return true;}},
 
   {id:"Q4a", cat:1, kind:"single", main:false, branchFrom:"Q1 = ลดไขมัน",
     label:"ต้องการลดแบบเข้มข้น (deficit สูง) หรือค่อยเป็นค่อยไป?",
@@ -1710,6 +1716,50 @@ function benchTable(goal){
   return '<div class="note"><span class="eyebrow2">ข้อความอัตโนมัติจากระบบ (ไม่ใช่คำถาม)</span>'+
     '<table class="bench"><thead><tr><th>เป้าหมาย</th><th>แนะนำ</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
 }
+/* เตือนความเป็นไปได้ของแต่ละเป้าหมายเทียบกับวัน/เวลาที่ตอบไว้ใน Q2/Q3 — แสดง "ก่อน" เลือก
+   Q1 เพราะตอนนี้ Q2/Q3 อยู่ก่อน Q1 แล้ว (ดูหมายเหตุที่ประกาศ QUESTIONS) ไม่บล็อกตัวเลือกใดๆ
+   แค่ให้ข้อมูลประกอบ — ยังเลือกเป้าหมายที่ "เวลาไม่พอ" ได้ปกติ เพราะ timeFeedback()
+   จัดการ fallback ให้อยู่แล้ว (ปรับความเข้มข้นให้เหมาะกับเวลาที่มีแทน ไม่ใช่ปฏิเสธ) */
+function goalFeasibilityHint(a){
+  var days = a.Q2, t = a.Q3;
+  if(!days || !days.length || !t) return ""; // ยังตอบ Q2/Q3 ไม่ครบ ยังเดาไม่ได้ ไม่แสดงอะไรเดา
+  var est = Q3_MIN[t]||0, rows = "";
+  Object.keys(BENCH).forEach(function(g){
+    var b = BENCH[g], ok = days.length>=b.days[0] && est>=b.mins[0];
+    rows += '<tr><td>'+esc(g)+'</td><td>'+esc(b.label)+'</td><td>'+
+      (ok ? '<span class="chip ok">พอเวลา</span>' : '<span class="chip">เวลาน้อยกว่าที่แนะนำ</span>')+'</td></tr>';
+  });
+  return '<div class="note"><span class="eyebrow2">เทียบกับวัน/เวลาที่ตอบไว้ (เลือกได้ทุกเป้าหมาย — เวลาไม่พอระบบจะปรับความเข้มข้นให้แทน ไม่ปิดกั้น)</span>'+
+    '<table class="bench"><thead><tr><th>เป้าหมาย</th><th>แนะนำ</th><th>สถานะ</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+/* ภาพอ้างอิงระดับไขมันร่างกาย (Q14) — สร้างจาก Blender/MPFB (MakeHuman) เก็บไว้ที่
+   bodyfat/bf-<male|female>-<athletes|fitness|average|high>.png ที่ root โปรเจกต์
+   (ดู mobile/scripts/bodyfat-renders/render_all.py สำหรับที่มา — รันสคริปต์นั้นใหม่ได้
+   ถ้าต้องการปรับรูปทรง/สัดส่วน ไม่ต้องแก้ไฟล์ภาพด้วยมือ)
+   หมวดหมู่ % อ้างอิงจาก ACE (American Council on Exercise) ซึ่งเผยแพร่สาธารณะ — ไม่ใช่
+   ตัวเลขที่เดาขึ้นเอง แต่ตัวโมเดล 3 มิติเป็นการ "map โดยประมาณ" ไม่ใช่เครื่องมือวัดจริง
+   ต้องกำกับข้อความนี้เสมอ (สอดคล้องกับวินัยความซื่อสัตย์ของแอปทั้งระบบ — ดู CLAUDE.md) */
+var BODYFAT_BANDS = [
+  {key:"athletes", label:"นักกีฬา",     male:"6-13%",  female:"14-20%"},
+  {key:"fitness",  label:"ฟิต",         male:"14-17%", female:"21-24%"},
+  {key:"average",  label:"ปานกลาง",     male:"18-24%", female:"25-31%"},
+  {key:"high",     label:"ค่อนข้างสูง", male:"25%+",   female:"32%+"}
+];
+function bodyFatReferenceHTML(a){
+  var sex = a.Q9;
+  if(sex!=="ชาย" && sex!=="หญิง"){
+    return '<div class="hint" style="margin:10px 0 14px">ตอบคำถาม "เพศ" ด้านบนก่อน ระบบจะเลือกภาพอ้างอิงให้ตรงกับคุณ</div>';
+  }
+  var folder = sex==="ชาย" ? "male" : "female";
+  var cards = BODYFAT_BANDS.map(function(b){
+    var pct = sex==="ชาย" ? b.male : b.female;
+    return '<div class="bf-card"><img src="bodyfat/bf-'+folder+'-'+b.key+'.png" alt="'+esc(b.label)+'" loading="lazy">'+
+      '<div class="bf-card-label">'+esc(b.label)+'<br><span class="mono">'+esc(pct)+'</span></div></div>';
+  }).join('');
+  return '<div class="bf-ref">'+
+    '<div class="hint" style="margin-bottom:8px">ภาพประกอบคร่าวๆ ช่วยกะระดับ — ไม่ใช่เครื่องมือวัดที่แม่นยำ (อิงหมวดหมู่ ACE/American Council on Exercise)</div>'+
+    '<div class="bf-grid">'+cards+'</div></div>';
+}
 function timeFeedback(a){
   var goal=a.Q1, days=a.Q2, t=a.Q3;
   if(!goal || !days || !t || !BENCH[goal]) return "";
@@ -1726,6 +1776,8 @@ function renderQuestion(q){
   var body = '<div class="q-block">'+
     '<div class="q-top"><span class="q-id mono">'+q.id+'</span>'+badge+'</div>'+
     '<div class="q-label">'+esc(q.label)+'</div>';
+  if(q.id==="Q1") body += goalFeasibilityHint(a);
+  if(q.id==="Q14") body += bodyFatReferenceHTML(a);
   if(q.kind==="single" || q.kind==="multi"){
     body += '<div class="opts">';
     q.options.forEach(function(o){

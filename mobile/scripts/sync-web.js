@@ -22,6 +22,12 @@ var FILES = [
   "supabase-client.js"
 ];
 
+// โฟลเดอร์ภาพ static ที่ app.js อ้างอิงตรงๆ (เช่น Q14 body-fat reference) — คัดลอกทั้ง
+// โฟลเดอร์ ไม่ glob กว้างกว่านี้ ด้วยเหตุผลเดียวกับ FILES ข้างบน (กันของไม่เกี่ยวหลุดติดไป)
+var FOLDERS = [
+  "bodyfat"
+];
+
 function copyOne(name){
   var src = path.join(ROOT, name);
   var dest = path.join(OUT, name);
@@ -34,9 +40,23 @@ function copyOne(name){
   return true;
 }
 
+function copyFolder(name){
+  var src = path.join(ROOT, name);
+  var dest = path.join(OUT, name);
+  if(!fs.existsSync(src)){
+    console.error("[sync-web] MISSING folder at project root, skipped: " + name);
+    return false;
+  }
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.cpSync(src, dest, { recursive: true });
+  console.log("[sync-web] copied folder " + name + "/");
+  return true;
+}
+
 fs.mkdirSync(OUT, { recursive: true });
 var ok = true;
 FILES.forEach(function(name){ if(!copyOne(name)) ok = false; });
+FOLDERS.forEach(function(name){ if(!copyFolder(name)) ok = false; });
 if(!ok){
   console.error("[sync-web] เสร็จแบบมีไฟล์ขาดหาย ตรวจชื่อไฟล์ด้านบนอีกครั้ง");
   process.exit(1);

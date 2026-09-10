@@ -946,10 +946,14 @@ function navIconHTML(k){
 var acctOpen = false;
 
 /* สถานะโมดัลลบบัญชี — เป็น UI ชั่วคราวเช่นกัน ไม่ persist
-   done:true = ลบสำเร็จแล้ว กำลังโชว์หน้ายืนยัน (ยังไม่ตัด auth.session ออกจนกว่าจะกด
-   ปิด — ถ้าตัดทันทีตอนลบเสร็จ render() จะโดน auth gate สกัดจนไม่มีโอกาสเห็นข้อความ
-   ยืนยันเลย เพราะ renderNav() ที่ modal นี้อาศัยอยู่ไม่ถูกเรียกตอน auth gate ทำงาน) */
+   done:true = ลบสำเร็จแล้ว กำลังโชว์หน้ายืนยัน (ตอนนั้น session ถูกตัดไปแล้ว แต่ยังเห็น
+   ข้อความยืนยันได้ เพราะ render() วาดโมดัลนี้ทับหน้า auth gate ให้ด้วย ดู render()) */
 var deleteAccountUI = {open:false, reason:null, busy:false, error:null, done:false};
+
+/* กันเหนียวชั้นสุดท้าย: ตั้งเป็น true ทันทีที่ลบบัญชีสำเร็จ แล้วห้าม hydrateFromRemote()
+   ทำงานอีกเลยจนกว่าจะรีโหลดหน้า — กัน race ที่ onAuthChange ยิงตอน signOut() แล้วไป
+   เรียก sync ซ้อนขึ้นมาดันข้อมูลที่ค้างในหน่วยความจำกลับขึ้น Supabase อีกรอบ */
+var accountDeleted = false;
 
 /* ตัวเลือกเหตุผลลบบัญชี — ต้องตรงกับ ALLOWED_REASONS ใน functions/api/delete-account.js
    เป๊ะทุกตัวอักษร (server เช็คซ้ำ ไม่เชื่อ client เฉยๆ) เลือกได้ข้อเดียว อิงหมวดหมู่
@@ -1636,6 +1640,22 @@ function renderProgress(){
    ต้อง login แล้วเท่านั้น (ดู currentView()/renderNav()) เพราะ backend ต้องมี access
    token ไปยืนยันตัวตน + เช็คโควตารายวัน ประวัติแชทเก็บแค่ใน session นี้เท่านั้น (ไม่
    persist ลง localStorage/Supabase — เป็น scope ของ MVP รอบแรก) */
+/* apiUrl: ที่อยู่จริงของ Cloudflare Pages Functions (/api/*)
+   บนเว็บ = path สัมพัทธ์เหมือนเดิม (same-origin กับ Pages ที่ deploy อยู่)
+   บนแอป native = ต้องเติมโดเมนเต็ม เพราะหน้าเว็บในแอปถูกเสิร์ฟจาก https://localhost โดย
+   static server ในเครื่องของ Capacitor เอง — fetch('/api/xxx') จึงวิ่งไปหา server ตัวนั้น
+   ซึ่ง "ตอบ 200 พร้อม index.html" กลับมา (SPA fallback) ไม่ใช่ 404 ด้วยซ้ำ
+   นี่คือต้นตอจริงของบั๊ก "กดลบบัญชีแล้วขึ้นว่าสำเร็จ แต่ข้อมูลไม่หายจาก Supabase":
+   โค้ดเดิมเช็คแค่ res.ok เห็น 200 เลยเข้าใจว่าลบสำเร็จ ทั้งที่คำขอไม่เคยออกจากเครื่องเลย
+   (ฟีเจอร์ถามโค้ชก็พังด้วยเหตุผลเดียวกันเป๊ะ) — ฝั่ง server เปิด CORS ให้ origin ของ
+   Capacitor ไว้แล้วใน functions/api/*.js */
+var API_ORIGIN = 'https://gymbro-daily.pages.dev';
+function isNativeApp(){
+  return typeof window.Capacitor !== 'undefined' &&
+         !!window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+}
+function apiUrl(path){ return (isNativeApp() ? API_ORIGIN : '') + path; }
+
 var coachState = {messages:[], busy:false, error:null};
 var COACH_MAX_PER_DAY = 20; // ต้องตรงกับ MAX_QUESTIONS_PER_DAY ใน functions/api/coach.js เสมอ — แค่ไว้โชว์ผู้ใช้
 
@@ -1677,16 +1697,18 @@ function coachAsk(){
   coachState.busy = true; coachState.error = null;
   render();
   var token = (auth.session && auth.session.access_token) || '';
-  fetch('/api/coach', {
+  fetch(apiUrl('/api/coach'), {
     method: 'POST',
     headers: {'content-type':'application/json', 'Authorization':'Bearer '+token},
     body: JSON.stringify({question:q})
   }).then(function(res){
-    return res.json().catch(function(){ return {}; }).then(function(data){ return {ok:res.ok, data:data}; });
+    return res.json().catch(function(){ return null; }).then(function(data){ return {ok:res.ok, data:data}; });
   }).then(function(r){
     coachState.busy = false;
-    if(r.ok) coachState.messages.push({role:'assistant', text:r.data.answer||'(ไม่มีคำตอบ)'});
-    else coachState.error = (r.data && r.data.error) || 'เกิดข้อผิดพลาด ลองใหม่อีกครั้ง';
+    // ตอบกลับต้องเป็น JSON จริงเท่านั้น — ถ้าแกะ JSON ไม่ออก (data===null) แปลว่าไปโดน
+    // อย่างอื่นที่ไม่ใช่ API ของเรา (เช่น index.html) ต่อให้ status เป็น 200 ก็ห้ามนับว่าสำเร็จ
+    if(r.ok && r.data && typeof r.data.answer === 'string') coachState.messages.push({role:'assistant', text:r.data.answer||'(ไม่มีคำตอบ)'});
+    else coachState.error = (r.data && r.data.error) || 'เชื่อมต่อระบบไม่สำเร็จ ลองใหม่อีกครั้ง';
     render();
   }).catch(function(e){
     coachState.busy = false;
@@ -2259,7 +2281,10 @@ function renderAuthGate(){
 function render(toTop){
   if(auth.ready && syncAvailable() && !auth.session){
     document.getElementById('nav').innerHTML = '';
-    document.getElementById('page').innerHTML = renderAuthGate();
+    // ต่อโมดัลลบบัญชีท้ายหน้า login ด้วย — กรณีเดียวที่จำเป็นคือหลังลบบัญชีสำเร็จ ซึ่ง
+    // session ถูกตัดไปแล้ว (signOut จริง) แต่ยังต้องให้ผู้ใช้เห็นข้อความ "ลบบัญชีเรียบร้อย
+    // แล้ว" ก่อนกดปิด ถ้าไม่ต่อตรงนี้ auth gate จะกลืนโมดัลหายไปทันทีที่ลบเสร็จ
+    document.getElementById('page').innerHTML = renderAuthGate() + deleteAccountModalHTML();
     if(toTop) window.scrollTo({top:0, behavior:"auto"});
     return;
   }
@@ -2365,42 +2390,57 @@ document.addEventListener("click", function(ev){
     render(); return;
   }
   if(act==='delacct-close-final'){
-    // เพิ่งลบบัญชีสำเร็จ — ตัด session ฝั่ง client ตอนนี้เท่านั้น (ตัดตั้งแต่ตอนลบเสร็จ
-    // จะโดน auth gate สกัด render() จนไม่มีโอกาสเห็นข้อความยืนยันเลย ดูคอมเมนต์บน
-    // deleteAccountUI) เซิร์ฟเวอร์ลบ user จริงไปแล้วตั้งแต่ตอน delacct-confirm
-    auth.session = null;
-    deleteAccountUI = {open:false, reason:null, busy:false, error:null, done:false};
-    render(); return;
+    // เพิ่งลบบัญชีสำเร็จและล้างเครื่องไปหมดแล้วตอน delacct-confirm — ปิดท้ายด้วยการโหลด
+    // แอปใหม่ทั้งตัว เพื่อการันตีว่า "เริ่มที่ 0" จริง 100%: ตัวแปรในหน่วยความจำทุกตัวถูก
+    // สร้างใหม่จากศูนย์ ไม่ต้องไล่รีเซ็ตทีละตัวแล้วมาลุ้นว่าลืมตัวไหนไปหรือเปล่า
+    // (บั๊กเดิมเกิดจากการไล่รีเซ็ตเองแล้วมีตัวที่มองข้ามไป — reload ตัดปัญหานี้ถาวร)
+    window.location.reload();
+    return;
   }
   if(act==='delacct-confirm'){
     if(!deleteAccountUI.reason || deleteAccountUI.busy) return;
     deleteAccountUI.busy = true; deleteAccountUI.error = null; render();
     var token = (auth.session && auth.session.access_token) || '';
-    fetch('/api/delete-account', {
+    fetch(apiUrl('/api/delete-account'), {
       method: 'POST',
       headers: {'content-type':'application/json', 'Authorization':'Bearer '+token},
       body: JSON.stringify({reason: deleteAccountUI.reason})
     }).then(function(res){
-      return res.json().catch(function(){ return {}; }).then(function(data){ return {ok:res.ok, data:data}; });
+      return res.json().catch(function(){ return null; }).then(function(data){ return {ok:res.ok, data:data}; });
     }).then(function(r){
-      if(!r.ok){
+      // ต้องได้ {ok:true} ที่เป็น JSON จริงจาก server เท่านั้นถึงจะนับว่าลบสำเร็จ — ห้ามดูแค่
+      // res.ok เด็ดขาด เพราะ static server ของ Capacitor ตอบ 200 + index.html ให้ทุก path
+      // ที่ไม่รู้จัก (บั๊กเดิมที่ทำให้ขึ้น "ลบบัญชีเรียบร้อยแล้ว" ทั้งที่ไม่มีอะไรถูกลบจริง)
+      if(!r.ok || !r.data || r.data.ok !== true){
         deleteAccountUI.busy = false;
-        deleteAccountUI.error = (r.data && r.data.error) || 'ลบบัญชีไม่สำเร็จ ลองใหม่อีกครั้ง';
+        deleteAccountUI.error = (r.data && r.data.error) ||
+          'ลบบัญชีไม่สำเร็จ (ติดต่อเซิร์ฟเวอร์ไม่ได้) ยังไม่มีข้อมูลใดถูกลบ ลองใหม่อีกครั้ง';
         render(); return;
       }
-      // สำเร็จ: บัญชีถูกลบที่ฝั่ง Supabase แล้ว (cascade ลบทุกตารางให้อัตโนมัติ) —
-      // ต้องเคลียร์ทั้ง localStorage "และ" ตัวแปรในหน่วยความจำ (track/state) สองชุดนี้
-      // แยกกันเด็ดขาด — ลืมเคลียร์ track/state แล้วปล่อยให้ hydrateFromRemote() เจอ
-      // track.program ที่ยังไม่ว่างตอน login ใหม่ (ด้วย user_id ใหม่ที่ยังไม่มีข้อมูล)
-      // มันจะ "push" ข้อมูลเก่าที่ยังค้างอยู่ในหน่วยความจำกลับขึ้นไปสร้างใหม่ในบัญชีที่
-      // เพิ่งลบไปทันที — เท่ากับข้อมูลไม่ได้หายจริงจากมุมมองผู้ใช้ (บั๊กที่เจอจริง แก้ตรงนี้)
-      // ใช้ pattern เดียวกับปุ่ม "ล้างข้อมูลและเริ่มแบบสอบถามใหม่" (data-act=hard-restart)
-      // ที่มีอยู่แล้วในแอป ซึ่งแก้ปัญหาเดียวกันนี้ถูกต้องอยู่ก่อนแล้ว
-      lsRemove("gymbro_program"); lsRemove("gymbro_logs"); lsRemove("gymbro_weights"); lsRemove("gymbro_onb_proto");
-      track.program = null; track.logs = {}; track.weights = {};
-      state = freshState();
-      deleteAccountUI = {open:true, reason:null, busy:false, error:null, done:true};
-      render();
+      // สำเร็จ: server ลบทุกตารางใน Supabase + ลบ auth user + ตรวจซ้ำว่าเหลือ 0 แล้ว
+      // (ดู functions/api/delete-account.js) เหลือหน้าที่ฝั่งนี้อย่างเดียว: ทำให้เครื่องนี้
+      // "ไม่เหลืออะไรเลย" จริงๆ ทั้ง 3 ชั้น ไม่งั้นข้อมูลเก่าจะฟื้นกลับมาได้ทุกครั้งที่ล็อกอินใหม่
+      //   ชั้นที่ 1) session ของ Supabase — ต้อง signOut() จริง ไม่ใช่แค่ auth.session=null
+      //      เพราะ supabase-js เก็บ token ไว้ใน localStorage คีย์ "sb-<ref>-auth-token"
+      //      ซึ่งเป็นคนละคีย์กับ gymbro_* ที่เราล้าง มันจึงรอดมาตลอดและทำให้แอปยัง "ล็อกอิน
+      //      ค้าง" เป็น user ที่ถูกลบไปแล้วในรอบถัดไป (ต้นตอจริงของบั๊กที่แก้หลายรอบไม่หาย)
+      //   ชั้นที่ 2) localStorage — ล้างทั้งก้อนด้วย clear() ไม่ใช่ไล่ลบทีละคีย์ที่นึกออก
+      //   ชั้นที่ 3) ตัวแปรในหน่วยความจำ (track/state) + ธง accountDeleted กัน sync ซ้อน
+      //      เพราะ hydrateFromRemote() ที่เจอ track.program ค้างอยู่ จะ push มันกลับขึ้น
+      //      Supabase ให้บัญชีใหม่ทันทีที่ล็อกอินอีกครั้ง
+      accountDeleted = true;
+      var finish = function(){
+        try{ localStorage.clear(); }catch(e){}
+        track.program = null; track.logs = {}; track.weights = {};
+        state = freshState();
+        auth.session = null;
+        deleteAccountUI = {open:true, reason:null, busy:false, error:null, done:true};
+        render();
+      };
+      // signOut() ล้มเหลวได้เป็นปกติหลังบัญชีถูกลบไปแล้ว (server ตอบ 403 user_not_found)
+      // ไม่ว่าผลจะเป็นอย่างไรก็ต้องล้างเครื่องต่อเสมอ จึงใช้ finish ตัวเดียวกันทั้งสองทาง
+      try{ GymBroSync.signOut().then(finish, finish); }
+      catch(e){ finish(); }
     }).catch(function(e){
       deleteAccountUI.busy = false;
       deleteAccountUI.error = 'เชื่อมต่อไม่สำเร็จ: '+(e && e.message ? e.message : e);
@@ -2573,6 +2613,8 @@ document.addEventListener("keydown", function(ev){
    สำหรับ logs/weights (เป็น dict คีย์ด้วยวันที่) merge แบบ union ต่อวัน: วันที่มีในเครื่อง
    แล้วใช้ของเครื่อง วันที่มีเฉพาะบน remote (เช่นบันทึกไว้จากอีกเครื่อง) ดึงมาเพิ่ม */
 function hydrateFromRemote(userId){
+  // เพิ่งลบบัญชีไปในเซสชันนี้ — ห้าม sync อะไรทั้งสิ้นจนกว่าจะรีโหลด (ดู accountDeleted)
+  if(accountDeleted) return Promise.resolve();
   return GymBroSync.pullProgram(userId).then(function(res){
     var remote = res && res.data && res.data.payload;
     if(!track.program && remote){ track.program = remote; lsSet("gymbro_program", track.program); }

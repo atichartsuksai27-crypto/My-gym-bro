@@ -48,6 +48,27 @@ function jsonResponse(body, status){
 }
 function jsonError(message, status){ return jsonResponse({error: message}, status); }
 
+/* CORS สำหรับแอป native (Capacitor) — เหตุผลเดียวกับใน delete-account.js ทุกประการ
+   (หน้าเว็บในแอปมี origin เป็น https://localhost / capacitor://localhost ทำให้การเรียก
+   API นี้เป็น cross-origin + มี Authorization → ต้องผ่าน preflight OPTIONS ก่อนเสมอ) */
+const ALLOWED_ORIGINS = ['https://localhost', 'capacitor://localhost'];
+
+function withCors(res, request){
+  var origin = request.headers.get('Origin') || '';
+  if(ALLOWED_ORIGINS.indexOf(origin) === -1) return res;
+  var headers = new Headers(res.headers);
+  headers.set('Access-Control-Allow-Origin', origin);
+  headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  headers.set('Access-Control-Allow-Headers', 'authorization, content-type');
+  headers.set('Access-Control-Max-Age', '86400');
+  headers.set('Vary', 'Origin');
+  return new Response(res.body, {status: res.status, headers: headers});
+}
+
+export async function onRequestOptions(context){
+  return withCors(new Response(null, {status: 204}), context.request);
+}
+
 /* โหลดไฟล์ความรู้จาก static assets ของดีพลอยเดียวกัน — ไฟล์พวกนี้ถูก serve เป็น
    public static file อยู่แล้วโดย Cloudflare Pages (เหมือน app.js/style.css) */
 async function loadKnowledge(requestUrl){
@@ -156,6 +177,10 @@ async function checkAndBumpRateLimit(token){
 }
 
 export async function onRequestPost(context){
+  return withCors(await handleCoach(context), context.request);
+}
+
+async function handleCoach(context){
   var request = context.request;
   var env = context.env;
 

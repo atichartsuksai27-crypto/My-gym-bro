@@ -126,3 +126,18 @@ as $$
 $$;
 
 grant execute on function public.increment_coach_usage() to authenticated;
+
+-- ------------------------------------------------------------
+-- 6) เหตุผลตอนลบบัญชี (Phase 2, functions/api/delete-account.js) — เก็บไว้วิเคราะห์
+-- churn เท่านั้น ตั้งใจ "ไม่ผูก" กับ auth.users(id) เลยแม้แต่แบบไม่มี cascade เพราะ
+-- ตารางอื่นทุกตัวข้างบนผูก "on delete cascade" ไว้ ถ้าตารางนี้ผูกด้วยจะโดนลบทิ้งไปพร้อม
+-- บัญชีตอน admin API ลบ user จริง ขัดจุดประสงค์ที่อยากเก็บสถิติไว้ดูหลังบัญชีหายไปแล้ว
+-- ไม่มี RLS policy ใดๆ ตั้งใจ (แถวว่าง = ปฏิเสธหมดทั้ง anon/authenticated) เขียนได้
+-- เฉพาะผ่าน service_role key (ข้าม RLS ได้อยู่แล้ว) จาก Cloudflare Function เท่านั้น
+-- กันไม่ให้ client ส่ง insert ตรงมาสแปมได้เพราะไม่มีทาง rate-limit ตารางที่ไม่ผูก user
+create table if not exists public.account_deletion_feedback (
+  id bigint generated always as identity primary key,
+  reason text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.account_deletion_feedback enable row level security;

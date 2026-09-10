@@ -480,15 +480,28 @@ table.logtab th{color:var(--text-4); font-weight:700; font-size:10px; text-trans
 .opt{border:1px solid var(--border-strong); background:var(--surface); padding:9px 14px; border-radius:var(--r-sm); cursor:pointer; font-size:13.5px; color:var(--text); text-align:left; line-height:1.4;}
 .opt:hover{border-color:var(--accent); background:var(--accent-soft);}
 .opt.sel{background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:700;}
+.opt.recommended{border-color:var(--ok); box-shadow:0 0 0 1px var(--ok) inset;}
+.opt.recommended.sel{box-shadow:none;}
+.opt .chip{margin-left:4px; vertical-align:middle;}
 .opt-note{font-size:11.5px; color:var(--text-4); margin-top:6px;}
 
 .bf-ref{margin:10px 0 16px;}
-.bf-grid{display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px;}
-@media (max-width:560px){ .bf-grid{grid-template-columns:repeat(2, minmax(0,1fr));} }
-.bf-card{border:1px solid var(--border); border-radius:var(--r-md); padding:8px 6px; background:var(--surface-2); text-align:center;}
-.bf-card img{width:100%; height:auto; display:block; margin:0 auto;}
-.bf-card-label{font-size:11.5px; color:var(--text-2); margin-top:6px; line-height:1.4;}
-.bf-card-label .mono{color:var(--text-4);}
+.bf-grid{display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:8px;}
+@media (max-width:740px){ .bf-grid{grid-template-columns:repeat(3, minmax(0,1fr));} }
+@media (max-width:420px){ .bf-grid{grid-template-columns:repeat(2, minmax(0,1fr));} }
+/* .bf-card เป็น <button> (กดเลือกได้จริง) — reset ลักษณะปุ่มเบราว์เซอร์ทิ้งก่อน แล้วค่อย
+   จัดเป็นการ์ดเอง; .sel คือการ์ดที่ถูกเลือกไว้ (ใช้ ring สี accent แทนการเทสีทึบทั้งการ์ด
+   แบบ .opt.sel เพราะจะกลืนกับรูปภาพจนดูออกยาก) */
+.bf-card{
+  display:block; width:100%; border:1px solid var(--border); border-radius:var(--r-md);
+  padding:8px 6px; background:var(--surface-2); text-align:center; cursor:pointer;
+  font:inherit; color:inherit; -webkit-appearance:none; appearance:none;
+}
+.bf-card:hover{border-color:var(--accent);}
+.bf-card.sel{border-color:var(--accent); box-shadow:0 0 0 2px var(--accent) inset;}
+.bf-card img{width:100%; height:auto; display:block; margin:0 auto; pointer-events:none;}
+.bf-card-label{font-size:12px; color:var(--text-2); margin-top:6px; font-weight:600;}
+.bf-card.sel .bf-card-label{color:var(--accent); font-weight:700;}
 .field-row{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
 .nested{margin-top:12px; padding-top:12px; border-top:1px dashed var(--border-strong);}
 table.bench{width:100%; border-collapse:collapse; margin-top:8px; font-size:12.5px;}

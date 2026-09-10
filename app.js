@@ -64,13 +64,18 @@ var BENCH = {
 };
 var Q3_MIN = {"น้อยกว่า 20 นาที":15, "20-45 นาที":32, "45-60 นาที":52, "มากกว่า 60 นาที":70};
 
-/* ลำดับ Q2/Q3 (วัน/เวลาที่มี) มาก่อน Q1 (เป้าหมาย) โดยตั้งใจ — ทั้งสามอยู่ใน cat:1
-   เดียวกัน (แสดงหน้าเดียวกันเสมอ) แต่ลำดับใน array นี้คือลำดับที่ขึ้นจริงบนจอ ให้ระบบรู้
-   ว่าผู้ใช้มีเวลาเท่าไหร่ก่อน แล้วค่อยเตือนความเป็นไปได้ของแต่ละเป้าหมายตอนแสดง Q1
-   (ดู goalFeasibilityNote ที่ renderQuestion) — id ยังใช้ชื่อเดิม (a.Q1=เป้าหมาย,
-   a.Q2=วัน, a.Q3=เวลา) ไม่เปลี่ยน เพราะเป็น data key ที่ทั้งไฟล์อ้างอิงอยู่ ไม่เกี่ยวกับ
-   ตำแหน่งแสดงผล เปลี่ยนแค่ลำดับใน array นี้พอ */
+/* ลำดับตั้งใจ: Q9(เพศ) → Q0(เลือกรูปร่าง/ไขมันด้วยภาพ) → Q2/Q3(วัน/เวลาที่มี) → Q1(เป้าหมาย)
+   — ทั้งหมดอยู่ใน cat:1 เดียวกัน (แสดงหน้าเดียวกันเสมอ) ลำดับใน array นี้คือลำดับที่ขึ้น
+   จริงบนจอ ต้องรู้เพศ (Q9) ก่อนถึงจะเลือกชุดภาพถูก (Q0) — Q9 ย้ายมาจาก cat:2 เดิม
+   (a.Q9 ยังเป็น data key เดิม โค้ดจุดอื่นที่อ่าน a.Q9 ไม่ต้องแก้อะไร)
+   Q0 ที่เลือกไว้ใช้แนะนำเป้าหมายที่เข้ากันใน Q1 ด้วย (ดู BODYFAT_GOAL_MAP) — เป็นแค่
+   คำแนะนำ ไม่บังคับเลือกตาม กดเป้าหมายอื่นได้ปกติเสมอ */
 var QUESTIONS = [
+  {id:"Q9", cat:1, kind:"single", main:true, label:"เพศ", options:["ชาย","หญิง"], visible:function(){return true;}},
+
+  {id:"Q0", cat:1, kind:"bodyfat", main:true, label:"เลือกรูปร่างที่ใกล้เคียงกับคุณตอนนี้",
+    visible:function(a){return a.Q9==="ชาย" || a.Q9==="หญิง";}},
+
   {id:"Q2", cat:1, kind:"multi", main:true, label:"วันไหนบ้างที่คุณว่างสำหรับออกกำลังกาย?",
     options:DAYS, note:"multi-select — เลือกได้หลายวัน", visible:function(){return true;}},
 
@@ -113,7 +118,6 @@ var QUESTIONS = [
     options:["แรงสูงสุด (max strength)","กำลังระเบิด (power)","ความทนทานกล้ามเนื้อ (endurance)"],
     visible:function(a){return a.Q1==="เพิ่มความแข็งแรง-Performance";}},
 
-  {id:"Q9", cat:2, kind:"single", main:true, label:"เพศ", options:["ชาย","หญิง"], visible:function(){return true;}},
   {id:"Q10", cat:2, kind:"number", main:true, required:true, label:"อายุ", unit:"ปี", visible:function(){return true;}},
   {id:"Q11", cat:2, kind:"number", main:true, required:true, label:"ส่วนสูง", unit:"cm", visible:function(){return true;}},
   {id:"Q12", cat:2, kind:"number", main:true, required:true, label:"น้ำหนักปัจจุบัน", unit:"kg", visible:function(){return true;}},
@@ -941,6 +945,58 @@ function navIconHTML(k){
    (รีเฟรชแล้วปิดเองถือว่าถูกต้อง) จึงเก็บเป็นตัวแปรธรรมดา ไม่ยัดลง state/track ที่ถูกเซฟ */
 var acctOpen = false;
 
+/* สถานะโมดัลลบบัญชี — เป็น UI ชั่วคราวเช่นกัน ไม่ persist
+   done:true = ลบสำเร็จแล้ว กำลังโชว์หน้ายืนยัน (ยังไม่ตัด auth.session ออกจนกว่าจะกด
+   ปิด — ถ้าตัดทันทีตอนลบเสร็จ render() จะโดน auth gate สกัดจนไม่มีโอกาสเห็นข้อความ
+   ยืนยันเลย เพราะ renderNav() ที่ modal นี้อาศัยอยู่ไม่ถูกเรียกตอน auth gate ทำงาน) */
+var deleteAccountUI = {open:false, reason:null, busy:false, error:null, done:false};
+
+/* ตัวเลือกเหตุผลลบบัญชี — ต้องตรงกับ ALLOWED_REASONS ใน functions/api/delete-account.js
+   เป๊ะทุกตัวอักษร (server เช็คซ้ำ ไม่เชื่อ client เฉยๆ) เลือกได้ข้อเดียว อิงหมวดหมู่
+   มาตรฐานที่แอปทั่วไปใช้ถามตอนผู้ใช้จะปิดบัญชี (เหตุผลการใช้งาน/คู่แข่ง/ฟีเจอร์/
+   ความยาก/ความเป็นส่วนตัว/บั๊ก/อื่นๆ) */
+var ACCOUNT_DELETE_REASONS = [
+  "ไม่ได้ใช้งานแอปแล้ว",
+  "เจอแอป/บริการอื่นที่ดีกว่า",
+  "ฟีเจอร์ไม่ตรงกับที่ต้องการ",
+  "ใช้งานยาก/ซับซ้อนเกินไป",
+  "กังวลเรื่องความเป็นส่วนตัวของข้อมูล",
+  "เจอปัญหา/บั๊กทางเทคนิคบ่อย",
+  "อื่นๆ"
+];
+
+/* โมดัลลบบัญชี — โครง HTML ใช้ class เดิมของ demo-modal (.demo-overlay/.demo-modal)
+   ให้สม่ำเสมอกับโมดัลอื่นในแอป ไม่ต้องเพิ่ม CSS ใหม่ */
+function deleteAccountModalHTML(){
+  if(!deleteAccountUI.open) return '';
+  var busy = deleteAccountUI.busy;
+  var body;
+  if(deleteAccountUI.done){
+    body = '<div class="demo-title">ลบบัญชีเรียบร้อยแล้ว</div>'+
+      '<p class="sub" style="margin-top:8px">ข้อมูลทั้งหมดของคุณถูกลบออกจากระบบถาวรแล้ว ขอบคุณที่เคยใช้งาน Gymbro Daily</p>'+
+      '<button type="button" class="btn primary" style="width:100%;margin-top:14px" data-act="delacct-close-final">ปิด</button>';
+  } else {
+    body = '<div class="demo-title">ลบบัญชีถาวร</div>'+
+      '<p class="sub" style="margin:8px 0 14px">การลบบัญชีจะลบข้อมูลทั้งหมดของคุณออกจากระบบถาวร (แผนออกกำลังกาย บันทึกประจำวัน น้ำหนัก) กู้คืนไม่ได้ — ก่อนลบ ช่วยบอกเราหน่อยว่าเพราะอะไร:</p>'+
+      '<div class="opts" style="flex-direction:column">'+
+      ACCOUNT_DELETE_REASONS.map(function(r){
+        var sel = deleteAccountUI.reason===r;
+        return '<button type="button" class="opt'+(sel?' sel':'')+'" style="width:100%;text-align:left" data-act="delacct-reason" data-val="'+esc(r)+'"'+(busy?' disabled':'')+'>'+esc(r)+'</button>';
+      }).join('')+
+      '</div>'+
+      (deleteAccountUI.error ? '<div class="note warn" style="margin-top:10px"><p>'+esc(deleteAccountUI.error)+'</p></div>' : '')+
+      '<div class="sum-actions" style="margin-top:16px">'+
+        '<button type="button" class="btn" style="background:var(--warn);color:#fff;border-color:var(--warn)" data-act="delacct-confirm"'+((!deleteAccountUI.reason||busy)?' disabled':'')+'>'+(busy?'กำลังลบ...':'ยืนยันลบบัญชี')+'</button>'+
+        '<button type="button" class="btn ghost" data-act="delacct-cancel"'+(busy?' disabled':'')+'>ยกเลิก</button>'+
+      '</div>';
+  }
+  return '<div class="demo-overlay" data-act="delacct-cancel">'+
+    '<div class="demo-modal" role="dialog" aria-modal="true" data-act="demo-stop">'+
+      (deleteAccountUI.done?'':'<button type="button" class="demo-x" data-act="delacct-cancel" aria-label="ปิด">✕</button>')+
+      body+
+    '</div></div>';
+}
+
 /* โครง HTML ชุดเดียวเสิร์ฟทั้งสองหน้าตา — เดสก์ท็อป = แถบข้าง, มือถือ = app bar บน +
    แท็บบาร์ล่างแบบแอป (CSS เป็นคนสลับ ดู @media ใน style.css) ฝั่ง JS จึงไม่ต้องรู้ขนาดจอเลย
    .locked = อยู่ในแบบสอบถาม onboarding → มือถือซ่อนแท็บบาร์ให้เต็มจอไปเลยเหมือนแอปจริง */
@@ -960,7 +1016,8 @@ function renderNav(view){
         esc((email.charAt(0) || '?').toUpperCase())+'</button>';
     if(acctOpen){
       html += '<div class="acct-panel"><div class="acct-mail">'+esc(email)+'</div>'+
-        '<button type="button" class="btn sm" data-act="auth-signout">ออกจากระบบ</button></div>';
+        '<button type="button" class="btn sm" data-act="auth-signout">ออกจากระบบ</button>'+
+        '<button type="button" class="linkbtn" style="color:var(--warn)" data-act="acct-delete-open">ลบบัญชี</button></div>';
     }
   }
   html += '</div>';
@@ -968,7 +1025,8 @@ function renderNav(view){
   html += '<div class="brand"><div class="brand-mark"></div><div class="brand-name">Gymbro</div></div>';
   if(auth.session){
     html += '<div class="nav-acct hint">'+esc(auth.session.user.email||'')+
-      '<button type="button" class="ex-open nav-acct-signout" data-act="auth-signout">ออกจากระบบ</button></div>';
+      '<button type="button" class="ex-open nav-acct-signout" data-act="auth-signout">ออกจากระบบ</button>'+
+      '<button type="button" class="linkbtn" style="color:var(--warn);display:block;padding:2px 0" data-act="acct-delete-open">ลบบัญชี</button></div>';
   }
   html += '<div class="nav-group"><div class="nav-label">เมนู</div>';
   var counts = null;
@@ -994,6 +1052,7 @@ function renderNav(view){
   } else {
     html += '<div class="nav-foot">ตอบแบบสอบถามและกด “เริ่มโปรแกรม” เพื่อปลดล็อกเมนูใช้งานประจำวัน</div>';
   }
+  html += deleteAccountModalHTML(); // ต่อท้าย #nav (render ได้ทุกหน้า ไม่ใช่แค่ตอนรีวิวแผน)
   el.innerHTML = html;
 }
 
@@ -1732,32 +1791,46 @@ function goalFeasibilityHint(a){
   return '<div class="note"><span class="eyebrow2">เทียบกับวัน/เวลาที่ตอบไว้ (เลือกได้ทุกเป้าหมาย — เวลาไม่พอระบบจะปรับความเข้มข้นให้แทน ไม่ปิดกั้น)</span>'+
     '<table class="bench"><thead><tr><th>เป้าหมาย</th><th>แนะนำ</th><th>สถานะ</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
 }
-/* ภาพอ้างอิงระดับไขมันร่างกาย (Q14) — สร้างจาก Blender/MPFB (MakeHuman) เก็บไว้ที่
-   bodyfat/bf-<male|female>-<athletes|fitness|average|high>.png ที่ root โปรเจกต์
-   (ดู mobile/scripts/bodyfat-renders/render_all.py สำหรับที่มา — รันสคริปต์นั้นใหม่ได้
-   ถ้าต้องการปรับรูปทรง/สัดส่วน ไม่ต้องแก้ไฟล์ภาพด้วยมือ)
-   หมวดหมู่ % อ้างอิงจาก ACE (American Council on Exercise) ซึ่งเผยแพร่สาธารณะ — ไม่ใช่
-   ตัวเลขที่เดาขึ้นเอง แต่ตัวโมเดล 3 มิติเป็นการ "map โดยประมาณ" ไม่ใช่เครื่องมือวัดจริง
-   ต้องกำกับข้อความนี้เสมอ (สอดคล้องกับวินัยความซื่อสัตย์ของแอปทั้งระบบ — ดู CLAUDE.md) */
+/* ตัวเลือกรูปร่าง/ระดับไขมันร่างกายด้วยภาพ (Q0) — เก็บไว้ที่ bodyfat/bf-<male|female>-
+   <key>.png ที่ root โปรเจกต์ (ใช้ได้ทั้งเว็บที่ deploy จริงและแอป native) ช่วง % เดียวกัน
+   ทั้งสองเพศ ตั้งใจใช้ตัวเลขตรงไปตรงมา (ไม่ใส่ชื่อหมวดแบบ "นักกีฬา/ฟิต" เพราะคำเหล่านั้น
+   สื่อเกินจริง — ไขมันน้อยไม่ได้แปลว่าเป็นนักกีฬาเสมอไป) — ต้องกำกับว่าเป็น "ภาพประกอบ
+   คร่าวๆ" เสมอ ไม่ใช่เครื่องมือวัดจริง (สอดคล้องกับวินัยความซื่อสัตย์ของแอปทั้งระบบ —
+   ดู CLAUDE.md) เป็นคำถามที่ไม่บังคับตอบ (ดู catComplete — kind "bodyfat" ไม่เข้าเงื่อนไข
+   ที่บล็อกการกดถัดไป) เพราะเป็นแค่ตัวช่วยแนะนำ ไม่ใช่ข้อมูลที่ต้องมีถึงจะสร้างแผนได้ */
 var BODYFAT_BANDS = [
-  {key:"athletes", label:"นักกีฬา",     male:"6-13%",  female:"14-20%"},
-  {key:"fitness",  label:"ฟิต",         male:"14-17%", female:"21-24%"},
-  {key:"average",  label:"ปานกลาง",     male:"18-24%", female:"25-31%"},
-  {key:"high",     label:"ค่อนข้างสูง", male:"25%+",   female:"32%+"}
+  {key:"05-09", pct:"5-9%"},
+  {key:"10-14", pct:"10-14%"},
+  {key:"15-19", pct:"15-19%"},
+  {key:"20-24", pct:"20-24%"},
+  {key:"25-29", pct:"25-29%"},
+  {key:"30-35", pct:"30-35%"}
 ];
-function bodyFatReferenceHTML(a){
+/* แนะนำเป้าหมายคร่าวๆ จากรูปร่างที่เลือก — ไขมันน้อยมากเน้นสร้างกล้ามได้เต็มที่, กลางๆ
+   เหมาะกับ recomposition (ลด+เพิ่มพร้อมกัน), สูงเน้นลดไขมันก่อน — เป็นแค่จุดเริ่มต้น
+   ให้เลือกตาม ไม่ใช่กติกาตายตัว ผู้ใช้เปลี่ยนเป็นเป้าหมายอื่นที่ Q1 ได้เสมอไม่ถูกปิดกั้น */
+var BODYFAT_GOAL_MAP = {
+  "05-09": "เพิ่มกล้ามเนื้อ",
+  "10-14": "เพิ่มกล้ามเนื้อ",
+  "15-19": "Recomposition (ลด+เพิ่มพร้อมกัน)",
+  "20-24": "Recomposition (ลด+เพิ่มพร้อมกัน)",
+  "25-29": "ลดไขมัน",
+  "30-35": "ลดไขมัน"
+};
+function bodyFatPickerHTML(q, a){
   var sex = a.Q9;
   if(sex!=="ชาย" && sex!=="หญิง"){
-    return '<div class="hint" style="margin:10px 0 14px">ตอบคำถาม "เพศ" ด้านบนก่อน ระบบจะเลือกภาพอ้างอิงให้ตรงกับคุณ</div>';
+    return '<div class="hint" style="margin:10px 0 14px">ตอบคำถาม "เพศ" ด้านบนก่อน ระบบจะเลือกภาพให้ตรงกับคุณ</div>';
   }
   var folder = sex==="ชาย" ? "male" : "female";
   var cards = BODYFAT_BANDS.map(function(b){
-    var pct = sex==="ชาย" ? b.male : b.female;
-    return '<div class="bf-card"><img src="bodyfat/bf-'+folder+'-'+b.key+'.png" alt="'+esc(b.label)+'" loading="lazy">'+
-      '<div class="bf-card-label">'+esc(b.label)+'<br><span class="mono">'+esc(pct)+'</span></div></div>';
+    var sel = a[q.id]===b.key;
+    return '<button type="button" class="bf-card'+(sel?" sel":"")+'" data-act="opt" data-qid="'+q.id+'" data-kind="single" data-val="'+b.key+'">'+
+      '<img src="bodyfat/bf-'+folder+'-'+b.key+'.png" alt="'+esc(b.pct)+'" loading="lazy">'+
+      '<div class="bf-card-label mono">'+esc(b.pct)+'</div></button>';
   }).join('');
   return '<div class="bf-ref">'+
-    '<div class="hint" style="margin-bottom:8px">ภาพประกอบคร่าวๆ ช่วยกะระดับ — ไม่ใช่เครื่องมือวัดที่แม่นยำ (อิงหมวดหมู่ ACE/American Council on Exercise)</div>'+
+    '<div class="hint" style="margin-bottom:8px">แตะรูปร่างที่ใกล้เคียงกับคุณตอนนี้มากที่สุด ระบบจะแนะนำเป้าหมายเบื้องต้นให้ (เปลี่ยนภายหลังได้เสมอ ไม่ผูกมัด) — รูปร่างจริงอาจต่างกันแม้เปอร์เซ็นต์เท่ากัน ไม่ใช่เครื่องมือวัดที่แม่นยำ ข้ามข้อนี้ได้ถ้าไม่อยากตอบ</div>'+
     '<div class="bf-grid">'+cards+'</div></div>';
 }
 function timeFeedback(a){
@@ -1777,12 +1850,16 @@ function renderQuestion(q){
     '<div class="q-top"><span class="q-id mono">'+q.id+'</span>'+badge+'</div>'+
     '<div class="q-label">'+esc(q.label)+'</div>';
   if(q.id==="Q1") body += goalFeasibilityHint(a);
-  if(q.id==="Q14") body += bodyFatReferenceHTML(a);
+  if(q.kind==="bodyfat") body += bodyFatPickerHTML(q, a);
   if(q.kind==="single" || q.kind==="multi"){
     body += '<div class="opts">';
     q.options.forEach(function(o){
       var sel = q.kind==="multi" ? (Array.isArray(a[q.id]) && a[q.id].indexOf(o)>-1) : a[q.id]===o;
-      body += '<button type="button" class="opt'+(sel?" sel":"")+'" data-act="opt" data-qid="'+q.id+'" data-kind="'+q.kind+'" data-val="'+esc(o)+'">'+esc(o)+'</button>';
+      // แนะนำจากรูปร่างที่เลือกไว้ที่ Q0 (ถ้ามี) — เฉพาะที่ Q1 (เป้าหมาย) เท่านั้น
+      var recommended = q.id==="Q1" && a.Q0 && BODYFAT_GOAL_MAP[a.Q0]===o;
+      body += '<button type="button" class="opt'+(sel?" sel":"")+(recommended?" recommended":"")+'" data-act="opt" data-qid="'+q.id+'" data-kind="'+q.kind+'" data-val="'+esc(o)+'">'+esc(o)+
+        (recommended ? ' <span class="chip ok">แนะนำ</span>' : '') +
+        '</button>';
     });
     body += '</div>';
     if(q.note) body += '<div class="opt-note">'+esc(q.note)+'</div>';
@@ -1906,7 +1983,7 @@ function summaryHTML(){
   html += '<div class="stat-row">'+
     '<div class="stat"><div class="n mono">'+countAnswered()+'</div><div class="l">ข้อที่ตอบแล้ว</div></div>'+
     '<div class="stat"><div class="n mono">'+countVisibleTotal()+'</div><div class="l">ข้อที่เจอในเส้นทางนี้</div></div>'+
-    '<div class="stat"><div class="n mono">43</div><div class="l">ข้อในคลังทั้งหมด</div></div></div>';
+    '<div class="stat"><div class="n mono">'+QUESTIONS.length+'</div><div class="l">ข้อในคลังทั้งหมด</div></div></div>';
   CATEGORIES.forEach(function(cat){
     var qs = QUESTIONS.filter(function(q){return q.cat===cat.id && q.visible(state.answers) && state.answers[q.id]!=null && state.answers[q.id]!=="";});
     if(!qs.length) return;
@@ -2272,6 +2349,58 @@ document.addEventListener("click", function(ev){
     return;
   }
   if(act==='auth-signout'){ GymBroSync.signOut(); return; } // onAuthChange จะเคลียร์ auth.session + render ให้เอง
+
+  if(act==='acct-delete-open'){
+    acctOpen = false;
+    deleteAccountUI = {open:true, reason:null, busy:false, error:null, done:false};
+    render(); return;
+  }
+  if(act==='delacct-reason'){
+    if(deleteAccountUI.busy) return;
+    deleteAccountUI.reason = el.getAttribute('data-val'); render(); return;
+  }
+  if(act==='delacct-cancel'){
+    if(deleteAccountUI.busy) return; // กำลังลบอยู่ ห้ามปิดกลางคัน (ยิง request ไปแล้ว)
+    deleteAccountUI = {open:false, reason:null, busy:false, error:null, done:false};
+    render(); return;
+  }
+  if(act==='delacct-close-final'){
+    // เพิ่งลบบัญชีสำเร็จ — ตัด session ฝั่ง client ตอนนี้เท่านั้น (ตัดตั้งแต่ตอนลบเสร็จ
+    // จะโดน auth gate สกัด render() จนไม่มีโอกาสเห็นข้อความยืนยันเลย ดูคอมเมนต์บน
+    // deleteAccountUI) เซิร์ฟเวอร์ลบ user จริงไปแล้วตั้งแต่ตอน delacct-confirm
+    auth.session = null;
+    deleteAccountUI = {open:false, reason:null, busy:false, error:null, done:false};
+    render(); return;
+  }
+  if(act==='delacct-confirm'){
+    if(!deleteAccountUI.reason || deleteAccountUI.busy) return;
+    deleteAccountUI.busy = true; deleteAccountUI.error = null; render();
+    var token = (auth.session && auth.session.access_token) || '';
+    fetch('/api/delete-account', {
+      method: 'POST',
+      headers: {'content-type':'application/json', 'Authorization':'Bearer '+token},
+      body: JSON.stringify({reason: deleteAccountUI.reason})
+    }).then(function(res){
+      return res.json().catch(function(){ return {}; }).then(function(data){ return {ok:res.ok, data:data}; });
+    }).then(function(r){
+      if(!r.ok){
+        deleteAccountUI.busy = false;
+        deleteAccountUI.error = (r.data && r.data.error) || 'ลบบัญชีไม่สำเร็จ ลองใหม่อีกครั้ง';
+        render(); return;
+      }
+      // สำเร็จ: บัญชีถูกลบที่ฝั่ง Supabase แล้ว (cascade ลบทุกตารางให้อัตโนมัติ) —
+      // เคลียร์ข้อมูลโลคัลทั้งหมดตามไปด้วย แล้วโชว์หน้ายืนยัน (ยังไม่ตัด auth.session
+      // จนกว่าจะกดปิด ดูคอมเมนต์บน delacct-close-final)
+      lsRemove("gymbro_program"); lsRemove("gymbro_logs"); lsRemove("gymbro_weights"); lsRemove("gymbro_onb_proto");
+      deleteAccountUI = {open:true, reason:null, busy:false, error:null, done:true};
+      render();
+    }).catch(function(e){
+      deleteAccountUI.busy = false;
+      deleteAccountUI.error = 'เชื่อมต่อไม่สำเร็จ: '+(e && e.message ? e.message : e);
+      render();
+    });
+    return;
+  }
   if(act==='coach-ask'){ coachAsk(); return; }
   if(act==='nav'){ if(el.disabled) return; goto(el.getAttribute('data-view')); return; }
   if(act==='tab'){ track.schedTab = el.getAttribute('data-tab'); track.openDate=null; render(); return; }

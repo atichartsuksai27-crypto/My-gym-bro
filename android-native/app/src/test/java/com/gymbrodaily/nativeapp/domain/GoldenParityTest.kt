@@ -69,6 +69,27 @@ class GoldenParityTest {
             put("PATTERN_SHORT", buildJsonObject { Catalog.PATTERN_SHORT.forEach { (k, v) -> put(k, v) } })
             put("TIER_LABEL", buildJsonObject { Catalog.TIER_LABEL.forEach { (k, v) -> put(k.toString(), v) } })
             put("TIER_DESC", buildJsonObject { Catalog.TIER_DESC.forEach { (k, v) -> put(k.toString(), v) } })
+            put("CATEGORIES", JsonArray(Questions.CATEGORIES.map {
+                buildJsonObject { put("id", it.id); put("name", it.name); put("short", it.short) }
+            }))
+            put("BENCH", buildJsonObject {
+                Questions.BENCH.forEach { (k, b) ->
+                    put(k, buildJsonObject {
+                        put("days", JsonArray(listOf(JsonPrimitive(b.days.first), JsonPrimitive(b.days.last))))
+                        put("mins", JsonArray(listOf(JsonPrimitive(b.mins.first), JsonPrimitive(b.mins.last))))
+                        put("label", b.label)
+                    })
+                }
+            })
+            put("Q3_MIN", buildJsonObject { Questions.Q3_MIN.forEach { (k, v) -> put(k, v) } })
+            put("QUESTIONS", JsonArray(Questions.QUESTIONS.map { q ->
+                buildJsonObject {
+                    put("id", q.id); put("cat", q.cat); put("kind", q.kind.name.lowercase()); put("main", q.main)
+                    put("label", q.label); put("options", JsonArray(q.options.map { JsonPrimitive(it) }))
+                    put("note", q.note); put("branchFrom", q.branchFrom); put("required", q.required)
+                    put("unit", q.unit); put("exclusiveOption", q.exclusiveOption)
+                }
+            }))
         }
         assertJsonEquivalent(js, actual, "catalog")
         // ลำดับมีผล (tieBreak เลือกตัวแรก / Object.keys ใช้เรียง split) — เทียบลำดับ key ด้วย

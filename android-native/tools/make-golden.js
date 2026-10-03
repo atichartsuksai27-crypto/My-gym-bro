@@ -39,6 +39,12 @@ var logicSrc = [
   slice('function milestonesOf(p){', 'function renderProgress(){'),
   'function kcalOk(v, target){ return v!=null && target!=null && v >= target*0.9 && v <= target*1.1; }',
   'var track = {program:null, logs:{}, weights:{}};',
+  slice('var CATEGORIES = [', 'var DAYS = ['),
+  slice('var BENCH = {', 'var EXERCISES = ['),
+  slice('function visibleQsFor(catId){', 'function numberAnswered(v){'),
+  slice('function catComplete(catId){', 'function setField('),
+  slice('function countAnswered(){', 'function readinessPanel('),
+  'function persist(){} function render(){}',
 ].join('\n');
 /* "วันนี้" ของโค้ด JS ถูกล็อกไว้ที่ __today เพื่อให้ผลคงที่ — new Date() ไม่มีอาร์กิวเมนต์คืนเที่ยงวันของ __today */
 var RealDate = Date;
@@ -52,11 +58,16 @@ vm.runInContext(logicSrc + '\nthis.__api = {inScope:inScope, sanityIssues:sanity
   ' safetyGate:safetyGate, selectionFor:selectionFor, splitFeasibility:splitFeasibility, effectiveSplit:effectiveSplit,' +
   ' assignSessions:assignSessions, weekdayAdjacencyWarning:weekdayAdjacencyWarning, buildPlanSnapshot:buildPlanSnapshot,' +
   ' setCountFor:setCountFor, bmiOf:bmiOf, bmiLabel:bmiLabel, PATTERNS:Object.keys(PATTERN_LABEL),' +
+  ' visibleQsFor:visibleQsFor, catComplete:catComplete, countAnswered:countAnswered, countVisibleTotal:countVisibleTotal,' +
+  ' setAnswer:setAnswer, QUESTIONS:QUESTIONS,' +
   ' setTrack:function(t){ track = t; }, sessionKeyFor:sessionKeyFor, dayItems:dayItems, dayCounts:dayCounts,' +
   ' dayStatus:dayStatus, streakOf:streakOf, weeklyAdherence:weeklyAdherence, weightSeries:weightSeries,' +
   ' exerciseHistory:exerciseHistory, bodyweightAsOf:bodyweightAsOf, lastBestBefore:lastBestBefore, milestonesOf:milestonesOf,' +
   ' catalog:{EXERCISES:EXERCISES, SPLIT_DEFS:SPLIT_DEFS, EXCLUSION_MAP:EXCLUSION_MAP, EXP_RANK:EXP_RANK, REP_SCHEME:REP_SCHEME,' +
-  ' PATTERN_LABEL:PATTERN_LABEL, PATTERN_SHORT:PATTERN_SHORT, TIER_LABEL:TIER_LABEL, TIER_DESC:TIER_DESC}};', ctx);
+  ' PATTERN_LABEL:PATTERN_LABEL, PATTERN_SHORT:PATTERN_SHORT, TIER_LABEL:TIER_LABEL, TIER_DESC:TIER_DESC,' +
+  ' CATEGORIES:CATEGORIES, BENCH:BENCH, Q3_MIN:Q3_MIN, QUESTIONS:QUESTIONS.map(function(q){ return {id:q.id, cat:q.cat,' +
+  ' kind:q.kind, main:q.main, label:q.label, options:q.options||[], note:q.note||null, branchFrom:q.branchFrom||null,' +
+  ' required:!!q.required, unit:q.unit||null, exclusiveOption:q.exclusiveOption||null}; })}};', ctx);
 var A = ctx.__api;
 
 /* สุ่มแบบ deterministic (seed คงที่) ให้ golden เหมือนเดิมทุกครั้งที่รัน */
@@ -277,8 +288,40 @@ for(var t = 0; t < TRACKING_CASES; t++){
   });
 }
 
+/* ---------- questions cases (คำถามที่แสดง / ตอบครบหรือยัง / การกดตัวเลือก) ---------- */
+var questionCases = [];
+for(var qi = 0; qi < 400; qi++){
+  var qa = randomAnswers();
+  if(rnd() < 0.3) qa.Q4b = pick(["ระบุตัวเลข", "ยังไม่มีเป้าหมายชัดเจน", ""]);
+  if(rnd() < 0.3) qa.Q5a = subset(["อก","หลัง","ขา","ไหล่","แขน","ไม่เน้นส่วนไหนเป็นพิเศษ"], 0.4);
+  if(rnd() < 0.3) qa.Q29 = pick(["ทั่วไป","มังสวิรัติ","วีแกน","ฮาลาล"]);
+  if(rnd() < 0.2) qa.Q30 = pick(["", "กุ้ง"]);
+  var before = plain(qa);
+  ctx.state = {plan: randomPlan(), answers: qa};
+  var vis = {}, complete = {};
+  for(var c = 1; c <= 9; c++){
+    vis[c] = A.visibleQsFor(c).map(function(q){ return q.id; });
+    complete[c] = A.catComplete(c);
+  }
+  /* กดตัวเลือกสุ่ม 6 ครั้ง (single/multi) แล้วเก็บคำตอบสุดท้าย */
+  var ops = [];
+  var choosable = A.QUESTIONS.filter(function(q){ return q.kind === 'single' || q.kind === 'multi'; });
+  for(var k = 0; k < 6; k++){
+    var q = pick(choosable);
+    var val = pick(q.options);
+    ops.push({id: q.id, value: val});
+    A.setAnswer(q.id, val, q.kind);
+  }
+  questionCases.push({
+    answers: before, ops: ops,
+    expected: plain({visible: vis, complete: complete, answered: (ctx.state.answers = before, A.countAnswered()),
+      visibleTotal: A.countVisibleTotal(), afterOps: qa})
+  });
+}
+
 fs.mkdirSync(OUT, {recursive: true});
 fs.writeFileSync(path.join(OUT, 'tracking.json'), JSON.stringify(trackingCases));
+fs.writeFileSync(path.join(OUT, 'questions.json'), JSON.stringify(questionCases));
 fs.writeFileSync(path.join(OUT, 'generator.json'), JSON.stringify(generatorCases));
 fs.writeFileSync(path.join(OUT, 'calculations.json'), JSON.stringify(calcCases));
 fs.writeFileSync(path.join(OUT, 'benchmarks.json'), JSON.stringify(benchCases));

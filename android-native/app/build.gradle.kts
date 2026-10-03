@@ -37,6 +37,37 @@ android {
     }
 }
 
+/* ภาพรูปร่าง/ภาพหมุน 360° ใช้ไฟล์ชุดเดียวกับเว็บที่ <repo>/bodyfat — คัดลอกเข้า assets ตอน build
+   แทนการเก็บซ้ำใน android-native (แก้ภาพที่เดียว เว็บกับแอปได้ภาพเดียวกัน) */
+abstract class CopyBodyfatAssets : DefaultTask() {
+    @get:InputDirectory @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val source: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @get:Inject
+    abstract val fs: FileSystemOperations
+
+    @TaskAction
+    fun copy() {
+        fs.sync {
+            from(source)
+            into(outputDir.dir("bodyfat"))
+        }
+    }
+}
+
+val copyBodyfatAssets = tasks.register<CopyBodyfatAssets>("copyBodyfatAssets") {
+    source.set(rootProject.layout.projectDirectory.dir("../bodyfat"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(copyBodyfatAssets, CopyBodyfatAssets::outputDir)
+    }
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)

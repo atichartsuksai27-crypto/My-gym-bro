@@ -87,6 +87,49 @@ data class TrackState(
             ?: PlanOverrides()
 
     fun trackData(): TrackData? = program?.let { TrackData(it, logs, weights, answers) }
+
+    val onb: Onboarding get() = Onboarding.from(onboarding)
+}
+
+/**
+ * สถานะแบบสอบถาม (shape เดียวกับ state ของ app.js ที่เก็บใน onboarding_state.payload)
+ * step 0-8 = หมวดคำถาม, 9 = สรุป (mode null) / ตรวจแผน (mode "results")
+ * editPlan = กำลังแก้แผนทั้งที่มีโปรแกรมอยู่แล้ว (เว็บใช้ค่านี้ตัดสินว่าจะเปิดหน้าแบบสอบถามไหม)
+ */
+data class Onboarding(
+    val step: Int = 0,
+    val answers: Answers = Answers(),
+    val mode: String? = null,
+    val editPlan: Boolean = false,
+    val plan: PlanOverrides = PlanOverrides(),
+    private val raw: JsonObject = JsonObject(emptyMap()),
+) {
+    fun toJson(): JsonObject = JsonObject(
+        raw + mapOf(
+            "step" to JsonPrimitive(step),
+            "answers" to answers.json,
+            "mode" to (mode?.let { JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull),
+            "editPlan" to JsonPrimitive(editPlan),
+            "plan" to TrackStore.json.encodeToJsonElement(PlanOverrides.serializer(), plan),
+            "nav" to (raw["nav"] ?: JsonPrimitive("today")),
+        ),
+    )
+
+    companion object {
+        fun from(o: JsonObject?): Onboarding {
+            if (o == null) return Onboarding()
+            fun prim(k: String) = o[k] as? JsonPrimitive
+            return Onboarding(
+                step = prim("step")?.content?.toDoubleOrNull()?.toInt() ?: 0,
+                answers = Answers((o["answers"] as? JsonObject) ?: JsonObject(emptyMap())),
+                mode = prim("mode")?.takeIf { it.isString }?.content,
+                editPlan = prim("editPlan")?.content == "true",
+                plan = o["plan"]?.let { runCatching { TrackStore.json.decodeFromJsonElement<PlanOverrides>(it) }.getOrNull() }
+                    ?: PlanOverrides(),
+                raw = o,
+            )
+        }
+    }
 }
 
 class TrackStore(context: Context, private val userId: String, private val scope: CoroutineScope) {
@@ -186,15 +229,17 @@ class TrackStore(context: Context, private val userId: String, private val scope
             val mergedLogs = logs.toMutableMap()
             val mergedWeights = weights.toMutableMap()
             var mergedProgram = program
+            var mergedOnboarding = onboarding
             pending.forEach { op ->
                 when (op.kind) {
                     "log" -> mergedLogs[op.date!!] = op.payload!!
                     "delete-log" -> mergedLogs.remove(op.date)
                     "weight" -> mergedWeights[op.date!!] = op.kg!!
                     "program" -> mergedProgram = op.payload
+                    "onboarding" -> mergedOnboarding = op.payload
                 }
             }
-            _state.value = buildState(mergedProgram, mergedLogs, mergedWeights, onboarding).copy(
+            _state.value = buildState(mergedProgram, mergedLogs, mergedWeights, mergedOnboarding).copy(
                 loaded = true, phase = if (pending.isEmpty()) SyncPhase.IDLE else SyncPhase.OFFLINE,
                 lastError = null, lastSyncedAt = Instant.now().toString(),
             )
@@ -220,6 +265,9 @@ class TrackStore(context: Context, private val userId: String, private val scope
                     onConflict = "user_id,log_date"
                 }
                 "program" -> db.from("programs").upsert(ProgramRow(userId, op.payload!!)) {
+                    onConflict = "user_id"
+                }
+                "onboarding" -> db.from("onboarding_state").upsert(OnboardingRow(userId, op.payload!!)) {
                     onConflict = "user_id"
                 }
             }
@@ -294,6 +342,13 @@ class TrackStore(context: Context, private val userId: String, private val scope
      * เริ่มโปรแกรมจากคำตอบแบบสอบถามที่บันทึกไว้ (ตรงกับปุ่ม "เริ่มโปรแกรม" ของเว็บ) — คืนข้อความ error
      * ถ้ายังสร้างไม่ได้ ด่านตรวจชุดเดียวกับเว็บ: ขอบเขตที่รองรับ + ข้อมูลสมเหตุสมผล + ความปลอดภัย
      */
+    /** แก้สถานะแบบสอบถาม (คำตอบ/หมวดที่อยู่/การปรับแผน) — บันทึกลงเครื่องและซิงก์เหมือนข้อมูลอื่น */
+    fun updateOnboarding(change: (Onboarding) -> Onboarding) {
+        val next = change(_state.value.onb).toJson()
+        _state.update { it.copy(onboarding = next) }
+        enqueue(PendingOp("onboarding", payload = next))
+    }
+
     fun startProgram(startIso: String): String? {
         val s = _state.value
         val a = s.answers
@@ -314,6 +369,8 @@ class TrackStore(context: Context, private val userId: String, private val scope
         )
         _state.update { buildState(program, emptyMap(), it.weights, it.onboarding).copy(logs = it.logs) }
         enqueue(PendingOp("program", payload = program))
+        // เหมือนเว็บ: ออกจากโหมดแก้แผน กลับไปหน้าใช้งานประจำวัน
+        updateOnboarding { it.copy(editPlan = false) }
         return null
     }
 

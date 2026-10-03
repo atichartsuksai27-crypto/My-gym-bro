@@ -69,10 +69,11 @@ fun PlanScreen(
             "แผนนี้ถูกล็อกไว้ตั้งแต่วันที่กด “เริ่มโปรแกรม” เพื่อไม่ให้ประวัติที่บันทึกไปแล้วเปลี่ยนความหมายย้อนหลัง",
         )
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = {
+                store.updateOnboarding { it.copy(editPlan = true, step = 9, mode = "results") }
+            }) { Text("แก้ไขแผน / ทำแบบสอบถามใหม่") }
             OutlinedButton(onClick = { pickDate = true }) { Text("ตั้งวันเริ่มใหม่") }
-            OutlinedButton(onClick = { uri.openUri(WEB_APP_URL) }) { Text("แก้แผนบนเว็บ ↗") }
         }
-        Hint("การทำแบบสอบถามใหม่ในแอปนี้จะมาในขั้นถัดไป — ระหว่างนี้แก้แผนบนเว็บได้ แล้วดึงลงมาอัตโนมัติ")
 
         Card {
             val since = p.startDate?.let { max(0L, ChronoUnit.DAYS.between(LocalDate.parse(it), today)) }

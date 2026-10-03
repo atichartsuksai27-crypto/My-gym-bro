@@ -59,6 +59,7 @@ enum class Tab(val label: String, val icon: String) {
     SCHEDULE("ตาราง", "M4 5.5h16v15H4z M4 10h16M8.5 3v4M15.5 3v4 M8 13.5h2M14 13.5h2M8 17.5h2M14 17.5h2"),
     PROGRESS("คืบหน้า", "M4 4v16h16 M7.5 15l3.5-4 3 2.5L20 7"),
     PLAN("แผน", "M6 4h12v17H6z M9.5 2.5h5v3h-5z M9 11h6M9 15h6"),
+    COACH("โค้ช", "M4.5 5h15v11h-9l-4 3.5V16h-2z M9 10.5h6"),
 }
 
 /* ไอคอนแท็บใช้ path ชุดเดียวกับ SVG บนเว็บ (NAV_ICONS ใน app.js) วาดเป็นเส้นตามสีของแท็บ */
@@ -111,7 +112,7 @@ fun MainScreen(store: TrackStore, email: String?, onSignOut: () -> Unit) {
             )
         },
         bottomBar = {
-            if (state.program != null) {
+            if (state.program != null && !state.onb.editPlan) {
                 NavigationBar(containerColor = GB.surface) {
                     Tab.entries.forEach { t ->
                         NavigationBarItem(
@@ -141,7 +142,16 @@ fun MainScreen(store: TrackStore, email: String?, onSignOut: () -> Unit) {
                     }
                 }
             }
-            data == null -> NoProgram(Modifier.padding(inner), state, store, onSignOut)
+            // ยังไม่มีแผน หรือกำลังแก้แผน → แบบสอบถาม (เหมือน currentView() ของเว็บ)
+            data == null || state.onb.editPlan -> Column(
+                Modifier.fillMaxSize().padding(inner).imePadding().verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OnboardingFlow(state, store, hasProgram = data != null)
+                if (data == null) TextButton(onClick = onSignOut) { Text("ออกจากระบบ", color = GB.warn) }
+                Box(Modifier.padding(bottom = 24.dp))
+            }
             else -> PullToRefreshBox(
                 isRefreshing = state.phase == SyncPhase.SYNCING,
                 onRefresh = { scope.launch { store.refresh() } },
@@ -158,51 +168,11 @@ fun MainScreen(store: TrackStore, email: String?, onSignOut: () -> Unit) {
                         Tab.SCHEDULE -> ScheduleScreen(data, today, store)
                         Tab.PROGRESS -> ProgressScreen(data, today)
                         Tab.PLAN -> PlanScreen(data, state, today, store, email, onSignOut)
+                        Tab.COACH -> CoachScreen()
                     }
                     Box(Modifier.padding(bottom = 24.dp))
                 }
             }
         }
-    }
-}
-
-/**
- * ยังไม่มีแผนในบัญชีนี้ — ถ้ามีคำตอบแบบสอบถามที่ซิงก์ไว้จากเว็บแล้ว เริ่มโปรแกรมจากคำตอบนั้นได้เลย
- * (แบบสอบถามเต็มในแอป native มาในขั้นถัดไป ระหว่างนี้ทำ/แก้คำตอบบนเว็บ)
- */
-@Composable
-private fun NoProgram(modifier: Modifier, state: TrackState, store: TrackStore, onSignOut: () -> Unit) {
-    val uri = LocalUriHandler.current
-    val a = state.answers
-    val hasAnswers = a.json.isNotEmpty()
-    var error by remember { mutableStateOf<String?>(null) }
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text("ยังไม่มีแผนในบัญชีนี้", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        if (hasAnswers) {
-            val preview = Generator.buildPlanSnapshot(a, state.planOverrides)
-            Card {
-                Text("พบคำตอบแบบสอบถามที่บันทึกไว้จากเว็บ", fontWeight = FontWeight.SemiBold)
-                Hint("เป้าหมาย: ${preview.goal ?: "—"}")
-                Hint("รูปแบบ: ${preview.splitLabel} · ${preview.days.size} วัน/สัปดาห์ (${preview.days.joinToString(" · ")})")
-                Hint("เป้าแคลอรี่ ${Fmt.kcal(preview.targets.kcal)} kcal · โปรตีน ${preview.targets.proteinG ?: "—"} g")
-                Button(
-                    onClick = { error = store.startProgram(LocalDate.now().toString()) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("เริ่มโปรแกรมวันนี้") }
-                error?.let { Hint(it, color = GB.warn) }
-            }
-            Hint("อยากแก้คำตอบก่อน? แก้บนเว็บด้วยบัญชีเดียวกัน แล้วกลับมากดดึงข้อมูล")
-        } else {
-            Hint(
-                "แบบสอบถามสร้างแผนในแอปนี้จะมาในขั้นถัดไป — ระหว่างนี้ทำแบบสอบถามบนเว็บด้วยบัญชี Google เดียวกัน แล้วกลับมากดดึงข้อมูล",
-            )
-        }
-        OutlinedButton(onClick = { uri.openUri(WEB_APP_URL) }, modifier = Modifier.fillMaxWidth()) { Text("เปิดเว็บ ↗") }
-        OutlinedButton(onClick = { store.syncNow() }, modifier = Modifier.fillMaxWidth()) { Text("ดึงข้อมูลอีกครั้ง") }
-        TextButton(onClick = onSignOut) { Text("ออกจากระบบ", color = GB.warn) }
     }
 }

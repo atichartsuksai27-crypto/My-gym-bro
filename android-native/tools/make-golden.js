@@ -31,13 +31,30 @@ var logicSrc = [
   slice('function bmiOf(w,h){', 'function kcalOk('),
   slice('function safetyGate(a){', '/* ---------- date helpers'),
   slice('function setCountFor(setsRepsStr){', 'var track = {'),
+  slice('function pad2(n){', 'function setCountFor('),
+  slice('function logFor(iso){', '/* ---------- เขียน log รายวัน'),
+  slice('function dayItems(program, iso){', 'function esc(s){'),
+  slice('function fmt1(n){', 'function currentView(){'),
+  slice('function lastBestBefore(exId, iso){', '/* ---------- Strength Performance'),
+  slice('function milestonesOf(p){', 'function renderProgress(){'),
+  'function kcalOk(v, target){ return v!=null && target!=null && v >= target*0.9 && v <= target*1.1; }',
+  'var track = {program:null, logs:{}, weights:{}};',
 ].join('\n');
-var ctx = {GymBroCalc: C, GymBroBenchmark: B, state: null, Math: Math, JSON: JSON};
+/* "วันนี้" ของโค้ด JS ถูกล็อกไว้ที่ __today เพื่อให้ผลคงที่ — new Date() ไม่มีอาร์กิวเมนต์คืนเที่ยงวันของ __today */
+var RealDate = Date;
+class FixedDate extends RealDate {
+  constructor(...a){ if(a.length === 0) super(ctx.__today + 'T12:00:00'); else super(...a); }
+  static now(){ return new RealDate(ctx.__today + 'T12:00:00').getTime(); }
+}
+var ctx = {GymBroCalc: C, GymBroBenchmark: B, state: null, Math: Math, JSON: JSON, Date: FixedDate, __today: '2026-10-03'};
 vm.createContext(ctx);
 vm.runInContext(logicSrc + '\nthis.__api = {inScope:inScope, sanityIssues:sanityIssues, computeTargets:computeTargets,' +
   ' safetyGate:safetyGate, selectionFor:selectionFor, splitFeasibility:splitFeasibility, effectiveSplit:effectiveSplit,' +
   ' assignSessions:assignSessions, weekdayAdjacencyWarning:weekdayAdjacencyWarning, buildPlanSnapshot:buildPlanSnapshot,' +
   ' setCountFor:setCountFor, bmiOf:bmiOf, bmiLabel:bmiLabel, PATTERNS:Object.keys(PATTERN_LABEL),' +
+  ' setTrack:function(t){ track = t; }, sessionKeyFor:sessionKeyFor, dayItems:dayItems, dayCounts:dayCounts,' +
+  ' dayStatus:dayStatus, streakOf:streakOf, weeklyAdherence:weeklyAdherence, weightSeries:weightSeries,' +
+  ' exerciseHistory:exerciseHistory, bodyweightAsOf:bodyweightAsOf, lastBestBefore:lastBestBefore, milestonesOf:milestonesOf,' +
   ' catalog:{EXERCISES:EXERCISES, SPLIT_DEFS:SPLIT_DEFS, EXCLUSION_MAP:EXCLUSION_MAP, EXP_RANK:EXP_RANK, REP_SCHEME:REP_SCHEME,' +
   ' PATTERN_LABEL:PATTERN_LABEL, PATTERN_SHORT:PATTERN_SHORT, TIER_LABEL:TIER_LABEL, TIER_DESC:TIER_DESC}};', ctx);
 var A = ctx.__api;
@@ -187,7 +204,81 @@ for(var k = 0; k < 300; k++){
   });
 }
 
+/* ---------- tracking cases (สถานะวัน / สตรีค / % ทำตามแผน / ประวัติท่า / milestone) ---------- */
+function isoOf(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+var TODAYS = ['2026-10-03', '2026-03-01', '2025-12-31', '2026-02-28', '2026-06-15'];
+var TRACKING_CASES = 120;
+var trackingCases = [];
+for(var t = 0; t < TRACKING_CASES; t++){
+  var ta = randomAnswers();
+  if(rnd() < 0.9) ta.Q2 = subset(DAYS, 0.5);
+  ctx.state = {plan: randomPlan(), answers: ta};
+  var program = plain(A.buildPlanSnapshot(ta));
+  var today = pick(TODAYS);
+  ctx.__today = today;
+  var todayD = new RealDate(today + 'T12:00:00');
+  var isoOff = function(n){ var d = new RealDate(todayD.getTime()); d.setDate(d.getDate() + n); return isoOf(d); };
+  if(rnd() < 0.95) program.startDate = isoOff(-Math.floor(rnd() * 60));
+  program.planId = 'p' + t;
+  if(rnd() < 0.15) delete program.targets;      // โปรแกรมรุ่นเก่า → targetsOf ใช้ computeTargets(คำตอบ)
+  if(rnd() < 0.10) delete program.startWeight;
+
+  var exIds = [];
+  program.sessions.forEach(function(s){ s.exercises.forEach(function(e){ if(exIds.indexOf(e.id) < 0) exIds.push(e.id); }); });
+  var logs = {}, weights = {};
+  for(var off = -70; off <= 3; off++){
+    var d = isoOff(off);
+    if(rnd() < 0.45){
+      var exs = {};
+      exIds.concat(['sq1']).forEach(function(id){
+        if(rnd() < 0.5) return;
+        var sets = [];
+        var ns = Math.floor(rnd() * 4);
+        for(var k = 0; k < ns; k++) sets.push(rnd() < 0.1 ? null : {weight: pick([null, 0, 10, 22.5, 40, 60, 80, 100]), reps: pick([null, 0, 3, 5, 8, 10, 12, 15])});
+        exs[id] = {sets: sets, done: rnd() < 0.6};
+      });
+      var meals = [];
+      var nm = Math.floor(rnd() * 5);
+      for(var m = 0; m < nm; m++) meals[m] = pick([true, false, null]);
+      logs[d] = {
+        date: d, sessionKey: null, planId: program.planId, exercises: exs, completed: rnd() < 0.5,
+        nutrition: {proteinG: pick([undefined, null, 50, 120, 180]), kcal: pick([undefined, null, 1500, 2000, 2400, 3000]),
+                    waterL: pick([undefined, null, 1, 2.5, 3.5]), meals: meals},
+        sleep: {hours: pick([undefined, null, 4, 6.5, 7, 8, 25, -1]), hygiene: rnd() < 0.3},
+        updatedAt: '2026-01-01T00:00:00.000Z'
+      };
+    }
+    if(rnd() < 0.3) weights[d] = {date: d, kg: Math.round((55 + rnd() * 50) * 10) / 10};
+  }
+  logs = plain(logs);
+  A.setTrack({program: program, logs: logs, weights: weights});
+  var days = [];
+  for(var o = -75; o <= 10; o++){
+    var di = isoOff(o);
+    var c = A.dayCounts(program, di);
+    var day = {iso: di, sessionKey: A.sessionKeyFor(program, di), status: A.dayStatus(program, di), done: c.done, total: c.total};
+    if(o >= -10 && o <= 0) day.items = A.dayItems(program, di);
+    days.push(day);
+  }
+  var histories = {}, lastBest = {};
+  exIds.concat(['sq1']).forEach(function(id){
+    histories[id] = A.exerciseHistory(id);
+    var q = isoOff(-Math.floor(rnd() * 40));
+    lastBest[id] = {iso: q, entry: A.lastBestBefore(id, q)};
+  });
+  var bwChecks = [isoOff(-80), isoOff(-30), isoOff(0)].map(function(di){ return {iso: di, kg: A.bodyweightAsOf(di)}; });
+  trackingCases.push({
+    today: today, answers: ta, program: program, logs: logs, weights: weights,
+    expected: plain({
+      days: days, streak: A.streakOf(program), adherence: A.weeklyAdherence(program, 8),
+      weightSeries: A.weightSeries(), histories: histories, lastBest: lastBest, bodyweight: bwChecks,
+      milestones: A.milestonesOf(program)
+    })
+  });
+}
+
 fs.mkdirSync(OUT, {recursive: true});
+fs.writeFileSync(path.join(OUT, 'tracking.json'), JSON.stringify(trackingCases));
 fs.writeFileSync(path.join(OUT, 'generator.json'), JSON.stringify(generatorCases));
 fs.writeFileSync(path.join(OUT, 'calculations.json'), JSON.stringify(calcCases));
 fs.writeFileSync(path.join(OUT, 'benchmarks.json'), JSON.stringify(benchCases));

@@ -11,22 +11,23 @@ import kotlin.math.min
    ผลต้องตรงกับ JS ทุกกรณี (ตรวจด้วย GeneratorGoldenTest)
    ============================================================ */
 
+/* ค่า default มีไว้อ่านโปรแกรมรุ่นเก่าที่เว็บบันทึกไว้ก่อนมีบาง field เท่านั้น — generator ใส่ครบทุกตัวเสมอ */
 @Serializable
 data class Targets(
-    val tdee: Int?,
-    val kcal: Int?,
-    val kcalDirection: String,
-    val kcalFloored: Boolean,
-    val incomplete: Boolean,
-    val proteinG: Int?,
-    val fatG: Int?,
-    val carbG: Int?,
-    val macroClamped: Boolean,
-    val waterL: Double?,
-    val meals: Int,
-    val sleepH: Double?,
-    val sleepHygiene: Boolean,
-    val goalWeight: Double?,
+    val tdee: Int? = null,
+    val kcal: Int? = null,
+    val kcalDirection: String = "",
+    val kcalFloored: Boolean = false,
+    val incomplete: Boolean = false,
+    val proteinG: Int? = null,
+    val fatG: Int? = null,
+    val carbG: Int? = null,
+    val macroClamped: Boolean = false,
+    val waterL: Double? = null,
+    val meals: Int = 3,
+    val sleepH: Double? = null,
+    val sleepHygiene: Boolean = false,
+    val goalWeight: Double? = null,
 )
 
 @Serializable
@@ -34,11 +35,11 @@ data class PlanExercise(
     val pattern: String,
     val id: String,
     val th: String,
-    val sub: String,
-    val tier: Int,
-    val equip: String,
-    val setsReps: String,
-    val timeBased: Boolean,
+    val sub: String = "",
+    val tier: Int = 1,
+    val equip: String = "",
+    val setsReps: String = "",
+    val timeBased: Boolean = false,
 )
 
 @Serializable

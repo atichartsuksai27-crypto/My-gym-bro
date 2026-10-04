@@ -352,6 +352,10 @@ input:focus{border-color:var(--accent); outline:none;}
 .wk-chips{margin-left:auto; display:flex; gap:5px; flex-wrap:wrap;}
 .wk-name{font-weight:700; font-size:14px;}
 .act-miss{color:var(--warn); font-weight:700;}
+.cov-card{border:1px solid var(--border); border-radius:var(--r-md); background:var(--surface); padding:12px 14px; margin-top:12px;}
+.cov-head{font-size:13.5px; margin-bottom:8px;}
+.cov-chips{display:flex; flex-wrap:wrap; gap:5px;}
+.cov-chips .chip:not(.ok){color:var(--text-4);}
 .rest-line{font-size:11.5px; color:var(--text-3); margin-top:3px;}
 .int-warn{font-size:11.5px; color:var(--warn); margin-top:4px; line-height:1.5;}
 .int-toggle{display:inline-flex; gap:4px;}

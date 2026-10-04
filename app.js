@@ -227,11 +227,40 @@ var EXERCISES = [
   {id:'sq3b',pattern:'squat',tier:3,equip:'stepper',th:'Step-up',sub:'ก้าวขึ้น-ลงสเต็ปเปอร์ (ทางเลือกที่บ้านแทนเครื่องเลกเพรส)'},
   {id:'sq4',pattern:'squat',tier:4,equip:'barbell',th:'Barbell Back Squat',sub:'สควอทบาร์เบล'},
 
-  {id:'hg1',pattern:'hinge',tier:1,equip:'bodyweight',th:'Glute Bridge',sub:'สะพานสะโพก'},
+  {id:'hg1b',pattern:'hinge',tier:1,equip:'bodyweight',th:'Single-Leg RDL (น้ำหนักตัว)',sub:'ก้มสะโพกขาเดียวน้ำหนักตัว'},
   {id:'hg2',pattern:'hinge',tier:2,equip:'dumbbell',th:'Romanian Deadlift (Dumbbell)',sub:'RDL ดัมเบล'},
-  {id:'hg3',pattern:'hinge',tier:3,equip:'machine',th:'Hip Thrust Machine',sub:'เครื่องฮิปทรัสต์'},
-  {id:'hg3b',pattern:'hinge',tier:3,equip:'yogaball',th:'Stability Ball Hip Thrust',sub:'สะพานสะโพกบนลูกบอลโยคะ (ทางเลือกที่บ้านแทนเครื่องฮิปทรัสต์)'},
+  {id:'hg3c',pattern:'hinge',tier:3,equip:'machine',th:'45-Degree Back Extension',sub:'เครื่องเหยียดหลัง 45 องศา (หลังล่าง/ก้น/หลังขา)'},
+  {id:'hg3d',pattern:'hinge',tier:3,equip:'cable',th:'Cable Pull-through',sub:'ดึงเคเบิลลอดขา'},
   {id:'hg4',pattern:'hinge',tier:4,equip:'barbell',th:'Barbell Deadlift',sub:'เดดลิฟต์บาร์เบล'},
+
+  {id:'hg1',pattern:'glute',tier:1,equip:'bodyweight',th:'Glute Bridge',sub:'สะพานสะโพก'},
+  {id:'gl2',pattern:'glute',tier:2,equip:'bodyweight',th:'Single-Leg Glute Bridge',sub:'สะพานสะโพกขาเดียว'},
+  {id:'gl2b',pattern:'glute',tier:2,equip:'dumbbell',th:'Dumbbell Hip Thrust',sub:'ฮิปทรัสต์ถือดัมเบล'},
+  {id:'gl2c',pattern:'glute',tier:2,equip:'cable',th:'Cable Glute Kickback',sub:'เตะขาไปด้านหลังด้วยเคเบิล'},
+  {id:'hg3',pattern:'glute',tier:3,equip:'machine',th:'Hip Thrust Machine',sub:'เครื่องฮิปทรัสต์'},
+  {id:'hg3b',pattern:'glute',tier:3,equip:'yogaball',th:'Stability Ball Hip Thrust',sub:'สะพานสะโพกบนลูกบอลโยคะ (ทางเลือกที่บ้านแทนเครื่องฮิปทรัสต์)'},
+  {id:'gl4',pattern:'glute',tier:4,equip:'barbell',th:'Barbell Hip Thrust',sub:'ฮิปทรัสต์บาร์เบล'},
+
+  {id:'lg1',pattern:'lunge',tier:1,equip:'bodyweight',th:'Reverse Lunge',sub:'ลันจ์ถอยหลังน้ำหนักตัว'},
+  {id:'lg2',pattern:'lunge',tier:2,equip:'dumbbell',th:'Dumbbell Split Squat',sub:'สปลิทสควอทถือดัมเบล'},
+  {id:'lg2b',pattern:'lunge',tier:2,equip:'bodyweight',th:'Walking Lunge',sub:'ลันจ์เดินน้ำหนักตัว'},
+  {id:'lg3',pattern:'lunge',tier:3,equip:'dumbbell',th:'Bulgarian Split Squat (Dumbbell)',sub:'บัลแกเรียนสปลิทสควอท (วางเท้าหลังบนม้านั่ง)'},
+  {id:'lg3b',pattern:'lunge',tier:3,equip:'machine',th:'Smith Machine Split Squat',sub:'สปลิทสควอทในเครื่องสมิท'},
+  {id:'lg4',pattern:'lunge',tier:4,equip:'barbell',th:'Barbell Walking Lunge',sub:'ลันจ์เดินแบกบาร์เบล'},
+
+  {id:'lc1',pattern:'legcurl',tier:1,equip:'bodyweight',th:'Towel Slider Leg Curl',sub:'นอนหงายงอเข่าดึงผ้าขนหนูบนพื้นลื่น'},
+  {id:'lc2',pattern:'legcurl',tier:2,equip:'machine',th:'Lying Leg Curl Machine',sub:'เครื่องงอเข่านอนคว่ำ'},
+  {id:'lc2b',pattern:'legcurl',tier:2,equip:'yogaball',th:'Stability Ball Leg Curl',sub:'งอเข่าบนลูกบอลโยคะ'},
+  {id:'lc3',pattern:'legcurl',tier:3,equip:'machine',th:'Seated Leg Curl Machine',sub:'เครื่องงอเข่านั่ง'},
+  {id:'lc3b',pattern:'legcurl',tier:3,equip:'dumbbell',th:'Prone Dumbbell Leg Curl',sub:'นอนคว่ำหนีบดัมเบลงอเข่า'},
+  {id:'lc4',pattern:'legcurl',tier:4,equip:'bodyweight',th:'Nordic Hamstring Curl',sub:'นอร์ดิกเคิร์ล (ต้องมีที่ล็อกข้อเท้า)'},
+
+  {id:'cf1',pattern:'calf',tier:1,equip:'bodyweight',th:'Standing Calf Raise',sub:'เขย่งปลายเท้าน้ำหนักตัว'},
+  {id:'cf2',pattern:'calf',tier:2,equip:'bodyweight',th:'Single-Leg Calf Raise',sub:'เขย่งปลายเท้าขาเดียว'},
+  {id:'cf2b',pattern:'calf',tier:2,equip:'dumbbell',th:'Dumbbell Calf Raise',sub:'เขย่งปลายเท้าถือดัมเบล'},
+  {id:'cf3',pattern:'calf',tier:3,equip:'machine',th:'Seated Calf Raise Machine',sub:'เครื่องเขย่งน่องแบบนั่ง (เน้นน่องชั้นใน)'},
+  {id:'cf3b',pattern:'calf',tier:3,equip:'machine',th:'Leg Press Calf Raise',sub:'เขย่งน่องบนเครื่องเลกเพรส'},
+  {id:'cf4',pattern:'calf',tier:4,equip:'barbell',th:'Barbell Standing Calf Raise',sub:'เขย่งน่องแบกบาร์เบล'},
 
   {id:'hp1',pattern:'hpush',tier:1,equip:'bodyweight',th:'Wall Push-up',sub:'พุชอัพกำแพง'},
   {id:'hp2a',pattern:'hpush',tier:2,equip:'bodyweight',th:'Knee Push-up',sub:'พุชอัพคุกเข่า'},
@@ -239,12 +268,24 @@ var EXERCISES = [
   {id:'hp3',pattern:'hpush',tier:3,equip:'dumbbell',th:'Dumbbell Bench Press',sub:'เบนช์เพรสดัมเบล'},
   {id:'hp4',pattern:'hpush',tier:4,equip:'barbell',th:'Barbell Bench Press',sub:'เบนช์เพรสบาร์เบล'},
 
+  {id:'ic1',pattern:'incline',tier:1,equip:'cable',th:'Low-to-High Cable Fly (น้ำหนักเบา)',sub:'ดึงเคเบิลจากล่างขึ้นบน เน้นอกบน'},
+  {id:'ic2',pattern:'incline',tier:2,equip:'machine',th:'Incline Chest Press Machine',sub:'เครื่องดันอกแบบเอียงขึ้น เน้นอกบน'},
+  {id:'ic3',pattern:'incline',tier:3,equip:'dumbbell',th:'Incline Dumbbell Press',sub:'ดันดัมเบลบนม้านั่งเอียง เน้นอกบน'},
+  {id:'ic3b',pattern:'incline',tier:3,equip:'bodyweight',th:'Decline Push-up',sub:'พุชอัพยกเท้าสูง เน้นอกบน'},
+  {id:'ic4',pattern:'incline',tier:4,equip:'barbell',th:'Incline Barbell Bench Press',sub:'เบนช์เพรสบาร์เบลม้านั่งเอียง'},
+
+  {id:'fl1',pattern:'chestfly',tier:1,equip:'cable',th:'Cable Fly (น้ำหนักเบา)',sub:'กางแขนหนีบอกด้วยเคเบิลเบา'},
+  {id:'fl2',pattern:'chestfly',tier:2,equip:'machine',th:'Pec Deck Machine',sub:'เครื่องหนีบอก'},
+  {id:'fl3',pattern:'chestfly',tier:3,equip:'dumbbell',th:'Dumbbell Fly',sub:'นอนกางแขนดัมเบล'},
+  {id:'fl3b',pattern:'chestfly',tier:3,equip:'cable',th:'Cable Crossover',sub:'ไขว้เคเบิลหนีบอก'},
+
   {id:'hl1',pattern:'hpull',tier:1,equip:'cable',th:'Seated Cable Row (น้ำหนักเบา)',sub:'พายเคเบิลนั่งเบา'},
   {id:'hl1b',pattern:'hpull',tier:1,equip:'bodyweight',th:'Superman',sub:'เหยียดหลังท่าซุปเปอร์แมน (ไม่ใช้อุปกรณ์)'},
   {id:'hl2',pattern:'hpull',tier:2,equip:'cable',th:'Seated Cable Row',sub:'พายเคเบิลนั่ง'},
   {id:'hl3',pattern:'hpull',tier:3,equip:'dumbbell',th:'Dumbbell Bent-over Row',sub:'ก้มพายดัมเบล'},
   {id:'hl4',pattern:'hpull',tier:4,equip:'barbell',th:'Barbell Bent-over Row',sub:'ก้มพายบาร์เบล'},
 
+  {id:'vl0',pattern:'vpull',tier:1,equip:'bodyweight',th:'Prone Lat Pull (น้ำหนักตัว)',sub:'นอนคว่ำ ยกอกเล็กน้อย ดึงศอกลงข้างลำตัวบีบปีกหลัง (ทางเลือกเมื่อไม่มีบาร์โหน/เครื่อง)'},
   {id:'vl1',pattern:'vpull',tier:1,equip:'machine',th:'Assisted Pull-up Machine',sub:'ดึงข้อช่วยเครื่อง'},
   {id:'vl2',pattern:'vpull',tier:2,equip:'machine',th:'Lat Pulldown',sub:'ดึงลัทดาวน์'},
   {id:'vl3',pattern:'vpull',tier:3,equip:'dumbbell',th:'Dumbbell Pullover',sub:'พูลโอเวอร์ดัมเบล'},
@@ -256,12 +297,29 @@ var EXERCISES = [
   {id:'vp3',pattern:'vpush',tier:3,equip:'dumbbell',th:'Dumbbell Shoulder Press',sub:'ดันไหล่ดัมเบล'},
   {id:'vp4',pattern:'vpush',tier:4,equip:'barbell',th:'Barbell Overhead Press',sub:'ดันไหล่บาร์เบลเหนือศีรษะ'},
 
-  {id:'co1',pattern:'core',tier:1,equip:'bodyweight',th:'Plank',sub:'แพลงก์'},
-  {id:'co2',pattern:'core',tier:2,equip:'bodyweight',th:'Dead Bug',sub:'เดดบั๊ก'},
-  {id:'co3',pattern:'core',tier:3,equip:'cable',th:'Cable Woodchopper',sub:'วู้ดช็อปเปอร์เคเบิล'},
-  {id:'co3b',pattern:'core',tier:3,equip:'abroller',th:'Ab Wheel Rollout',sub:'ล้อโรลหน้าท้อง (ทางเลือกที่บ้านแทนวู้ดช็อปเปอร์เคเบิล)'},
+  {id:'lr1',pattern:'latraise',tier:1,equip:'bodyweight',th:'Lateral Raise (ขวดน้ำ)',sub:'ยกแขนด้านข้างด้วยขวดน้ำ/ของในบ้าน'},
+  {id:'lr2',pattern:'latraise',tier:2,equip:'dumbbell',th:'Dumbbell Lateral Raise',sub:'ยกดัมเบลด้านข้าง เน้นไหล่ข้าง'},
+  {id:'lr3',pattern:'latraise',tier:3,equip:'cable',th:'Cable Lateral Raise',sub:'ยกเคเบิลด้านข้าง'},
+  {id:'lr3b',pattern:'latraise',tier:3,equip:'machine',th:'Machine Lateral Raise',sub:'เครื่องยกไหล่ด้านข้าง'},
+
+  {id:'rd1',pattern:'reardelt',tier:1,equip:'bodyweight',th:'Prone Y-T-W Raise',sub:'นอนคว่ำยกแขนเป็นตัว Y-T-W (ไหล่หลัง/หลังบน)'},
+  {id:'rd2',pattern:'reardelt',tier:2,equip:'machine',th:'Reverse Pec Deck',sub:'เครื่องกางแขนไปด้านหลัง เน้นไหล่หลัง'},
+  {id:'rd2b',pattern:'reardelt',tier:2,equip:'cable',th:'Face Pull',sub:'ดึงเชือกเคเบิลเข้าหาหน้า'},
+  {id:'rd3',pattern:'reardelt',tier:3,equip:'dumbbell',th:'Dumbbell Reverse Fly',sub:'ก้มตัวกางแขนดัมเบล เน้นไหล่หลัง'},
+
+  {id:'co1',pattern:'core',tier:1,equip:'bodyweight',timed:true,th:'Plank',sub:'แพลงก์'},
+  {id:'co2',pattern:'core',tier:2,equip:'bodyweight',timed:true,th:'Dead Bug',sub:'เดดบั๊ก'},
+  {id:'co3c',pattern:'core',tier:3,equip:'cable',th:'Cable Crunch',sub:'คุกเข่าครันช์ด้วยเคเบิล'},
+  {id:'co3b',pattern:'core',tier:3,equip:'abroller',th:'Ab Wheel Rollout',sub:'ล้อโรลหน้าท้อง'},
   {id:'co4',pattern:'core',tier:4,equip:'pullupbar',th:'Hanging Leg Raise',sub:'ยกขาห้อยตัว (ต้องมีบาร์โหน)'},
 
+  {id:'ob1',pattern:'oblique',tier:1,equip:'bodyweight',timed:true,th:'Side Plank',sub:'แพลงก์ด้านข้าง'},
+  {id:'ob2',pattern:'oblique',tier:2,equip:'bodyweight',th:'Bicycle Crunch',sub:'ครันช์ปั่นจักรยาน'},
+  {id:'co3',pattern:'oblique',tier:3,equip:'cable',th:'Cable Woodchopper',sub:'วู้ดช็อปเปอร์เคเบิล'},
+  {id:'ob3',pattern:'oblique',tier:3,equip:'cable',timed:true,th:'Pallof Press',sub:'ดันเคเบิลต้านการบิดลำตัว'},
+  {id:'ob4',pattern:'oblique',tier:4,equip:'pullupbar',th:'Hanging Oblique Knee Raise',sub:'ห้อยตัวยกเข่าเฉียงข้าง (ต้องมีบาร์โหน)'},
+
+  {id:'bc0',pattern:'biceps',tier:1,equip:'bodyweight',th:'Towel Bicep Curl',sub:'เหยียบผ้าขนหนูแล้วงอแขนดึงต้านแรงขาตัวเอง (ไม่ใช้อุปกรณ์)'},
   {id:'bc1',pattern:'biceps',tier:1,equip:'cable',th:'Cable Curl (น้ำหนักเบา)',sub:'ดึงเคเบิลกล้ามแขนหน้าเบา'},
   {id:'bc2',pattern:'biceps',tier:2,equip:'dumbbell',th:'Dumbbell Bicep Curl',sub:'เคิร์ลดัมเบล'},
   {id:'bc3',pattern:'biceps',tier:3,equip:'machine',th:'Preacher Curl Machine',sub:'เครื่องเคิร์ลพักแขน'},
@@ -285,62 +343,82 @@ function tierBadge(tier){
   return '<span class="tier-badge" title="Tier '+tier+' — '+TIER_LABEL[tier]+': '+TIER_DESC[tier]+' (สเกล 1=เบาสุด, 4=หนักสุด)">Tier '+tier+'</span>';
 }
 
-var PATTERN_ORDER = ['squat','hpush','hpull','hinge','vpull','vpush','core'];
 var PATTERN_LABEL = {
-  squat:'Squat Pattern — ขา / ก้น', hinge:'Hinge Pattern — หลังขา / สะโพก',
-  hpush:'Horizontal Push — อก / ไหล่หน้า / ไทรเซป', hpull:'Horizontal Pull — หลังกลาง',
-  vpull:'Vertical Pull — หลังกว้าง / ไบเซป', vpush:'Vertical Push — ไหล่',
-  core:'Core — แกนกลางลำตัว',
+  squat:'Squat Pattern — ต้นขาหน้า / ก้น', lunge:'Lunge — ขาทีละข้าง / ก้น', hinge:'Hinge Pattern — หลังขา / หลังล่าง',
+  glute:'Glute — กล้ามก้น', legcurl:'Leg Curl — หลังขา (งอเข่า)', calf:'Calf — น่อง',
+  hpush:'Horizontal Push — อกกลาง / ไหล่หน้า / ไทรเซป', incline:'Incline Push — อกบน', chestfly:'Chest Fly — อก (แยกส่วน)',
+  vpush:'Vertical Push — ไหล่หน้า', latraise:'Lateral Raise — ไหล่ข้าง', reardelt:'Rear Delt — ไหล่หลัง / หลังบน',
+  hpull:'Horizontal Pull — หลังกลาง', vpull:'Vertical Pull — หลังกว้าง / ไบเซป',
+  core:'Core — หน้าท้อง', oblique:'Oblique — ท้องด้านข้าง / ต้านการบิด',
   biceps:'Biceps — กล้ามแขนหน้า', triceps:'Triceps — กล้ามแขนหลัง'
 };
 var PATTERN_SHORT = {
-  squat:'ขา', hinge:'หลังขา/สะโพก', hpush:'อก/ไหล่หน้า', hpull:'หลังกลาง',
-  vpull:'หลังกว้าง', vpush:'ไหล่', core:'แกนกลาง', biceps:'ไบเซป', triceps:'ไทรเซป'
+  squat:'ต้นขาหน้า', lunge:'ขาทีละข้าง', hinge:'หลังขา/หลังล่าง', glute:'ก้น', legcurl:'หลังขา (งอเข่า)', calf:'น่อง',
+  hpush:'อกกลาง', incline:'อกบน', chestfly:'อก (แยกส่วน)', vpush:'ไหล่หน้า', latraise:'ไหล่ข้าง', reardelt:'ไหล่หลัง',
+  hpull:'หลังกลาง', vpull:'หลังกว้าง', core:'หน้าท้อง', oblique:'ท้องด้านข้าง', biceps:'แขนหน้า', triceps:'แขนหลัง'
 };
+/* ท่าเสริม (accessory) — ถ้าอุปกรณ์ไม่พอให้ข้ามได้โดยไม่ขึ้นเตือนสีแดงเหมือนท่าหลัก */
+var OPTIONAL_PATTERNS = ['lunge','glute','legcurl','calf','incline','chestfly','latraise','reardelt','oblique','biceps','triceps'];
+var TIMED_PATTERNS = ['core','oblique']; // กลุ่มแกนกลาง: พัก 30-60 วิ ไม่มีแบบเข้มข้น — จับเวลาเฉพาะท่าที่มี timed:true
+var SMALL_PATTERNS = ['latraise','reardelt','calf'];
 
 var EXCLUSION_MAP = {
-  'เข่า':['sq3','sq3c','sq3d','sq4','sq3b'], // เลกเพรสทุกมุมเอียง (sq3/sq3c/sq3d) + sq3b (Step-up) โหลดเข่าหนักไม่ต่างกัน
-  'ไหล่':['vp3','vp4','tc3','tc4'],
-  'หลัง':['hg3','hg4','bc4','hg3b','co3b'], // hg3b ท่าเดียวกับ hg3 แค่เปลี่ยนอุปกรณ์ / co3b (Ab Wheel) โหลดหลังส่วนล่างมากถ้าคุมฟอร์มไม่ดี
-  'ข้อมือ':['hp2a','hp3','hp4','bc4','tc4'],
-  'หัวใจ-หลอดเลือด':['sq4','hg4','hp4','vp4','hl4','bc4','tc4']
+  'เข่า':['sq3','sq3c','sq3d','sq4','sq3b','lg2b','lg3','lg3b','lg4','lc4','cf3b'], // เลกเพรสทุกมุม/Step-up/ลันจ์ที่ลงน้ำหนักเข่ามาก/นอร์ดิก
+  'ไหล่':['vp3','vp4','tc3','tc4','ic3','ic4','fl3','fl3b','lr2','lr3','lr3b'],
+  'หลัง':['hg3','hg4','bc4','hg3b','co3b','hg3c','gl4','lg4','co3c','ob2'], // co3b (Ab Wheel) โหลดหลังส่วนล่างมากถ้าคุมฟอร์มไม่ดี
+  'ข้อมือ':['hp2a','hp3','hp4','bc4','tc4','ic3','ic3b','ic4'],
+  'หัวใจ-หลอดเลือด':['sq4','hg4','hp4','vp4','hl4','bc4','tc4','ic4','gl4','lg4','cf4']
 };
 
+/* เซสชันหมุนเวียนตามลำดับวันฝึกในสัปดาห์ (A → B → C → A ...) ให้ท่าไม่ซ้ำเดิมทุกวันและครอบคลุม
+   กล้ามเนื้อทุกส่วนในสัปดาห์ให้มากที่สุด — เซสชันแรกๆ ของแต่ละแบบถูกจัดให้ครอบคลุมมากสุดก่อน
+   เผื่อคนที่ฝึกน้อยวัน · "ท่า@2" = ท่าตัวเลือกที่สองของรูปแบบเดียวกัน (ไม่ซ้ำกับท่าแรก) */
 var SPLIT_DEFS = {
   fullbody: {
     key:'fullbody', label:'Full Body', minDays:1, minRank:0,
-    desc:'ทุกกลุ่มกล้ามเนื้อในเซสชันเดียว ทำซ้ำทุกวันที่เลือก — ปลอดภัยสุดสำหรับมือใหม่ ต้องการวันว่างน้อยสุด',
-    sessions:[{key:'Full Body', patterns:PATTERN_ORDER}]
+    desc:'ฝึกทั้งตัวทุกครั้ง แต่หมุนเวียนท่า A/B/C ในแต่ละวันให้โดนกล้ามเนื้อครบทุกส่วนในสัปดาห์ — ปลอดภัยสุดสำหรับมือใหม่ ต้องการวันว่างน้อยสุด',
+    sessions:[
+      {key:'Full Body A', patterns:['squat','hpush','hpull','hinge','latraise','triceps','core']},
+      {key:'Full Body B', patterns:['lunge','incline','vpull','glute','reardelt','biceps','oblique']},
+      {key:'Full Body C', patterns:['squat@2','vpush','vpull@2','legcurl','chestfly','calf','core@2']}
+    ]
   },
   ul: {
     key:'ul', label:'Upper / Lower', minDays:4, minRank:1,
-    desc:'แยกวันบนตัว (Upper) กับล่างตัว (Lower) สลับกัน ให้แต่ละกลุ่มกล้ามเนื้อพักได้นานขึ้น ต้องมีวันว่างอย่างน้อย 4 วัน/สัปดาห์',
+    desc:'แยกวันบนตัว (Upper) กับล่างตัว (Lower) สลับกัน แต่ละฝั่งมี 2 ชุดท่า (A/B) ครบทุกส่วนใน 4 วัน — ต้องมีวันว่างอย่างน้อย 4 วัน/สัปดาห์',
     sessions:[
-      {key:'Upper', patterns:['hpush','hpull','vpush','vpull']},
-      {key:'Lower', patterns:['squat','hinge','core']}
+      {key:'Upper A', patterns:['hpush','hpull','vpush','latraise','triceps']},
+      {key:'Lower A', patterns:['squat','hinge','calf','core']},
+      {key:'Upper B', patterns:['incline','vpull','chestfly','reardelt','biceps']},
+      {key:'Lower B', patterns:['lunge','glute','legcurl','oblique']}
     ]
   },
   ppl: {
     key:'ppl', label:'Push / Pull / Legs', minDays:3, minRank:2,
-    desc:'แยกวันดัน (Push) ดึง (Pull) และขา (Legs) หมุนวนกัน เหมาะกับคนที่ออกกำลังกายประจำและมีวันว่างพอจะฝึกแต่ละกลุ่มด้วยโวลุ่มสูงขึ้น',
+    desc:'แยกวันดัน (Push) ดึง (Pull) และขา (Legs) หมุนวนกัน ชุด A ครอบคลุมเกือบครบใน 3 วัน ชุด B เปลี่ยนท่าให้หลากหลายขึ้นเมื่อฝึกเกิน 3 วัน',
     sessions:[
-      {key:'Push', patterns:['hpush','vpush']},
-      {key:'Pull', patterns:['hpull','vpull']},
-      {key:'Legs', patterns:['squat','hinge','core']}
+      {key:'Push A', patterns:['hpush','incline','vpush','latraise','triceps']},
+      {key:'Pull A', patterns:['vpull','hpull','reardelt','biceps']},
+      {key:'Legs A', patterns:['squat','hinge','lunge','legcurl','calf','core']},
+      {key:'Push B', patterns:['incline','hpush@2','chestfly','latraise','triceps@2']},
+      {key:'Pull B', patterns:['hpull@2','vpull@2','reardelt','biceps@2']},
+      {key:'Legs B', patterns:['squat@2','hinge@2','glute','legcurl','calf','oblique']}
     ]
   },
   bro: {
     key:'bro', label:'Bro Split (แยกกล้ามเนื้อรายวัน)', minDays:5, minRank:3,
-    desc:'แยกกล้ามเนื้อแต่ละกลุ่มเป็นวันของตัวเอง (อก/หลัง/ไหล่/ขา/แขน) โวลุ่มต่อครั้งสูงสุดในบรรดา 4 รูปแบบ แต่แต่ละกลุ่มกล้ามเนื้อได้ฝึกแค่ ~1 ครั้ง/สัปดาห์ — ต้องมีวันว่างอย่างน้อย 5 วัน/สัปดาห์',
+    desc:'แยกกล้ามเนื้อแต่ละกลุ่มเป็นวันของตัวเอง (อก/หลัง/ไหล่/ขา/แขน) แต่ละวันมีหลายท่าครบทุกมัด โวลุ่มต่อครั้งสูงสุด แต่แต่ละกลุ่มได้ฝึก ~1 ครั้ง/สัปดาห์ — ต้องมีวันว่างอย่างน้อย 5 วัน/สัปดาห์',
     sessions:[
-      {key:'อก (Chest)', patterns:['hpush']},
-      {key:'หลัง (Back)', patterns:['hpull','vpull']},
-      {key:'ไหล่ (Shoulders)', patterns:['vpush']},
-      {key:'ขา (Legs)', patterns:['squat','hinge','core']},
-      {key:'แขน (Arms)', patterns:['biceps','triceps']}
+      {key:'อก (Chest)', patterns:['hpush','incline','chestfly','hpush@2']},
+      {key:'หลัง (Back)', patterns:['vpull','hpull','vpull@2','hpull@2']},
+      {key:'ไหล่ (Shoulders)', patterns:['vpush','latraise','reardelt','vpush@2']},
+      {key:'ขา (Legs)', patterns:['squat','hinge','lunge','glute','legcurl','calf']},
+      {key:'แขน (Arms)', patterns:['biceps','triceps','biceps@2','triceps@2','core','oblique']}
     ]
   }
 };
+function slotBase(slot){ return String(slot).split('@')[0]; }
+function sessionKeys(sessions){ return sessions.map(function(se){ return se.key; }); }
 var EXP_RANK = {'มือใหม่':0,'เคยออกบ้าง':1,'ออกกำลังกายประจำ':2,'นักกีฬา-เทรนมานาน':3};
 
 var REP_SCHEME = {
@@ -631,7 +709,7 @@ function candidatesFor(pattern, a){
     var lockedBy = injuries.filter(function(inj){ return (EXCLUSION_MAP[inj]||[]).indexOf(e.id)>-1; });
     var manuallyUnlocked = !!state.plan.unlockedEx[e.id];
     return {
-      id:e.id, pattern:e.pattern, tier:e.tier, equip:e.equip, th:e.th, sub:e.sub,
+      id:e.id, pattern:e.pattern, tier:e.tier, equip:e.equip, th:e.th, sub:e.sub, timed:!!e.timed,
       equipOk: allowed.indexOf(e.equip)>-1,
       locked: lockedBy.length>0 && !manuallyUnlocked,
       lockedBy: lockedBy
@@ -652,12 +730,19 @@ function pickByTier(eligible, tTier){
   if(above.length){ var t2=above[0].tier; return tieBreak(above.filter(function(e){return e.tier===t2;})); }
   return null;
 }
-function selectionFor(pattern, a){
-  var all = candidatesFor(pattern, a);
+/* slot = ชื่อรูปแบบท่า หรือ "รูปแบบ@2" (ตัวเลือกที่สองที่ไม่ซ้ำท่าแรก ถ้ามีให้เลือก) */
+function selectionFor(slot, a){
+  var base = slotBase(slot);
+  var all = candidatesFor(base, a);
   var eligible = all.filter(function(e){return e.equipOk && !e.locked;});
-  var forceLow = !!state.plan.forceLowTier[pattern];
+  if(slot!==base){
+    var primary = selectionFor(base, a).picked;
+    var others = primary ? eligible.filter(function(e){ return e.id!==primary.id; }) : eligible;
+    if(others.length) eligible = others;
+  }
+  var forceLow = !!state.plan.forceLowTier[base];
   var tTier = forceLow ? 1 : targetTier(a.Q16);
-  var manual = state.plan.manualPick[pattern];
+  var manual = state.plan.manualPick[slot];
   var picked = null;
   if(manual){
     var m = all.filter(function(e){return e.id===manual && e.equipOk && !e.locked;})[0];
@@ -690,12 +775,11 @@ function effectiveSplit(a){
   if(state.plan.splitOverride && (!f[state.plan.splitOverride] || !f[state.plan.splitOverride].eligible)) state.plan.splitOverride = null;
   return autoSplit(a);
 }
-function assignSessions(splitKey, days){
-  var def = SPLIT_DEFS[splitKey];
+function assignSessionKeys(seq, days){
   var sorted = DAYS.filter(function(d){ return (days||[]).indexOf(d)>-1; });
-  var seq = def.sessions.map(function(se){ return se.key; });
   return sorted.map(function(d,i){ return {day:d, session:seq[i%seq.length]}; });
 }
+function assignSessions(splitKey, days){ return assignSessionKeys(sessionKeys(SPLIT_DEFS[splitKey].sessions), days); }
 /* วันว่าง (Q2) = วันที่ "เลือกได้" เท่านั้น วันฝึก/วัน cardio จริงเลือกแยกในหน้าตรวจแผน */
 function minTrainDays(splitKey, a){
   var avail = (a.Q2||[]).length;
@@ -748,15 +832,16 @@ function buildPlanSnapshot(a){
   var dayToSession = {};
   assignSessions(split, trainDays).forEach(function(x){ dayToSession[x.day]=x.session; });
   var sessions = splitDef.sessions.map(function(se){
-    var exercises = se.patterns.map(function(p){
-      var sel = selectionFor(p, a);
+    var exercises = se.patterns.map(function(slot){
+      var sel = selectionFor(slot, a);
       if(!sel.picked) return null;
+      var p = slotBase(slot);
       return {
-        pattern:p, id:sel.picked.id, th:sel.picked.th, sub:sel.picked.sub, tier:sel.picked.tier,
-        equip:sel.picked.equip, // เดิมไม่มีฟิลด์นี้ — sectionWorkout ต้องใช้แยกท่า bodyweight (ซ่อนช่องน้ำหนัก)
-        setsReps: setsRepsFor(p, sel.picked, a),
-        intensity: planIntense(p, sel.picked) ? 'intense' : 'normal',
-        timeBased: p==='core'
+        pattern:p, slot:slot, id:sel.picked.id, th:sel.picked.th, sub:sel.picked.sub, tier:sel.picked.tier,
+        equip:sel.picked.equip, // sectionWorkout ใช้แยกท่า bodyweight (ซ่อนช่องน้ำหนัก)
+        setsReps: setsRepsFor(slot, sel.picked, a),
+        intensity: planIntense(slot, sel.picked) ? 'intense' : 'normal',
+        timeBased: !!sel.picked.timed
       };
     }).filter(Boolean);
     return {key:se.key, exercises:exercises};
@@ -858,23 +943,28 @@ function sessionDefFor(program, sKey){
 /* ---------- Warm-up set: บันทึกเป็นข้อมูลเท่านั้น ไม่นับความครบ/สตรีค/สีแดง ----------
    ท่า compound ที่ใช้น้ำหนักท่าแรกของเซสชัน 3 เซ็ต (40/60/80%), compound ถัดไป 2 เซ็ต (60/80%),
    ท่า isolation 1 เซ็ต (50%), ท่าน้ำหนักตัว 1 เซ็ตแบบเบา, core จับเวลาไม่ต้องวอร์ม */
-var WARMUP_COMPOUND = ['squat','hinge','hpush','hpull','vpush','vpull'];
+var WARMUP_COMPOUND = ['squat','lunge','hinge','glute','hpush','incline','hpull','vpush','vpull'];
 var WARMUP_WEIGHTED = ['barbell','dumbbell','machine','cable'];
 /* ---------- ความเข้มข้นรายท่า (ทั่วไป/เข้มข้น) + เวลาพัก ----------
    เข้มข้น = 2 เซ็ต × 4-8 ครั้งจนหมดแรง ด้วยน้ำหนักที่สูงขึ้น (~79-88% ของ 1RM) เฉพาะท่าที่ใช้น้ำหนัก
    ท่าน้ำหนักตัวและ core เป็นแบบทั่วไปเสมอ */
 var INTENSE_SCHEME = '2 x 4-8';
 var INTENSE_WARNING = 'ต้องคุมฟอร์มให้ดีและเล่นให้ถูกต้องทุกครั้ง เนื่องจากใช้น้ำหนักสูงจึงอาจเสี่ยงบาดเจ็บได้';
-function intensityEligible(ex){ return !!ex && ex.pattern!=='core' && WARMUP_WEIGHTED.indexOf(ex.equip)>-1; }
+function intensityEligible(ex){
+  return !!ex && TIMED_PATTERNS.indexOf(ex.pattern)===-1 && SMALL_PATTERNS.indexOf(ex.pattern)===-1 && WARMUP_WEIGHTED.indexOf(ex.equip)>-1;
+}
 function isIntense(ex){ return intensityEligible(ex) && ex.intensity==='intense'; }
-function planIntense(pattern, ex){ return intensityEligible(ex) && (state.plan.intensity||{})[pattern]==='intense'; }
-function setsRepsFor(pattern, ex, a){
-  if(pattern==='core') return '3 x 30-45 วิ';
-  return planIntense(pattern, ex) ? INTENSE_SCHEME : repSchemeFor(a.Q1);
+function planIntense(slot, ex){ return intensityEligible(ex) && (state.plan.intensity||{})[slot]==='intense'; }
+function setsRepsFor(slot, ex, a){
+  var base = slotBase(slot);
+  if(TIMED_PATTERNS.indexOf(base)>-1) return (ex && ex.timed) ? '3 x 30-45 วิ' : '3 x 10-15';
+  if(planIntense(slot, ex)) return INTENSE_SCHEME;
+  if(SMALL_PATTERNS.indexOf(base)>-1) return '3 x 12-15';
+  return repSchemeFor(a.Q1);
 }
 function restFor(ex){
   if(isIntense(ex)) return {set:'3-5 นาที', next:'3-5 นาที'};
-  if(ex.timeBased || ex.pattern==='core') return {set:'30-60 วินาที', next:'2-3 นาที'};
+  if(ex.timeBased || TIMED_PATTERNS.indexOf(ex.pattern)>-1) return {set:'30-60 วินาที', next:'2-3 นาที'};
   if(WARMUP_WEIGHTED.indexOf(ex.equip)===-1 || WARMUP_COMPOUND.indexOf(ex.pattern)===-1) return {set:'60-90 วินาที', next:'2-3 นาที'};
   return {set:'90-120 วินาที', next:'2-3 นาที'};
 }
@@ -1705,7 +1795,7 @@ function renderToday(){
       '<button type="button" class="btn" data-act="nav" data-view="progress">ความคืบหน้า</button>'+
     '</div></div>';
 
-  html += oldScheduleBanner(p) + fatAlertHTML(p);
+  html += oldScheduleBanner(p) + planUpdateBanner(p) + fatAlertHTML(p);
   html += '<div class="today-grid"><div class="stack">'+dayEditor(iso)+'</div>'+
     '<aside class="rail">'+
       '<div class="prog-card"><div class="prog-top"><h3>ความคืบหน้าวันนี้</h3><span class="n mono">'+counts.done+'/'+counts.total+'</span></div>'+
@@ -2237,7 +2327,7 @@ function saveSchedDraft(){
   Object.keys(p).forEach(function(k){ next[k] = p[k]; });
   next.days = dr.days.slice();
   next.dayToSession = {};
-  assignSessions(p.splitKey, next.days).forEach(function(x){ next.dayToSession[x.day] = x.session; });
+  assignSessionKeys(sessionKeys(p.sessions||[]), next.days).forEach(function(x){ next.dayToSession[x.day] = x.session; });
   next.cardioDays = dr.cardioDays.slice();
   next.cardioMinByDay = minsForDays(dr.cardioMinByDay, next.cardioDays);
   next.availableDays = avail;
@@ -2256,7 +2346,7 @@ function schedEditorPanelHTML(){
   if(!dr) return '';
   return '<div class="setup-panel"><h3>เลือกวันฝึกและวัน cardio</h3>'+
     '<p>วันว่างคือวันที่ “เลือกได้” — กดเลือกเฉพาะวันที่จะเล่นจริง ท่าออกกำลังกายและเป้าหมายเดิมไม่เปลี่ยน วันที่ถูกล็อกเป็นประวัติแล้วไม่ได้รับผลกระทบ</p>'+
-    scheduleEditorHTML('prog', p.splitKey, progAvailDays(p), dr.days, dr.cardioDays, dr.cardioMinByDay, p.minutesEstimate||'')+
+    scheduleEditorHTML('prog', p.splitKey, progAvailDays(p), dr.days, dr.cardioDays, dr.cardioMinByDay, p.minutesEstimate||'', p.sessions||[])+
     '<div class="setup-row" style="margin-top:12px"><button type="button" class="btn primary" data-act="sched-save">บันทึกวันฝึก</button>'+
     '<button type="button" class="btn ghost" data-act="sched-cancel">ยกเลิก</button>'+
     '<span class="save-status">'+esc(track.saveStatus||'')+'</span></div></div>';
@@ -2279,7 +2369,7 @@ function renderPlan(){
       '<button type="button" class="btn" data-act="edit-plan">แก้ไขแผน / ทำแบบสอบถามใหม่</button>'+
       '<button type="button" class="btn" data-act="edit-start">ตั้งวันเริ่มใหม่</button>'+
     '</div></div>';
-  html += oldScheduleBanner(p) + schedEditorPanelHTML();
+  html += oldScheduleBanner(p) + planUpdateBanner(p) + schedEditorPanelHTML();
   if(!track.schedDraft && track.saveStatus==='บันทึกวันฝึกแล้ว ✓') html += '<div class="banner info"><div class="ic">✓</div><div>บันทึกวันฝึกแล้ว</div></div>';
 
   if(track.editing){
@@ -2302,7 +2392,7 @@ function renderPlan(){
       '<div class="opt-note" style="margin-top:8px">น้ำ '+fmt1(t.waterL)+' ลิตร/วัน · '+t.meals+' มื้อ/วัน · นอน '+fmtHours(t.sleepH)+'/คืน</div>'+
     '</div></div>';
 
-  html += '<div class="section-title">เซสชันในแผน</div>';
+  html += '<div class="section-title">เซสชันในแผน</div>' + coverageHTML(programCoverage(p), '');
   html += (p.sessions||[]).map(function(se){
     var daysFor = (p.days||[]).filter(function(d){ return p.dayToSession[d]===se.key; });
     return '<div class="session-heading">เซสชัน “'+esc(se.key)+'” <span class="sh-sub">'+daysFor.length+'x/สัปดาห์ — '+esc(daysFor.join(', ')||'—')+' · ~'+esc(p.minutesEstimate)+'</span></div>'+
@@ -2624,16 +2714,65 @@ function demoModalHTML(){
 
 /* ตัวเลือกวันฝึก/วัน cardio (+ นาที cardio รายวัน) ใช้ร่วมกันระหว่างหน้าตรวจแผน (ctx 'plan' → state.plan)
    และหน้าแผนของฉัน (ctx 'prog' → track.schedDraft ของโปรแกรมที่เริ่มไปแล้ว) */
-function scheduleEditorHTML(ctx, splitKey, avail, train, cardio, minByDay, sessMinutes){
+var MUSCLE_ORDER = ['hpush','incline','chestfly','vpush','latraise','reardelt','hpull','vpull','biceps','triceps',
+                    'squat','lunge','hinge','glute','legcurl','calf','core','oblique'];
+function coverageHTML(covered, note){
+  var n = MUSCLE_ORDER.filter(function(m){ return covered.indexOf(m)>-1; }).length;
+  return '<div class="cov-card"><div class="cov-head">กล้ามเนื้อที่ได้ฝึกโดยตรงต่อสัปดาห์: <b>'+n+'/'+MUSCLE_ORDER.length+'</b> ส่วน</div>'+
+    '<div class="cov-chips">'+MUSCLE_ORDER.map(function(m){
+      var ok = covered.indexOf(m)>-1;
+      return '<span class="chip'+(ok?' ok':'')+'">'+(ok?'✓ ':'· ')+esc(PATTERN_SHORT[m])+'</span>';
+    }).join('')+'</div>'+(note ? '<p class="hint" style="margin:6px 0 0">'+note+'</p>' : '')+'</div>';
+}
+/* ส่วนที่ครอบคลุมจากเซสชันที่ได้ฝึกจริงในสัปดาห์ตามวันที่เลือก (ท่าเสริมที่ข้ามเพราะอุปกรณ์ไม่นับ) */
+function planCoverage(split, trainDays, a){
+  var used = {};
+  assignSessions(split, trainDays).forEach(function(x){ used[x.session] = true; });
+  var covered = [];
+  SPLIT_DEFS[split].sessions.forEach(function(se){
+    if(!used[se.key]) return;
+    se.patterns.forEach(function(slot){
+      var b = slotBase(slot);
+      if(covered.indexOf(b)===-1 && selectionFor(slot, a).picked) covered.push(b);
+    });
+  });
+  return covered;
+}
+function programCoverage(p){
+  var used = {}, covered = [];
+  (p.days||[]).forEach(function(d){ if(p.dayToSession[d]) used[p.dayToSession[d]] = true; });
+  (p.sessions||[]).forEach(function(se){
+    if(!used[se.key]) return;
+    se.exercises.forEach(function(ex){ if(covered.indexOf(ex.pattern)===-1) covered.push(ex.pattern); });
+  });
+  return covered;
+}
+function planOutdated(p){
+  var def = SPLIT_DEFS[p.splitKey];
+  return !!def && sessionKeys(def.sessions).join('|') !== sessionKeys(p.sessions||[]).join('|');
+}
+function planUpdateBanner(p){
+  if(!planOutdated(p)) return '';
+  return '<div class="banner info"><div class="ic">ⓘ</div><div>มีตารางแบบใหม่ที่ <b>หมุนเวียนท่าในแต่ละวัน ให้โดนกล้ามเนื้อครบทุกส่วนในสัปดาห์</b> (ตอนนี้ครอบคลุม '+
+    programCoverage(p).filter(function(m){ return MUSCLE_ORDER.indexOf(m)>-1; }).length+'/'+MUSCLE_ORDER.length+' ส่วน) '+
+    '<button type="button" class="linkbtn" data-act="edit-plan">อัปเดตตารางเป็นแบบใหม่ →</button></div></div>';
+}
+/* sessions = เซสชันของแบบที่กำลังเลือก (SPLIT_DEFS: มี patterns) หรือของโปรแกรมที่ใช้อยู่ (มี exercises) */
+function sessionMuscles(se){
+  var bases = se.patterns ? se.patterns.map(slotBase) : se.exercises.map(function(e){ return e.pattern; });
+  return bases.filter(function(b, i){ return bases.indexOf(b)===i; });
+}
+function scheduleEditorHTML(ctx, splitKey, avail, train, cardio, minByDay, sessMinutes, sessions){
   var def = SPLIT_DEFS[splitKey];
+  sessions = sessions || def.sessions;
   var d2s = {};
-  assignSessions(splitKey, train).forEach(function(x){ d2s[x.day]=x.session; });
+  assignSessionKeys(sessionKeys(sessions), train).forEach(function(x){ d2s[x.day]=x.session; });
   var minTrain = minTrainDays(splitKey, {Q2:avail});
   var cards = DAYS.map(function(d,i){
     var isAvail = avail.indexOf(d)>-1, isTrain = train.indexOf(d)>-1, isCardio = cardio.indexOf(d)>-1;
     var sKey = isTrain ? d2s[d] : null;
-    var seDef = sKey ? def.sessions.filter(function(s){return s.key===sKey;})[0] : null;
-    var chips = seDef ? seDef.patterns.map(function(p){ return '<span class="chip">'+esc(PATTERN_SHORT[p]||p)+'</span>'; }).join('') : '';
+    var seDef = sKey ? sessions.filter(function(s){return s.key===sKey;})[0] : null;
+    var chips = seDef ? sessionMuscles(seDef).map(function(p){ return '<span class="chip">'+esc(PATTERN_SHORT[p]||p)+'</span>'; }).join('') : '';
     var mins = (minByDay||{})[d] || CARDIO_DEFAULT_MIN;
     var name = [sKey, isCardio?'Cardio':null].filter(Boolean).join(' + ') || (isAvail ? 'พัก' : 'ไม่ว่าง');
     var body = isAvail
@@ -2693,15 +2832,27 @@ function resultsHTML(){
     : '<div class="split-auto-line">ระบบแนะนำอัตโนมัติตามวันว่างและประสบการณ์ที่ตอบไว้ — กดเลือกรูปแบบอื่นด้านบนได้ถ้าต้องการ</div>';
 
   var schedHTML = scheduleEditorHTML('plan', split, a.Q2||[], trainDays, cardioDays, state.plan.cardioMinByDay, a.Q3||'');
+  var covered = planCoverage(split, trainDays, a);
+  var covMissing = MUSCLE_ORDER.filter(function(m){ return covered.indexOf(m)===-1; }).length;
+  var covNote = !covMissing ? 'ครบทุกส่วนแล้ว — แต่ละวันฝึกคนละชุดท่าหมุนเวียนกัน'
+    : (trainDays.length < splitDef.sessions.length
+        ? 'ฝึก '+splitDef.sessions.length+' วัน/สัปดาห์ขึ้นไปจะได้ครบทุกชุดท่า (ตอนนี้ '+trainDays.length+' วัน) — ส่วนที่ขาดยังได้แรงทางอ้อมจากท่าหลัก'
+        : 'ส่วนที่ขาดเพราะไม่มีอุปกรณ์สำหรับท่าเสริมนั้น');
+  schedHTML += coverageHTML(covered, covNote);
 
   function buildExRow(pattern){
+    var base = slotBase(pattern);
+    var label = PATTERN_LABEL[base] + (pattern!==base ? ' · ท่าที่ 2' : '');
     var sel = selectionFor(pattern, a);
     if(!sel.picked){
-      return '<div class="ex-row"><div class="ex-pattern">'+PATTERN_LABEL[pattern]+'</div><div class="banner danger"><div class="ic">✕</div><div>ไม่มีท่าที่เหมาะสมเหลือให้เลือก (อุปกรณ์ไม่พอ หรือถูกล็อกทั้งหมด) — ต้องการอุปกรณ์เพิ่มเติม/ปรึกษาเทรนเนอร์</div></div></div>';
+      if(OPTIONAL_PATTERNS.indexOf(base)>-1){
+        return '<div class="ex-row"><div class="ex-pattern">'+label+'</div><div class="hint">ข้ามท่านี้ — ไม่มีท่าที่ใช้อุปกรณ์ที่คุณมี (เป็นท่าเสริม ไม่กระทบตารางหลัก)</div></div>';
+      }
+      return '<div class="ex-row"><div class="ex-pattern">'+label+'</div><div class="banner danger"><div class="ic">✕</div><div>ไม่มีท่าที่เหมาะสมเหลือให้เลือก (อุปกรณ์ไม่พอ หรือถูกล็อกทั้งหมด) — ต้องการอุปกรณ์เพิ่มเติม/ปรึกษาเทรนเนอร์</div></div></div>';
     }
     var setsReps = setsRepsFor(pattern, sel.picked, a);
     var intense = planIntense(pattern, sel.picked);
-    var rest = restFor({pattern:pattern, equip:sel.picked.equip, timeBased:pattern==='core', intensity:intense?'intense':'normal'});
+    var rest = restFor({pattern:base, equip:sel.picked.equip, timeBased:!!sel.picked.timed, intensity:intense?'intense':'normal'});
     var intToggle = intensityEligible(sel.picked)
       ? '<div class="int-toggle" role="group" aria-label="ความเข้มข้นของท่านี้">'+
           '<button type="button" class="opt'+(intense?'':' sel')+'" data-act="intensity" data-pattern="'+pattern+'" data-val="normal" aria-pressed="'+!intense+'">ทั่วไป</button>'+
@@ -2710,7 +2861,7 @@ function resultsHTML(){
     var alts = sel.all.filter(function(e){return e.id!==sel.picked.id;});
     var altsHtml = alts.map(function(x){
       var pickedThis = state.plan.manualPick[pattern]===x.id;
-      var nameBtn = demoBtnHTML(x.id, pattern, x.th, x.sub, tierBadge(x.tier));
+      var nameBtn = demoBtnHTML(x.id, base, x.th, x.sub, tierBadge(x.tier));
       if(x.locked){
         return '<div class="swap-opt locked"><div>'+nameBtn+'<div class="lockmsg">ล็อกอยู่ — เนื่องจากอาการที่ '+x.lockedBy.join(', ')+' ที่คุณแจ้งไว้</div></div>'+
           '<button type="button" data-act="unlock" data-unlock="'+x.id+'" data-pattern="'+pattern+'">แจ้งว่าหายแล้ว</button></div>';
@@ -2721,8 +2872,8 @@ function resultsHTML(){
       return '<div class="swap-opt'+(pickedThis?' picked':'')+'">'+nameBtn+
         '<button type="button" data-act="swap" data-swap="'+x.id+'" data-pattern="'+pattern+'">เลือกท่านี้แทน</button></div>';
     }).join('');
-    return '<div class="ex-row"><div class="ex-row-top"><div><div class="ex-pattern">'+PATTERN_LABEL[pattern]+'</div>'+
-      demoBtnHTML(sel.picked.id, pattern, sel.picked.th, sel.picked.sub, tierBadge(sel.picked.tier), 'ex-name')+
+    return '<div class="ex-row"><div class="ex-row-top"><div><div class="ex-pattern">'+label+'</div>'+
+      demoBtnHTML(sel.picked.id, base, sel.picked.th, sel.picked.sub, tierBadge(sel.picked.tier), 'ex-name')+
       '<div class="ex-sub">'+sel.picked.sub+'</div>'+
       '<div class="rest-line">พักระหว่างเซ็ต '+rest.set+' · ก่อนเปลี่ยนท่า '+rest.next+'</div>'+
       (intense ? '<div class="int-warn">⚠️ เข้มข้น: เพิ่มน้ำหนักให้หมดแรงภายใน 4-8 ครั้ง — '+INTENSE_WARNING+'</div>' : '')+
@@ -3138,7 +3289,7 @@ document.addEventListener("click", function(ev){
       state.plan.cardioMinByDay = {};
       state.plan.cardioDays.forEach(function(d){ state.plan.cardioMinByDay[d] = cardioMinFor(ep, d); });
       state.plan.intensity = {};
-      (ep.sessions||[]).forEach(function(se){ se.exercises.forEach(function(ex){ if(ex.intensity==='intense') state.plan.intensity[ex.pattern] = 'intense'; }); });
+      (ep.sessions||[]).forEach(function(se){ se.exercises.forEach(function(ex){ if(ex.intensity==='intense') state.plan.intensity[ex.slot||ex.pattern] = 'intense'; }); });
     }
     track.schedDraft = null;
     state.editPlan=true; state.step=9; state.mode='results'; track.editing=false; persist(); render(true); return; }
@@ -3235,7 +3386,7 @@ document.addEventListener("click", function(ev){
   if(act==='unlock'){
     var pat = el.getAttribute('data-pattern');
     state.plan.unlockedEx[el.getAttribute('data-unlock')] = true;
-    state.plan.forceLowTier[pat] = true;
+    state.plan.forceLowTier[slotBase(pat)] = true;
     delete state.plan.manualPick[pat];
     persist(); render(); return;
   }

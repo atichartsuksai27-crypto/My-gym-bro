@@ -854,7 +854,8 @@ function buildPlanSnapshot(a){
     minutesEstimate:a.Q3||'45-60 นาที',
     trainTime:a.Q24||'ไม่แน่นอนแล้วแต่วัน',
     targets: computeTargets(a),
-    startWeight: parseFloat(a.Q12)||null
+    startWeight: parseFloat(a.Q12)||null,
+    exp: a.Q16||null, sex: a.Q9||null // ใช้ตั้งกรอบ Progression & Goal (แผนเก่าที่ไม่มีค่านี้ใช้คำตอบแบบสอบถามแทน)
   };
 }
 
@@ -870,7 +871,8 @@ var track = {
   schedTab:'week', editing:false, progressEx:null, openBench:{}, sleepHoursError:{},
   demoExercise:null, // โมดัลภาพเคลื่อนไหวท่าในหน้าตรวจแผน (null = ปิด)
   histOpen:null, histDays:14, finalizedThrough:null, schedDraft:null, fatOpen:false,
-  openSym:{}, openFood:{}, foodErr:{}
+  openSym:{}, openFood:{}, foodErr:{},
+  pgOpen:false, pgCrit:false, pgChecks:{}, pgResetAsk:false // กรอบแผน Progression & Goal: เปิดรายละเอียด / เปิดเกณฑ์ / ติ๊กตรวจข้อมูล
 };
 function persistProgram(){
   var ok = lsSet("gymbro_program", track.program);
@@ -912,16 +914,11 @@ function cardioMinutesOn(iso){
 function dayActivity(program, iso){
   var today = todayISO();
   var past = iso < today && iso >= (program.startDate||today);
-  var log = logFor(iso) || {};
   var sKey = sessionKeyFor(program, iso);
   var planned = cardioPlannedFor(program, iso);
   var mins = cardioMinutesOn(iso);
   var parts = [];
-  if(sKey){
-    var sess = sessionDefFor(program, sKey);
-    var allEx = !!sess && sess.exercises.length>0 && sess.exercises.every(function(ex){ return ((log.exercises||{})[ex.id]||{}).done; });
-    parts.push({label:sKey, missed: past && !log.completed && !allEx});
-  }
+  if(sKey) parts.push({label:sKey, missed: past && !sessionDone(program, iso)});
   if(planned || mins) parts.push({label:'Cardio'+(mins? ' '+mins+' นาที' : ''), missed: past && planned && !mins});
   return parts;
 }
@@ -1033,6 +1030,407 @@ function fatTug(program){
 function fatSeen(){ var s = lsGet('gymbro_fat_seen', null); return (s && typeof s==='object') ? s : {gains:0, losses:0}; }
 function targetsOf(program){
   return (program && program.targets) ? program.targets : computeTargets(state.answers);
+}
+
+/* ============================================================
+   กรอบแผน Progression & Goal — ถ้าทำตามแผน ผลควรออกมาในกรอบไหน และผลจริงหลุดกรอบผิดปกติหรือไม่
+   ------------------------------------------------------------
+   ประเมินเป็น "รอบ": เริ่มที่วันเริ่มแผน หรือวันที่ปรับเป้า/เริ่มเก็บข้อมูลใหม่ (program.pg.evalFrom)
+   ผลที่หลุดกรอบนับเป็น "ผิดปกติ" เฉพาะเมื่อทำตามแผนถึงเกณฑ์ — ถ้าทำตามแผนไม่ถึง ผลยังสะท้อนแผนไม่ได้
+   ยกเว้นข้อ "การกินที่บันทึก vs น้ำหนักจริง" ซึ่งตรวจความสอดคล้องของข้อมูลเอง ไม่ขึ้นกับการทำตามเป้า
+   ระดับ: ข้อมูลไม่พอ → ตามแผน → เฝ้าระวัง → ผิดปกติ (ให้ผู้ใช้ตรวจข้อมูลที่บันทึก) → ควรปรับแผน (ผู้ใช้ยืนยันแล้วว่าข้อมูลถูก)
+   ตัวเลขกรอบเป็นค่าประมาณจากแนวทางทั่วไป ไม่ใช่การรับประกันผล
+   ============================================================ */
+var PG_WINDOW = 21;      // วันย้อนหลังที่ใช้หาแนวโน้มน้ำหนักและสมดุลพลังงาน
+var PG_STR_WINDOW = 28;  // วันย้อนหลังที่ใช้หาแนวโน้มความแข็งแรง
+var PG_EARLY_DAYS = 21;  // 3 สัปดาห์แรกของรอบ น้ำ/ไกลโคเจนทำให้น้ำหนักเปลี่ยนเร็วผิดปกติได้ — ยังไม่ตัดสินว่าผิดปกติ
+/* น้ำหนักที่ควรเพิ่มต่อเดือนช่วงเพิ่มกล้าม (% น้ำหนักตัว) ตามประสบการณ์ มือใหม่ → นักกีฬา (แนวทางของ Helms et al.) */
+var PG_GAIN_PCT_MONTH = [[1.0,1.5],[0.75,1.25],[0.5,1.0],[0.25,0.5]];
+/* e1RM ที่ควรเพิ่มต่อ 4 สัปดาห์ (%) ตามประสบการณ์ — มือใหม่พัฒนาเร็ว ระดับสูงช้าลงมาก (ค่าประมาณ) */
+var PG_STR_PCT_4W = [[4,10],[3,7],[1.5,4],[0.5,2]];
+var PG_LEVELS = {
+  na:{n:0, label:'ข้อมูลยังไม่พอประเมิน', icon:'⚪'},
+  ok:{n:1, label:'เป็นไปตามแผน', icon:'🟢'},
+  watch:{n:2, label:'เฝ้าระวัง', icon:'🟡'},
+  anomaly:{n:3, label:'ผิดปกติ — ตรวจสอบข้อมูล', icon:'🟠'},
+  adjust:{n:4, label:'ควรปรับแผน', icon:'🔴'}
+};
+function pgWorse(a, b){ return PG_LEVELS[b].n > PG_LEVELS[a].n ? b : a; }
+function pgState(p){ return (p && p.pg) || {}; }
+function pgAnchorDate(p){ var f = pgState(p).evalFrom; return (f && f > p.startDate) ? f : p.startDate; }
+function pgExpRank(p){ var r = EXP_RANK[p.exp || state.answers.Q16]; return r!=null ? r : 0; }
+function pgSex(p){ return p.sex || state.answers.Q9 || null; }
+function nextISO(iso){ return fmtDateISO(addDays(parseISO(iso), 1)); }
+function mean(arr){ return arr.length ? arr.reduce(function(s, x){ return s + x; }, 0)/arr.length : null; }
+function pgRate(x){ return (x>0 ? '+' : (x<0 ? '−' : ''))+Math.abs(x).toFixed(2); }
+function pgPct(x){ return (x>0 ? '+' : (x<0 ? '−' : ''))+Math.abs(x).toFixed(1)+'%'; }
+/* เส้นตรงที่ fit ดีที่สุด (least squares) + standard error ของความชัน — ใช้แยกแนวโน้มจริงออกจากความแกว่งรายวัน */
+function linreg(pts){
+  var n = pts.length;
+  if(n<2) return null;
+  var mx = 0, my = 0;
+  pts.forEach(function(q){ mx += q.x; my += q.y; });
+  mx /= n; my /= n;
+  var sxx = 0, sxy = 0;
+  pts.forEach(function(q){ sxx += (q.x-mx)*(q.x-mx); sxy += (q.x-mx)*(q.y-my); });
+  if(!sxx) return null;
+  var b = sxy/sxx, a = my - b*mx, sse = 0;
+  pts.forEach(function(q){ var r = q.y - (a + b*q.x); sse += r*r; });
+  return {a:a, b:b, se: n>2 ? Math.sqrt(sse/(n-2)/sxx) : 0, n:n};
+}
+function sessionDone(p, iso){
+  var lg = logFor(iso) || {};
+  if(lg.completed) return true;
+  var sess = sessionDefFor(p, sessionKeyFor(p, iso));
+  return !!sess && sess.exercises.length>0 && sess.exercises.every(function(ex){ return ((lg.exercises||{})[ex.id]||{}).done; });
+}
+/* แคลที่เผาเพิ่มจากการออกกำลังกาย (สุทธิ หักการเผาผลาญขณะพักแล้ว): เวท ~3.5 MET, cardio ~5 MET
+   kcal/นาที = (MET−1) × 3.5 × น้ำหนักตัว / 200 — TDEE ของระบบคิดจากลักษณะงานอย่างเดียว จึงต้องบวกส่วนนี้เพิ่มตอนคาดการณ์ */
+function pgExerciseKcal(kg, sessions, sessMin, cardioMin){ return (sessions*sessMin*2.5 + cardioMin*4)*3.5*kg/200; }
+function pgSessMin(p){ return Q3_MIN[p.minutesEstimate] || 52; }
+function pgCardioWeek(p){ return (p.cardioDays||[]).reduce(function(s, d){ return s + cardioMinFor(p, d); }, 0); }
+function pgPlannedExPerDay(p, kg){ return Math.round(pgExerciseKcal(kg, (p.days||[]).length, pgSessMin(p), pgCardioWeek(p))/7); }
+function pgBMR(p, kg){
+  var a = state.answers || {};
+  return GymBroCalc.calculateBMR({weightKg:kg, heightCm:a.Q11, age:a.Q10, sex:pgSex(p)});
+}
+/* กรอบน้ำหนัก (กก./สัปดาห์, ลบ = ลด) ถ้าทำตามแผน
+   ลดไขมัน/Recomp/รักษาสุขภาพ: จากสมดุลพลังงานของแผน = เป้าแคลอรี่ − (TDEE + แคลจากการออกกำลังกายตามแผน), 7,700 kcal ≈ 1 กก.
+   เพิ่มกล้าม: % น้ำหนักตัวต่อเดือนตามประสบการณ์ (สมดุลพลังงานบอกไม่ได้ว่าส่วนที่เพิ่มเป็นกล้ามหรือไขมัน) */
+function pgWeightPlan(p, kg){
+  var t = targetsOf(p), ex = pgPlannedExPerDay(p, kg);
+  var energy = (t.kcal!=null && t.tdee!=null) ? (t.kcal - (t.tdee + ex))*7/FAT_KCAL_PER_KG : null;
+  var c, lo, hi;
+  if(p.goal==='เพิ่มกล้ามเนื้อ'){
+    var g = PG_GAIN_PCT_MONTH[pgExpRank(p)];
+    lo = kg*g[0]/100*7/30.4; hi = kg*g[1]/100*7/30.4; c = (lo + hi)/2;
+  } else if(p.goal==='ลดไขมัน'){
+    c = energy!=null ? energy : -kg*0.0075;
+    var w = Math.max(kg*0.0015, Math.abs(c)*0.3);
+    lo = Math.max(c - w, Math.min(c, -kg*0.01)); // ลดเร็วเกิน 1% น้ำหนักตัว/สัปดาห์ เสี่ยงเสียกล้ามเนื้อ
+    hi = c + w;
+  } else {
+    c = energy!=null ? energy : 0;
+    lo = c - kg*0.002; hi = c + kg*0.002;
+  }
+  return {c:c, lo:lo, hi:hi, exPerDay:ex};
+}
+function pgStrengthBand(p){
+  var b = PG_STR_PCT_4W[pgExpRank(p)];
+  if(p.goal==='เพิ่มกล้ามเนื้อ') return [b[0], b[1]];
+  if(p.goal==='ลดไขมัน') return [0, r1(b[1]*0.5)]; // ช่วงกินขาด: รักษาแรงไว้ได้ก็ถือว่าตามแผน
+  return [r1(b[0]*0.6), r1(b[1]*0.8)];
+}
+/* น้ำหนักตั้งต้นของรอบ: ชั่งครั้งแรกภายใน 7 วันแรกของรอบ ไม่มีก็ใช้ค่าล่าสุดก่อนหน้า/น้ำหนักตอนทำแบบสอบถาม */
+function pgAnchorKg(p){
+  var from = pgAnchorDate(p), until = fmtDateISO(addDays(parseISO(from), 6));
+  var s = weightSeries().filter(function(x){ return x.date >= from && x.date <= until; })[0];
+  if(s) return {kg:s.kg, date:s.date};
+  var kg = bodyweightAsOf(from);
+  return kg!=null ? {kg:kg, date:from} : null;
+}
+function pgLifts(p){
+  var out = [], seen = {};
+  (p.sessions||[]).forEach(function(s){ s.exercises.forEach(function(ex){
+    if(seen[ex.id] || ex.timeBased || WARMUP_WEIGHTED.indexOf(ex.equip)===-1) return;
+    seen[ex.id] = true; out.push(ex);
+  }); });
+  return out;
+}
+function pgHasLiftData(p, iso){
+  var sess = sessionDefFor(p, sessionKeyFor(p, iso)), exs = (logFor(iso)||{}).exercises || {};
+  var weighted = (sess ? sess.exercises : []).filter(function(ex){ return WARMUP_WEIGHTED.indexOf(ex.equip)>-1 && !ex.timeBased; });
+  if(!weighted.length) return true; // เซสชันน้ำหนักตัวล้วน ไม่ต้องมีน้ำหนักต่อเซ็ต
+  return weighted.some(function(ex){ return ((exs[ex.id]||{}).sets||[]).some(function(s){ return s && Number(s.weight)>0; }); });
+}
+/* สรุปการทำตามแผน + จุดสังเกตคุณภาพข้อมูลในช่วง from..to (วันที่จบแล้ว) */
+function pgAdherence(p, from, to){
+  var t = targetsOf(p);
+  var r = {days:0, sess:0, sessDone:0, sessNoData:0, cardio:0, cardioDone:0, cardioMin:0,
+           kcal:[], kcalOkDays:0, macroMismatch:0, lowKcal:0, prot:[], sleep:[], injuries:0};
+  for(var iso=from; iso<=to; iso=nextISO(iso)){
+    r.days++;
+    var lg = logFor(iso) || {};
+    if(sessionKeyFor(p, iso)){
+      r.sess++;
+      if(sessionDone(p, iso)){ r.sessDone++; if(!pgHasLiftData(p, iso)) r.sessNoData++; }
+    }
+    var cm = cardioMinutesOn(iso) || 0;
+    r.cardioMin += cm;
+    if(cardioPlannedFor(p, iso)){ r.cardio++; if(cm) r.cardioDone++; }
+    var n = lg.nutrition || {};
+    if(n.kcal!=null && n.kcal>0){
+      r.kcal.push(n.kcal);
+      if(kcalOk(n.kcal, t.kcal)) r.kcalOkDays++;
+      if(n.proteinG!=null && n.carbG!=null && n.fatG!=null){
+        var mk = n.proteinG*4 + n.carbG*4 + n.fatG*9;
+        if(mk>0 && Math.abs(mk - n.kcal)/n.kcal > 0.15) r.macroMismatch++;
+      }
+      if(n.kcal < 800 || (t.kcal!=null && n.kcal < t.kcal*0.6)) r.lowKcal++;
+    }
+    if(n.proteinG!=null) r.prot.push(n.proteinG);
+    var sl = lg.sleep || {};
+    if(sl.hours!=null && isFinite(sl.hours) && sl.hours>=0 && sl.hours<=24) r.sleep.push(sl.hours);
+    r.injuries += seriousSymptoms(iso).length;
+  }
+  var avgIn = mean(r.kcal);
+  r.sessPct = r.sess ? r.sessDone/r.sess : null;
+  r.kcalCover = r.days ? r.kcal.length/r.days : 0;
+  r.avgIn = avgIn;
+  r.train = r.sessPct==null || r.sessPct >= 0.75;
+  r.food = r.kcalCover >= 0.7 && avgIn!=null && t.kcal!=null && Math.abs(avgIn - t.kcal) <= t.kcal*0.1;
+  return r;
+}
+function pgFollowText(adh){
+  var out = [];
+  if(adh.sessPct!=null) out.push('เข้าฝึก '+Math.round(adh.sessPct*100)+'%');
+  out.push('กรอกแคลอรี่ '+Math.round(adh.kcalCover*100)+'% ของวัน');
+  if(adh.avgIn!=null) out.push('กินเฉลี่ย '+Math.round(adh.avgIn).toLocaleString()+' kcal');
+  return out.join(' · ');
+}
+/* ข้อที่ทำตามแผนไม่ถึงเกณฑ์ — ใช้บอกว่าทำไมผลที่หลุดกรอบยังไม่นับว่าแผนผิดปกติ */
+function pgFollowGap(p, adh){
+  var t = targetsOf(p), out = [];
+  if(adh.sessPct!=null && adh.sessPct < 0.75) out.push('เข้าฝึก '+Math.round(adh.sessPct*100)+'% (เกณฑ์ 75%)');
+  if(adh.kcalCover < 0.7) out.push('กรอกแคลอรี่ '+Math.round(adh.kcalCover*100)+'% ของวัน (เกณฑ์ 70%)');
+  else if(adh.avgIn!=null && t.kcal!=null && Math.abs(adh.avgIn - t.kcal) > t.kcal*0.1)
+    out.push('กินเฉลี่ย '+Math.round(adh.avgIn).toLocaleString()+' kcal '+(adh.avgIn > t.kcal ? 'เกิน' : 'ต่ำกว่า')+'เป้า '+t.kcal.toLocaleString()+' เกิน 10%');
+  return out.join(' · ');
+}
+function pgDirection(p, rate, dev){
+  if(p.goal==='ลดไขมัน') return dev>0 ? (rate>=0 ? 'น้ำหนักไม่ลด' : 'ลดช้ากว่ากรอบ') : 'ลดเร็วกว่ากรอบ (เสี่ยงเสียกล้ามเนื้อ)';
+  if(p.goal==='เพิ่มกล้ามเนื้อ') return dev<0 ? (rate<=0 ? 'น้ำหนักไม่เพิ่ม' : 'เพิ่มช้ากว่ากรอบ') : 'เพิ่มเร็วกว่ากรอบ (ส่วนเกินมักเป็นไขมัน)';
+  return dev>0 ? 'น้ำหนักขึ้นมากกว่ากรอบ' : 'น้ำหนักลงมากกว่ากรอบ';
+}
+function pgWeightSignal(p, ev){
+  var s = {key:'weight', title:'น้ำหนักตัวเทียบกรอบแผน', level:'na', text:''};
+  var plan = ev.plan, band = 'กรอบ '+pgRate(plan.lo)+' ถึง '+pgRate(plan.hi)+' กก./สัปดาห์';
+  if(!ev.reg){
+    s.text = 'ต้องชั่งน้ำหนักอย่างน้อย 4 ครั้งในช่วง 10 วันขึ้นไปของรอบนี้ (ตอนนี้ '+ev.wpts.length+' ครั้ง) · '+band;
+    return s;
+  }
+  var rate = ev.reg.b*7, kg = ev.refKg;
+  var dev = rate > plan.hi ? rate - plan.hi : (rate < plan.lo ? rate - plan.lo : 0); // + = สูงกว่ากรอบ, − = ต่ำกว่ากรอบ
+  var lvl = Math.abs(dev) <= kg*0.0005 ? 'ok' : (Math.abs(dev) <= Math.max(1.5*ev.reg.se*7, kg*0.001) ? 'watch' : 'anomaly');
+  var early = ev.elapsed < PG_EARLY_DAYS && dev*plan.c > 0;
+  if(lvl==='anomaly' && early) lvl = 'watch';
+  s.rate = rate;
+  var head = 'แนวโน้มจากการชั่ง '+ev.wpts.length+' ครั้งล่าสุด '+pgRate(rate)+' กก./สัปดาห์';
+  if(lvl==='ok'){ s.level = 'ok'; s.text = head+' อยู่ใน'+band; return s; }
+  var dir = pgDirection(p, rate, dev);
+  if(!(ev.adh.food && ev.adh.train)){
+    s.why = 'follow';
+    s.text = head+' — '+dir+' ('+band+') แต่ช่วงนี้ทำตามแผนไม่ถึงเกณฑ์ ('+pgFollowGap(p, ev.adh)+') ผลจึงยังไม่นับว่าแผนผิดปกติ';
+    return s;
+  }
+  s.level = lvl; s.dev = dev;
+  s.text = head+' — '+dir+' ('+band+') ทั้งที่ทำตามแผน ('+pgFollowText(ev.adh)+')'+
+    (early ? ' · ช่วง 3 สัปดาห์แรกน้ำและไกลโคเจนทำให้น้ำหนักเปลี่ยนเร็วกว่าปกติได้' : '');
+  return s;
+}
+/* พลังงานที่ร่างกายใช้จริง = กินเฉลี่ย − (น้ำหนักที่เปลี่ยนต่อวัน × 7,700) แล้วเทียบกับที่ระบบคาด (TDEE + การออกกำลังกายที่ทำจริง) */
+function pgEnergySignal(p, ev){
+  var s = {key:'energy', title:'การกินที่บันทึก เทียบกับน้ำหนักที่เปลี่ยนจริง', level:'na', text:''};
+  var t = targetsOf(p), adh = ev.adh, need = Math.max(7, Math.ceil(adh.days*0.7));
+  if(!ev.reg){ s.text = 'ต้องมีแนวโน้มน้ำหนักก่อน (ชั่งอย่างน้อย 4 ครั้งในช่วง 10 วันขึ้นไป)'; return s; }
+  if(adh.kcal.length < need){ s.text = 'ต้องกรอกแคลอรี่อย่างน้อย '+need+' จาก '+adh.days+' วันในช่วงประเมิน (ตอนนี้ '+adh.kcal.length+' วัน)'; return s; }
+  if(t.tdee==null){ s.text = 'คำนวณ TDEE ไม่ได้ — ข้อมูลแบบสอบถามไม่ครบ'; return s; }
+  var exAct = pgExerciseKcal(ev.refKg, adh.sessDone, pgSessMin(p), adh.cardioMin)/adh.days;
+  var implied = adh.avgIn - ev.reg.b*FAT_KCAL_PER_KG;
+  var unc = ev.reg.se*FAT_KCAL_PER_KG;
+  var expected = t.tdee + exAct, diff = implied - expected, bmr = pgBMR(p, ev.refKg);
+  var lvl = Math.abs(diff) <= Math.max(0.12*expected, unc) ? 'ok' : (Math.abs(diff) <= Math.max(0.2*expected, 1.5*unc) ? 'watch' : 'anomaly');
+  var belowBmr = bmr!=null && implied + unc < bmr;
+  if(belowBmr) lvl = 'anomaly';
+  if(lvl==='anomaly' && ev.elapsed < PG_EARLY_DAYS) lvl = 'watch';
+  s.level = lvl; s.implied = implied; s.expected = expected; s.exAct = exAct; s.unc = unc; s.bmr = bmr; s.diff = diff;
+  var nums = 'กินเฉลี่ย '+Math.round(adh.avgIn).toLocaleString()+' kcal/วัน และน้ำหนักเปลี่ยน '+pgRate(ev.reg.b*7)+' กก./สัปดาห์ → ร่างกายใช้พลังงานจริงประมาณ '+Math.round(implied).toLocaleString()+' kcal/วัน';
+  var exp = ' ('+Math.round(expected).toLocaleString()+' kcal)';
+  if(lvl==='ok'){ s.text = nums+' ใกล้กับที่ระบบคาด'+exp+' — ข้อมูลสอดคล้องกัน'; return s; }
+  var pct = Math.round(Math.abs(diff)/expected*100);
+  if(diff<0){
+    s.text = nums+' ต่ำกว่าที่ระบบคาด'+exp+' '+pct+'%'+(belowBmr
+      ? ' และต่ำกว่าพลังงานขั้นต่ำขณะพัก (BMR ~'+Math.round(bmr).toLocaleString()+' kcal) ซึ่งแทบเป็นไปไม่ได้ทางร่างกาย — มีแนวโน้มสูงว่าบันทึกการกินไม่ครบ หรือช่วงนี้มีน้ำคั่ง'
+      : ' — มักเกิดจากบันทึกการกินไม่ครบ (เครื่องดื่ม ของว่าง น้ำมัน ซอส) หรือร่างกายใช้พลังงานน้อยกว่าที่คำนวณ');
+  } else {
+    s.text = nums+' สูงกว่าที่ระบบคาด'+exp+' '+pct+'% — อาจกรอกแคลอรี่เกินจริง เคลื่อนไหวมากขึ้น หรือน้ำหนักลดจากน้ำ';
+  }
+  return s;
+}
+function pgStrengthSignal(p, ev, ctx){
+  var s = {key:'strength', title:'ความแข็งแรงเทียบกรอบแผน', level:'na', text:'', lifts:[]};
+  var band = pgStrengthBand(p);
+  var from = fmtDateISO(addDays(parseISO(ev.asOf), -PG_STR_WINDOW));
+  if(from < ev.anchor) from = ev.anchor;
+  pgLifts(p).forEach(function(ex){
+    var h = (ctx.hist[ex.id]||[]).filter(function(d){ return d.date >= from && d.date <= ev.asOf; });
+    if(h.length < 3 || daysBetween(h[0].date, h[h.length-1].date) < 14) return;
+    var r = linreg(h.map(function(d){ return {x:daysBetween(h[0].date, d.date), y:d.e1rm}; }));
+    if(!r || !(r.a>0)) return;
+    var pct = r.b*28/r.a*100, dev = band[0] - pct;
+    s.lifts.push({ex:ex, pct:pct, n:h.length, last:h[h.length-1].e1rm, level: dev<=1 ? 'ok' : (dev<=5 ? 'watch' : 'anomaly')});
+  });
+  var bandTxt = 'กรอบ e1RM '+(band[0]>0 ? '+' : '')+band[0]+' ถึง +'+band[1]+'% ต่อ 4 สัปดาห์';
+  if(!s.lifts.length){ s.text = 'ต้องบันทึกน้ำหนัก × ครั้งของท่าที่ใช้น้ำหนัก อย่างน้อย 3 ครั้งต่อท่าในช่วง 14 วันขึ้นไป · '+bandTxt; return s; }
+  var bad = s.lifts.filter(function(l){ return l.level!=='ok'; });
+  var anom = s.lifts.filter(function(l){ return l.level==='anomaly'; });
+  var lvl = (anom.length>=2 || (anom.length && anom.length*2 >= s.lifts.length)) ? 'anomaly'
+    : (bad.length && bad.length*3 >= s.lifts.length ? 'watch' : 'ok');
+  var head = s.lifts.length+' ท่าที่มีข้อมูล เฉลี่ย '+pgPct(mean(s.lifts.map(function(l){ return l.pct; })))+' ต่อ 4 สัปดาห์';
+  var worst = bad.slice().sort(function(a, b){ return a.pct - b.pct; });
+  var names = worst.slice(0, 3).map(function(l){ return l.ex.th+' '+pgPct(l.pct); }).join(', ')+(worst.length>3 ? ' และอีก '+(worst.length-3)+' ท่า' : '');
+  if(lvl==='ok'){ s.level = 'ok'; s.text = head+' อยู่ใน'+bandTxt+(names ? ' · ท่าที่ยังช้ากว่ากรอบ: '+names : ''); return s; }
+  var sp = 0, sd = 0;
+  for(var iso=from; iso<ev.asOf; iso=nextISO(iso)){ if(sessionKeyFor(p, iso)){ sp++; if(sessionDone(p, iso)) sd++; } }
+  if(sp && sd/sp < 0.75){
+    s.why = 'follow';
+    s.text = head+' — ต่ำกว่า'+bandTxt+' ('+names+') แต่เข้าฝึกได้ '+Math.round(sd/sp*100)+'% (เกณฑ์ 75%) ผลจึงยังไม่นับว่าแผนผิดปกติ';
+    return s;
+  }
+  s.level = lvl;
+  s.text = head+' — ต่ำกว่า'+bandTxt+' ('+names+') ทั้งที่เข้าฝึก '+(sp ? Math.round(sd/sp*100) : 0)+'%';
+  return s;
+}
+/* จุดที่ระบบเห็นเองจากตัวข้อมูลว่าอาจบันทึกไม่ครบ/ไม่แม่น */
+function pgDataIssues(p, ev){
+  var t = targetsOf(p), adh = ev.adh, out = [];
+  if(adh.days >= 7){
+    var perWeek = ev.wpts.length/((daysBetween(ev.ws, ev.asOf)+1)/7);
+    if(perWeek < 3) out.push({lvl:'warn', text:'ชั่งน้ำหนักเฉลี่ย '+fmt1(perWeek)+' ครั้ง/สัปดาห์ — ควรชั่ง 3-7 ครั้ง/สัปดาห์ในช่วงเวลาเดิม ระบบจึงแยกแนวโน้มจริงออกจากน้ำในร่างกายได้'});
+    if(adh.kcal.length < adh.days) out.push({lvl: adh.kcalCover < 0.7 ? 'warn' : 'info', text:'ไม่ได้กรอกแคลอรี่ '+(adh.days - adh.kcal.length)+' จาก '+adh.days+' วัน'});
+    if(adh.sleep.length < adh.days*0.7) out.push({lvl:'info', text:'บันทึกการนอนแค่ '+adh.sleep.length+' จาก '+adh.days+' วัน'});
+  }
+  for(var i=1; i<ev.wpts.length; i++){
+    var a = ev.wpts[i-1], b = ev.wpts[i], jump = b.y - a.y;
+    if(b.x - a.x <= 3 && Math.abs(jump) >= Math.max(2, b.y*0.025)){
+      out.push({lvl:'warn', text:'น้ำหนักกระโดด '+(jump>0?'+':'−')+fmt1(Math.abs(jump))+' กก. ใน '+(b.x - a.x)+' วัน ('+shortDateTH(a.date)+' → '+shortDateTH(b.date)+') — พิมพ์ผิด หรือชั่งคนละเวลา/คนละเครื่อง?'});
+    }
+  }
+  if(adh.kcal.length >= 5){
+    var cnt = {}, top = null;
+    adh.kcal.forEach(function(v){ cnt[v] = (cnt[v]||0) + 1; if(top==null || cnt[v] > cnt[top]) top = v; });
+    var nearTarget = t.kcal!=null ? adh.kcal.filter(function(v){ return Math.abs(v - t.kcal) <= 5; }).length : 0;
+    if(cnt[top]/adh.kcal.length >= 0.6) out.push({lvl:'warn', text:'แคลอรี่ '+Number(top).toLocaleString()+' kcal ซ้ำกัน '+cnt[top]+' จาก '+adh.kcal.length+' วัน — ถ้าเป็นตัวเลขที่กะไว้หรือกรอกตามเป้า ระบบจะประเมินคลาดเคลื่อน'});
+    else if(nearTarget/adh.kcal.length >= 0.5) out.push({lvl:'warn', text:'แคลอรี่ที่กรอกตรงกับเป้าพอดี '+nearTarget+' จาก '+adh.kcal.length+' วัน — เป็นยอดที่กินจริงหรือกรอกตามเป้า?'});
+  }
+  if(adh.macroMismatch >= 2) out.push({lvl:'warn', text:adh.macroMismatch+' วันที่แคลอรี่ไม่ตรงกับโปรตีน/คาร์บ/ไขมันที่กรอก (ต่างกันเกิน 15%) — อาจลืมกรอกบางรายการ'});
+  if(adh.lowKcal) out.push({lvl:'warn', text:adh.lowKcal+' วันที่แคลอรี่ต่ำผิดปกติ (ต่ำกว่า 60% ของเป้าหรือ 800 kcal) — ลืมกรอกบางมื้อหรือไม่?'});
+  if(adh.sessNoData) out.push({lvl:'info', text:'ติ๊กว่าเล่นครบ '+adh.sessNoData+' วันแต่ไม่ได้บันทึกน้ำหนัก/ครั้งต่อเซ็ต — ระบบประเมินความแข็งแรงจากวันนั้นไม่ได้'});
+  return out;
+}
+/* ปัจจัยที่อาจทำให้ผลไม่ตรงกรอบ (ใช้อธิบายประกอบ ไม่ใช่ตัวตัดสินระดับ) */
+function pgCauses(p, ev){
+  var t = targetsOf(p), adh = ev.adh, out = [];
+  var sl = mean(adh.sleep), pr = mean(adh.prot);
+  if(sl!=null && t.sleepH!=null && sl < t.sleepH - 0.5) out.push('นอนเฉลี่ย '+fmt1(sl)+' ชม. (เป้า '+fmt1(t.sleepH)+') — นอนน้อยทำให้ฟื้นตัวช้าและน้ำหนักแกว่ง');
+  if(pr!=null && t.proteinG && pr < t.proteinG*0.9) out.push('โปรตีนเฉลี่ย '+Math.round(pr)+' g ('+Math.round(pr/t.proteinG*100)+'% ของเป้า) — ไม่พอต่อการรักษา/สร้างกล้ามเนื้อ');
+  if(adh.injuries) out.push('มีอาการเข้าข่ายบาดเจ็บที่บันทึกไว้ '+adh.injuries+' ครั้งในช่วงนี้');
+  if(p.goal==='ลดไขมัน' && ev.strength.level!=='ok' && ev.strength.level!=='na') out.push('อยู่ในช่วงกินขาด ความแข็งแรงเพิ่มช้าลงได้ แต่ไม่ควรลดลงต่อเนื่อง');
+  return out;
+}
+function pgContext(p){
+  var hist = {};
+  pgLifts(p).forEach(function(ex){ hist[ex.id] = exerciseHistory(ex.id); });
+  return {hist:hist, series:weightSeries(), anchorKg:pgAnchorKg(p)};
+}
+function pgEvaluate(p, asOf, ctx){
+  var anchor = pgAnchorDate(p), ak = ctx.anchorKg;
+  var refKg = ak ? ak.kg : (p.startWeight || 70);
+  var ws = fmtDateISO(addDays(parseISO(asOf), -PG_WINDOW));
+  if(ws < anchor) ws = anchor;
+  var adh = pgAdherence(p, ws, fmtDateISO(addDays(parseISO(asOf), -1)));
+  var wpts = ctx.series.filter(function(s){ return s.date >= ws && s.date <= asOf; })
+    .map(function(s){ return {x:daysBetween(ws, s.date), y:s.kg, date:s.date}; });
+  var span = wpts.length>1 ? wpts[wpts.length-1].x - wpts[0].x : 0;
+  var ev = {asOf:asOf, anchor:anchor, elapsed:daysBetween(anchor, asOf), ws:ws, refKg:refKg,
+            plan:pgWeightPlan(p, refKg), adh:adh, wpts:wpts, reg:(wpts.length>=4 && span>=10) ? linreg(wpts) : null};
+  ev.weight = pgWeightSignal(p, ev);
+  ev.energy = pgEnergySignal(p, ev);
+  ev.strength = pgStrengthSignal(p, ev, ctx);
+  ev.signals = [ev.weight, ev.energy, ev.strength];
+  // "ตามแผน" ต้องมาจากผลลัพธ์จริง (น้ำหนัก/ความแข็งแรง) — ข้อความสอดคล้องของข้อมูลยกระดับได้เฉพาะตอนพบปัญหา
+  ev.level = pgWorse(pgWorse(ev.weight.level, ev.strength.level), ev.energy.level==='ok' ? 'na' : ev.energy.level);
+  // เป้าลดไขมัน/เพิ่มกล้าม น้ำหนักคือผลหลัก — ถ้ายังประเมินน้ำหนักไม่ได้เพราะทำตามแผนไม่ถึง ไม่ขึ้นว่า "ตามแผน" จากความแข็งแรงอย่างเดียว
+  if(ev.level==='ok' && ev.weight.why==='follow' && (p.goal==='ลดไขมัน' || p.goal==='เพิ่มกล้ามเนื้อ')) ev.level = 'na';
+  ev.issues = pgDataIssues(p, ev);
+  ev.causes = pgCauses(p, ev);
+  return ev;
+}
+/* ผลประเมินรายสัปดาห์ย้อนหลังในรอบนี้ (สูงสุด 8 สัปดาห์ล่าสุด) — ให้เห็นว่าระหว่างทางเริ่มผิดปกติตั้งแต่เมื่อไร */
+function pgHistory(p, ctx){
+  var anchor = pgAnchorDate(p), weeks = Math.floor(daysBetween(anchor, todayISO())/7), out = [];
+  for(var k=Math.max(1, weeks-7); k<=weeks; k++){
+    var d = fmtDateISO(addDays(parseISO(anchor), 7*k));
+    out.push({week:k, date:d, level:pgEvaluate(p, d, ctx).level});
+  }
+  return out;
+}
+/* ผลประเมิน ณ วันนี้
+   - เฝ้าระวังต่อเนื่องตั้งแต่ 4 สัปดาห์ (3 จุดตรวจก่อนหน้า + วันนี้) → ผิดปกติ: หลุดกรอบเล็กน้อยแต่ไม่หายไปเอง
+   - ผิดปกติ + ผู้ใช้ยืนยันว่าข้อมูลถูกต้องแล้ว (ภายใน 28 วัน ในรอบเดียวกัน) → ควรปรับแผน */
+function pgCurrent(p){
+  var ctx = pgContext(p), today = todayISO(), pg = pgState(p);
+  var ev = pgEvaluate(p, today, ctx);
+  ev.ctx = ctx;
+  ev.history = pgHistory(p, ctx).filter(function(x){ return x.date < today; });
+  ev.run = 0;
+  for(var i=ev.history.length-1; i>=0 && PG_LEVELS[ev.history[i].level].n >= 2; i--) ev.run++;
+  if(ev.level==='watch' && ev.run >= 3){ ev.level = 'anomaly'; ev.persisted = true; }
+  ev.confirmed = !!pg.confirmedAt && pg.confirmedAt >= ev.anchor && daysBetween(pg.confirmedAt, today) <= 28;
+  if(ev.level==='anomaly' && ev.confirmed) ev.level = 'adjust';
+  return ev;
+}
+function pgOff(s){ return s.level==='watch' || s.level==='anomaly'; }
+/* คำแนะนำปรับแผน: เป้าแคลอรี่ใหม่ = พลังงานที่ใช้จริง ± ส่วนต่างที่ต้องการตามกรอบ ปรับทีละไม่เกิน 300 kcal ไม่ต่ำกว่าขั้นต่ำปลอดภัย */
+function pgRecommend(p, ev){
+  var t = targetsOf(p), en = ev.energy, out = {kcal:null, text:[]};
+  if((pgOff(ev.weight) || pgOff(en)) && en.implied!=null && t.kcal!=null){
+    var want = en.implied + ev.plan.c*FAT_KCAL_PER_KG/7;
+    var floor = pgSex(p)==='ชาย' ? 1500 : 1200;
+    var kcal = Math.max(floor, Math.round(Math.min(t.kcal + 300, Math.max(t.kcal - 300, want))/10)*10);
+    out.floor = floor; out.want = Math.round(want); out.belowFloor = want < floor;
+    if(Math.abs(kcal - t.kcal) >= 50){
+      out.kcal = kcal; out.capped = Math.abs(want - kcal) > 10;
+      out.tdee = Math.round(en.implied - en.exAct);
+    }
+    if(out.belowFloor) out.text.push('แคลอรี่ที่ต้องใช้เพื่อให้ได้ตามกรอบต่ำกว่าขั้นต่ำที่ปลอดภัย ('+fmtKcal(floor)+' kcal) — ระบบจะไม่ตั้งเป้าต่ำกว่านั้น ให้เพิ่มการเคลื่อนไหว/cardio แทน หรือยอมให้ลดช้าลง และถ้าลดได้น้อยมากต่อเนื่องควรปรึกษาแพทย์');
+  }
+  if(pgOff(ev.strength)){
+    out.text.push('ลดภาระ 1 สัปดาห์ (deload): ใช้น้ำหนักเดิมแต่ลดจำนวนเซ็ตลงครึ่งหนึ่ง แล้วกลับมาเล่นตามแผน');
+    out.text.push('ท่าที่ตันต่อเนื่อง: เปลี่ยนช่วงจำนวนครั้ง หรือเปลี่ยนเป็นท่าใกล้เคียงได้ที่หน้า “แผนของฉัน”');
+    if(p.goal==='ลดไขมัน') out.text.push('ถ้าแรงตกต่อเนื่องระหว่างลดไขมัน ลดการกินขาดลง 100-200 kcal/วัน');
+  }
+  ev.causes.forEach(function(c){ out.text.push('แก้ปัจจัยนี้ก่อน: '+c); });
+  return out;
+}
+function pgSave(patch){
+  var p = track.program;
+  if(!p) return;
+  var cur = pgState(p), nx = {};
+  Object.keys(cur).forEach(function(k){ nx[k] = cur[k]; });
+  Object.keys(patch).forEach(function(k){ nx[k] = patch[k]; });
+  p.pg = nx;
+  persistProgram();
+  render();
+}
+function pgApply(){
+  var p = track.program;
+  if(!p) return;
+  var ev = pgCurrent(p);
+  if(ev.level!=='adjust') return;
+  var rec = pgRecommend(p, ev);
+  if(rec.kcal==null) return;
+  var t = targetsOf(p), today = todayISO(), pg = pgState(p);
+  var base = pg.baseDirection || t.kcalDirection || '';
+  var nt = {};
+  Object.keys(t).forEach(function(k){ nt[k] = t[k]; });
+  var macro = computeMacro(rec.kcal, t.proteinG ? t.proteinG/2 : bodyweightAsOf(today)); // คงเป้าโปรตีนเดิม
+  nt.kcal = rec.kcal; nt.tdee = rec.tdee; nt.fatG = macro.fatG; nt.carbG = macro.carbG; nt.macroClamped = macro.clamped;
+  nt.kcalDirection = base+' · ปรับตามผลจริงเมื่อ '+shortDateTH(today);
+  p.targets = nt;
+  track.pgChecks = {};
+  pgSave({evalFrom:today, confirmedAt:null, baseDirection:base,
+          adjustments:(pg.adjustments||[]).concat([{date:today, fromKcal:t.kcal, toKcal:rec.kcal, fromTdee:t.tdee, toTdee:rec.tdee}])});
 }
 
 /* แก้ได้เฉพาะวันนี้กับเมื่อวาน (ตามเวลาเครื่อง) — พ้นเที่ยงคืนของวันถัดไปแล้วล็อกถาวร */
@@ -2000,7 +2398,7 @@ function renderToday(){
       '<button type="button" class="btn" data-act="nav" data-view="progress">ความคืบหน้า</button>'+
     '</div></div>';
 
-  html += oldScheduleBanner(p) + planUpdateBanner(p) + fatAlertHTML(p);
+  html += oldScheduleBanner(p) + planUpdateBanner(p) + fatAlertHTML(p) + pgAlertHTML(p);
   html += '<div class="today-grid"><div class="stack">'+dayEditor(iso)+'</div>'+
     '<aside class="rail">'+
       '<div class="prog-card"><div class="prog-top"><h3>ความคืบหน้าวันนี้</h3><span class="n mono">'+counts.done+'/'+counts.total+'</span></div>'+
@@ -2282,6 +2680,281 @@ function fatBarHTML(p){
     '</div>';
 }
 
+/* ---------- กรอบแผน Progression & Goal (หน้าความคืบหน้า) ---------- */
+var PG_SUMMARY = {
+  na:'ระบบจะเริ่มประเมินเองเมื่อข้อมูลพอ — ชั่งน้ำหนักอย่างน้อย 4 ครั้ง และบันทึกการกิน/การฝึกต่อเนื่องราว 2 สัปดาห์',
+  ok:'ผลลัพธ์จริงเป็นไปตามกรอบของแผน — ทำแบบนี้ต่อไป',
+  watch:'เริ่มเห็นสัญญาณว่าผลอาจไม่ตรงกรอบ ยังไม่ต้องเปลี่ยนอะไร ระบบติดตามต่อให้ทุกวัน',
+  anomaly:'คุณทำตามแผนแล้ว แต่ผลลัพธ์ไม่เป็นไปตามกรอบ — ก่อนปรับแผน ช่วยตรวจว่าข้อมูลที่บันทึกครบและถูกต้องจริง',
+  adjust:'คุณยืนยันแล้วว่าข้อมูลถูกต้อง แต่ผลยังไม่เป็นไปตามกรอบ — ระบบแนะนำให้ปรับแผนตามด้านล่าง'
+};
+function pgSummaryText(ev){
+  var s = ev.signals;
+  if(ev.level==='na' && s.some(function(x){ return x.why==='follow'; })) return 'ช่วงนี้ทำตามแผนไม่ถึงเกณฑ์ ระบบจึงยังตัดสินไม่ได้ว่าแผนให้ผลตามกรอบหรือไม่ — ทำตามแผนต่อเนื่องแล้วระบบจะประเมินให้เอง';
+  if(ev.level==='anomaly' && ev.persisted)
+    return 'ผลหลุดกรอบเล็กน้อยติดต่อกันหลายสัปดาห์และไม่กลับเข้ากรอบเอง — ก่อนปรับแผน ช่วยตรวจว่าข้อมูลที่บันทึกครบและถูกต้องจริง';
+  if(ev.level==='anomaly' && ev.energy.level==='anomaly' && ev.weight.level!=='anomaly' && ev.strength.level!=='anomaly')
+    return 'การกินที่บันทึกไม่สอดคล้องกับน้ำหนักที่เปลี่ยนจริง — ช่วยตรวจว่าข้อมูลที่บันทึกครบและถูกต้องจริง';
+  function name(x){ return x.key==='weight' ? 'น้ำหนัก' : 'ความแข็งแรง'; }
+  var off = [ev.weight, ev.strength].filter(function(x){ return x.why==='follow'; }).map(name);
+  if(!off.length || ev.level==='na') return PG_SUMMARY[ev.level];
+  var offTxt = off.join('และ')+'ยังประเมินไม่ได้ เพราะช่วงนี้ทำตามแผนไม่ถึงเกณฑ์ (ผลที่ไม่ตรงกรอบจึงยังไม่นับว่าแผนผิดปกติ)';
+  if(ev.level==='ok') return [ev.weight, ev.strength].filter(function(x){ return x.level==='ok'; }).map(name).join('และ')+'เป็นไปตามกรอบของแผน · '+offTxt;
+  return PG_SUMMARY[ev.level]+' · ส่วน'+offTxt;
+}
+function pgBadge(level){ var L = PG_LEVELS[level]; return '<span class="pg-badge pg-'+level+'">'+L.icon+' '+esc(L.label)+'</span>'; }
+function pgDateY(d){ return d.getDate()+' '+TH_MONTHS[d.getMonth()]+' '+(d.getFullYear()+543); }
+function pgGoalLine(p, plan){
+  var sb = pgStrengthBand(p), sbt = (sb[0]>0 ? '+' : '')+sb[0]+' ถึง +'+sb[1]+'%';
+  var steady = pgRate(plan.lo)+' ถึง '+pgRate(plan.hi)+' กก./สัปดาห์';
+  if(p.goal==='ลดไขมัน'){
+    var perDay = -plan.c*FAT_KCAL_PER_KG/7;
+    return 'น้ำหนักควร'+(plan.hi<0 ? 'ลด '+Math.abs(plan.hi).toFixed(2)+'–'+Math.abs(plan.lo).toFixed(2)+' กก./สัปดาห์' : 'เปลี่ยน '+steady)+
+      (perDay>0 ? ' (ไขมันลด ~1 กก. ทุก '+Math.round(FAT_KCAL_PER_KG/perDay)+' วัน)' : '')+' และความแข็งแรงคงที่หรือเพิ่มขึ้น ('+sbt+' ต่อ 4 สัปดาห์)';
+  }
+  if(p.goal==='เพิ่มกล้ามเนื้อ') return 'น้ำหนักควรเพิ่ม '+plan.lo.toFixed(2)+'–'+plan.hi.toFixed(2)+' กก./สัปดาห์ และความแข็งแรงเพิ่ม '+sbt+' ต่อ 4 สัปดาห์';
+  return 'น้ำหนักควรค่อนข้างคงที่ ('+steady+') ขณะที่ความแข็งแรงเพิ่ม '+sbt+' ต่อ 4 สัปดาห์';
+}
+/* น้ำหนักตอนนี้สำหรับคาดการณ์ไปข้างหน้า: ค่าบนเส้นแนวโน้ม (ลดผลจากน้ำหนักแกว่งรายวัน) > ชั่งล่าสุด > น้ำหนักตั้งต้นของรอบ */
+function pgNowKg(ev){
+  if(ev.reg) return {kg: ev.reg.a + ev.reg.b*daysBetween(ev.ws, ev.asOf), how:'ค่าบนเส้นแนวโน้ม'};
+  var s = ev.ctx.series.filter(function(x){ return x.date <= ev.asOf; });
+  if(s.length) return {kg: s[s.length-1].kg, how:'ชั่งล่าสุด '+shortDateTH(s[s.length-1].date)};
+  return ev.ctx.anchorKg ? {kg: ev.ctx.anchorKg.kg, how:'น้ำหนักตั้งต้น'} : null;
+}
+function pgEta(p, ev){
+  var g = targetsOf(p).goalWeight, plan = ev.plan, now = pgNowKg(ev);
+  if(g==null || !now) return null;
+  var need = g - now.kg;
+  if(Math.abs(need) < 0.3) return {done:true, goal:g};
+  if((p.goal!=='ลดไขมัน' && p.goal!=='เพิ่มกล้ามเนื้อ') || need*plan.c <= 0 || Math.abs(plan.c) < 0.02) return {mismatch:true, goal:g};
+  var fastRate = need<0 ? plan.lo : plan.hi, slowRate = need<0 ? plan.hi : plan.lo, weeks = need/plan.c;
+  return {goal:g, weeks:weeks, date:addDays(new Date(), Math.round(weeks*7)), fast:need/fastRate, slow: slowRate*need>0 ? need/slowRate : null};
+}
+function pgEtaBox(p, ev){
+  var e = pgEta(p, ev);
+  if(!e) return '';
+  var head = '<div class="stat-b"><div class="l">ถึงเป้า '+fmt1(e.goal)+' กก.</div>';
+  if(e.done) return head+'<div class="v fat-pos">ถึงแล้ว</div><div class="d">น้ำหนักล่าสุดอยู่ที่เป้าหมาย</div></div>';
+  if(e.mismatch) return head+'<div class="v">—</div><div class="d">'+(p.goal==='Recomposition (ลด+เพิ่มพร้อมกัน)'
+    ? 'Recomposition เน้นเปลี่ยนสัดส่วน น้ำหนักแทบไม่เปลี่ยน — ดูความแข็งแรงและรูปร่างแทน'
+    : p.goal==='รักษาสุขภาพทั่วไป' ? 'แผนนี้ตั้งแคลอรี่เพื่อรักษาน้ำหนัก — ถ้าต้องการถึงเป้านี้ให้เปลี่ยนเป้าหมายในแบบสอบถาม'
+    : 'แผนนี้ไม่ได้พาน้ำหนักไปทางเป้า')+'</div></div>';
+  var fast = Math.max(1, Math.round(e.fast));
+  return head+'<div class="v">~'+Math.max(1, Math.round(e.weeks))+' <small>สัปดาห์</small></div><div class="d">ประมาณ '+esc(pgDateY(e.date))+
+    (e.slow ? ' (ช่วง '+fast+'–'+Math.round(e.slow)+' สัปดาห์)' : ' (เร็วสุด ~'+fast+' สัปดาห์)')+'</div></div>';
+}
+function pgCorridorSVG(p, ev){
+  var ak = ev.ctx.anchorKg, plan = ev.plan, today = todayISO(), goal = targetsOf(p).goalWeight;
+  var elapsed = Math.max(0, daysBetween(ak.date, today));
+  var X = Math.max(84, Math.ceil((elapsed + 14)/28)*28);
+  var pts = ev.ctx.series.filter(function(s){ return s.date >= ak.date && s.date <= today; })
+    .map(function(s){ return {x:daysBetween(ak.date, s.date), y:s.kg}; });
+  function at(rate, x){ return ak.kg + rate*x/7; }
+  var ys = [at(plan.lo, 0), at(plan.hi, 0), at(plan.lo, X), at(plan.hi, X)].concat(pts.map(function(q){ return q.y; }));
+  var minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
+  var showGoal = goal!=null && goal >= minY - 2 && goal <= maxY + 2;
+  if(showGoal){ minY = Math.min(minY, goal); maxY = Math.max(maxY, goal); }
+  if(maxY - minY < 2){ var m = (maxY + minY)/2; minY = m - 1; maxY = m + 1; }
+  var pad = (maxY - minY)*0.1; minY -= pad; maxY += pad;
+  var w = 600, h = 250, pl = 46, pr = 14, pt = 14, pb = 26;
+  function PX(v){ return (pl + v/X*(w-pl-pr)).toFixed(1); }
+  function PY(v){ return (pt + (maxY - v)/(maxY - minY)*(h-pt-pb)).toFixed(1); }
+  var svg = '<svg class="chart pg-chart" viewBox="0 0 '+w+' '+h+'" role="img" aria-label="กรอบน้ำหนักที่ควรเป็นถ้าทำตามแผน เทียบกับน้ำหนักที่ชั่งจริง">';
+  [maxY, (maxY + minY)/2, minY].forEach(function(v){
+    svg += '<line class="ch-axis" x1="'+pl+'" y1="'+PY(v)+'" x2="'+(w-pr)+'" y2="'+PY(v)+'"></line>'+
+      '<text class="ch-t" x="'+(pl-6)+'" y="'+(+PY(v)+4)+'" text-anchor="end">'+fmt1(v)+'</text>';
+  });
+  svg += '<polygon class="ch-band" points="'+PX(0)+','+PY(at(plan.lo,0))+' '+PX(X)+','+PY(at(plan.lo,X))+' '+PX(X)+','+PY(at(plan.hi,X))+' '+PX(0)+','+PY(at(plan.hi,0))+'"></polygon>';
+  svg += '<line class="ch-mid" x1="'+PX(0)+'" y1="'+PY(ak.kg)+'" x2="'+PX(X)+'" y2="'+PY(at(plan.c, X))+'"></line>';
+  if(showGoal){
+    svg += '<line class="ch-goal" x1="'+pl+'" y1="'+PY(goal)+'" x2="'+(w-pr)+'" y2="'+PY(goal)+'"></line>'+
+      '<text class="ch-t goal" x="'+(w-pr)+'" y="'+(+PY(goal)-5)+'" text-anchor="end">เป้า '+fmt1(goal)+' กก.</text>';
+  }
+  var step = X > 168 ? 56 : 28;
+  for(var d=0; d<=X; d+=step){
+    svg += '<text class="ch-t" x="'+PX(d)+'" y="'+(h-7)+'" text-anchor="'+(d===0 ? 'start' : (d+step>X ? 'end' : 'middle'))+'">'+(d===0 ? 'เริ่มรอบ' : 'สัปดาห์ '+(d/7))+'</text>';
+  }
+  if(elapsed>0 && elapsed<=X){
+    svg += '<line class="ch-today" x1="'+PX(elapsed)+'" y1="'+pt+'" x2="'+PX(elapsed)+'" y2="'+(h-pb)+'"></line>'+
+      '<text class="ch-t" x="'+(+PX(elapsed)+4)+'" y="'+(pt+10)+'">วันนี้</text>';
+  }
+  if(pts.length>1) svg += '<path class="ch-line" d="'+pts.map(function(q, i){ return (i ? 'L' : 'M')+PX(q.x)+' '+PY(q.y); }).join(' ')+'"></path>';
+  pts.forEach(function(q, i){ svg += '<circle class="ch-dot'+(i===pts.length-1 ? ' end' : '')+'" cx="'+PX(q.x)+'" cy="'+PY(q.y)+'" r="'+(i===pts.length-1 ? 4.5 : 3.2)+'"></circle>'; });
+  return svg+'</svg>';
+}
+function pgCriteriaHTML(p, ev){
+  var t = targetsOf(p), plan = ev.plan, sb = pgStrengthBand(p), ak = ev.ctx.anchorKg, today = todayISO(), cw = pgCardioWeek(p);
+  var rows = [
+    ['น้ำหนักตัว', pgRate(plan.lo)+' ถึง '+pgRate(plan.hi)+' กก./สัปดาห์'],
+    ['เข้าฝึก', (p.days||[]).length+' ครั้ง/สัปดาห์ (นับว่าทำตามแผนเมื่อ ≥ 75%)'],
+    cw ? ['Cardio', cw+' นาที/สัปดาห์'] : null,
+    t.kcal!=null ? ['แคลอรี่', 'เฉลี่ย '+Math.ceil(t.kcal*0.9).toLocaleString()+'–'+Math.floor(t.kcal*1.1).toLocaleString()+' kcal/วัน และกรอกอย่างน้อย 70% ของวัน'] : null,
+    t.proteinG ? ['โปรตีน', '≥ '+Math.round(t.proteinG*0.9)+' g/วัน'] : null,
+    t.sleepH!=null ? ['การนอน', '≥ '+fmt1(t.sleepH-0.5)+' ชม./คืน'] : null,
+    ['ความแข็งแรง', 'e1RM ท่าที่ใช้น้ำหนัก '+(sb[0]>0 ? '+' : '')+sb[0]+' ถึง +'+sb[1]+'% ต่อ 4 สัปดาห์'],
+    ['การชั่งน้ำหนัก', '3-7 ครั้ง/สัปดาห์ ตอนเช้าหลังเข้าห้องน้ำ ก่อนกิน (ให้ระบบแยกแนวโน้มจริงออกจากน้ำได้)']
+  ].filter(Boolean);
+  var html = '<h4 class="pg-h4">เกณฑ์ที่ควรเห็นทุกสัปดาห์ถ้าทำตามแผน</h4><table class="logtab pg-tab"><tbody>'+
+    rows.map(function(r){ return '<tr><td>'+esc(r[0])+'</td><td>'+esc(r[1])+'</td></tr>'; }).join('')+'</tbody></table>';
+  var tol = Math.max(0.5, ak.kg*0.005);
+  html += '<h4 class="pg-h4">จุดตรวจระหว่างทาง (น้ำหนักเฉลี่ยช่วง ±3 วันของจุดตรวจ)</h4><table class="logtab pg-tab"><thead><tr><th>จุดตรวจ</th><th>กรอบ</th><th>จริง</th><th>ผล</th></tr></thead><tbody>'+
+    [2,4,8,12].map(function(wk){
+      var d = fmtDateISO(addDays(parseISO(ak.date), 7*wk));
+      var a = Math.min(ak.kg + plan.lo*wk, ak.kg + plan.hi*wk), b = Math.max(ak.kg + plan.lo*wk, ak.kg + plan.hi*wk);
+      var near = ev.ctx.series.filter(function(s){ return Math.abs(daysBetween(d, s.date)) <= 3 && s.date <= today; });
+      var act = near.length ? mean(near.map(function(s){ return s.kg; })) : null;
+      var res = d > today ? '<span class="chip">รอถึงวัน</span>'
+        : act==null ? '<span class="chip">ไม่ได้ชั่ง</span>'
+        : (act >= a - tol && act <= b + tol) ? '<span class="chip ok">ในกรอบ ✓</span>'
+        : '<span class="chip miss">'+(act < a ? 'ต่ำกว่า' : 'สูงกว่า')+'กรอบ</span>';
+      return '<tr><td>สัปดาห์ '+wk+' · '+esc(shortDateTH(d))+'</td><td>'+fmt1(a)+'–'+fmt1(b)+'</td><td>'+(act!=null ? fmt1(act) : '—')+'</td><td>'+res+'</td></tr>';
+    }).join('')+'</tbody></table>';
+  var lifts = pgLifts(p).map(function(ex){
+    var h = ev.ctx.hist[ex.id];
+    return (h && h.length) ? {th:ex.th, cur:h[h.length-1].e1rm} : null;
+  }).filter(Boolean).slice(0, 6);
+  if(lifts.length){
+    html += '<h4 class="pg-h4">ความแข็งแรงที่ควรไปถึง (e1RM โดยประมาณ)</h4><table class="logtab pg-tab"><thead><tr><th>ท่า</th><th>ล่าสุด</th><th>+4 สัปดาห์</th><th>+12 สัปดาห์</th></tr></thead><tbody>'+
+      lifts.map(function(l){
+        function g(n){ return Math.round(l.cur*(1 + sb[0]*n/100))+'–'+Math.round(l.cur*(1 + sb[1]*n/100)); }
+        return '<tr><td>'+esc(l.th)+'</td><td>'+Math.round(l.cur)+' กก.</td><td>'+g(1)+'</td><td>'+g(3)+'</td></tr>';
+      }).join('')+'</tbody></table>';
+  } else {
+    html += '<p class="hint">บันทึกน้ำหนัก/ครั้งต่อเซ็ตในหน้า “วันนี้” แล้วระบบจะตั้งกรอบความแข็งแรงรายท่าให้</p>';
+  }
+  html += '<p class="hint" style="margin-top:10px">ที่มาของกรอบ: '+(p.goal==='เพิ่มกล้ามเนื้อ'
+      ? 'ช่วงเพิ่มกล้าม น้ำหนักควรขึ้น '+PG_GAIN_PCT_MONTH[pgExpRank(p)].join('–')+'% ของน้ำหนักตัวต่อเดือนตามระดับประสบการณ์ (เร็วกว่านี้ส่วนเกินมักเป็นไขมัน)'
+      : 'เป้าแคลอรี่ − (TDEE '+fmtKcal(t.tdee)+' + การออกกำลังกายตามแผน ~'+plan.exPerDay+' kcal/วัน) ÷ 7,700 kcal ต่อ 1 กก. ± ช่วงคลาดเคลื่อน'+(p.goal==='ลดไขมัน' ? ' · ไม่ควรลดเร็วเกิน 1% ของน้ำหนักตัว/สัปดาห์' : ''))+
+    ' · ความแข็งแรงตามระดับประสบการณ์ (มือใหม่พัฒนาเร็วกว่า) · เป็นค่าประมาณจากแนวทางทั่วไป ไม่ใช่การรับประกันผล</p>';
+  return html;
+}
+function pgPlanCardHTML(p, ev){
+  var ak = ev.ctx.anchorKg, plan = ev.plan, rounds = (pgState(p).adjustments||[]).length;
+  var html = '<div class="card pg-card"><div class="pg-kicker">ถ้าทำตามแผนนี้ต่อเนื่อง · รอบประเมินเริ่ม '+esc(shortDateTH(ev.anchor))+(rounds ? ' (ปรับเป้าแล้ว '+rounds+' ครั้ง)' : '')+'</div>'+
+    '<h3 class="pg-goal">'+esc(pgGoalLine(p, plan))+'</h3>';
+  if(!ak) return html+'<p class="hint">ยังไม่มีน้ำหนักตั้งต้น — บันทึกน้ำหนักที่หน้า “วันนี้” แล้วระบบจะวาดกรอบให้</p></div>';
+  var now = pgNowKg(ev);
+  html += '<div class="stat-strip">'+[4,8,12].map(function(wk){
+    var a = now.kg + plan.lo*wk, b = now.kg + plan.hi*wk;
+    return '<div class="stat-b"><div class="l">อีก '+wk+' สัปดาห์</div><div class="v">'+fmt1(now.kg + plan.c*wk)+' <small>กก.</small></div>'+
+      '<div class="d">ช่วง '+fmt1(Math.min(a, b))+'–'+fmt1(Math.max(a, b))+' · '+esc(shortDateTH(fmtDateISO(addDays(new Date(), 7*wk))))+'</div></div>';
+  }).join('')+pgEtaBox(p, ev)+'</div>';
+  html += '<p class="hint" style="margin-top:8px">คาดการณ์จากน้ำหนักตอนนี้ ~'+fmt1(now.kg)+' กก. ('+esc(now.how)+')</p>';
+  html += '<div class="chart-wrap">'+pgCorridorSVG(p, ev)+'</div>'+
+    '<p class="hint">แถบเขียว = กรอบน้ำหนักที่ควรเป็นถ้าทำตามแผน (ตั้งต้นจาก '+fmt1(ak.kg)+' กก. เมื่อ '+esc(shortDateTH(ak.date))+') · เส้นประเขียว = ค่ากลาง · จุดน้ำเงิน = น้ำหนักที่ชั่งจริง — น้ำหนักรายวันแกว่ง ±1 กก. ได้ ระบบดูแนวโน้มหลายวันรวมกัน</p>';
+  var open = !!track.pgCrit;
+  html += '<button type="button" class="ex-open" data-act="pg-crit" aria-expanded="'+open+'" style="margin-top:6px">'+(open ? 'ซ่อนเกณฑ์และจุดตรวจ ▴' : 'ดูเกณฑ์รายสัปดาห์ จุดตรวจ และเป้าความแข็งแรง ▾')+'</button>';
+  if(open) html += pgCriteriaHTML(p, ev);
+  return html+'</div>';
+}
+function pgChecksFor(p){
+  return [
+    {k:'weigh', t:'ชั่งน้ำหนักตอนเช้าหลังเข้าห้องน้ำ ก่อนกิน/ดื่ม ด้วยเครื่องชั่งเดิมทุกครั้ง'},
+    {k:'food', t:'บันทึกทุกอย่างที่กินและดื่มครบทุกวัน รวมเครื่องดื่มหวาน กาแฟ ของว่าง ซอส และน้ำมันที่ใช้ปรุง'},
+    {k:'portion', t:'ปริมาณอาหารมาจากการชั่ง/ตวงหรือฉลากโภชนาการ ไม่ได้กะด้วยตาหรือกรอกตามเป้า'},
+    {k:'lift', t:'น้ำหนักและจำนวนครั้งที่กรอกในแต่ละเซ็ตเป็นค่าที่ทำได้จริง'},
+    {k:'water', t:'ช่วงนี้ไม่มีปัจจัยที่ทำให้น้ำคั่งผิดปกติ เช่น กินเค็มจัด ป่วย เปลี่ยนยา'+(pgSex(p)==='หญิง' ? ' หรือช่วงก่อน/ระหว่างมีประจำเดือน' : '')}
+  ];
+}
+function pgListHTML(items){
+  return '<ul class="pg-issues">'+items.map(function(i){
+    return typeof i==='string' ? '<li>'+esc(i)+'</li>' : '<li class="'+i.lvl+'">'+esc(i.text)+'</li>';
+  }).join('')+'</ul>';
+}
+function pgCheckHTML(p, ev){
+  var checks = pgChecksFor(p);
+  var ticked = checks.filter(function(c){ return track.pgChecks[c.k]; }).length;
+  var reset = track.pgResetAsk
+    ? '<div class="pg-confirm">เริ่มรอบประเมินใหม่ตั้งแต่วันนี้? ข้อมูลเดิมยังอยู่ครบ แต่ระบบจะไม่ใช้ข้อมูลก่อนวันนี้ในการประเมิน และจะประเมินใหม่เมื่อมีข้อมูลพอ (~2 สัปดาห์)'+
+        '<div class="pg-actions"><button type="button" class="btn sm primary" data-act="pg-reset-go">ยืนยัน เริ่มเก็บข้อมูลใหม่</button><button type="button" class="btn sm" data-act="pg-reset">ยกเลิก</button></div></div>'
+    : '<button type="button" class="btn sm" data-act="pg-reset">พบว่าบันทึกไม่ครบ/ไม่ถูก — เริ่มเก็บข้อมูลใหม่</button>';
+  return '<div class="pg-check">'+
+    '<h4>1. จุดที่ระบบพบในข้อมูลของคุณ</h4>'+
+    (ev.issues.length ? pgListHTML(ev.issues) : '<p class="pg-note">ระบบไม่พบจุดผิดสังเกตจากตัวข้อมูลเอง — ช่วยตรวจตามรายการในข้อ 2</p>')+
+    (ev.causes.length ? '<h4>ปัจจัยที่อาจเกี่ยวข้อง</h4>'+pgListHTML(ev.causes) : '')+
+    '<h4>2. ช่วยยืนยันว่าบันทึกครบและถูกต้อง</h4>'+
+    checks.map(function(c){
+      return '<label class="pg-chk"><input type="checkbox" data-act="pg-check" data-k="'+c.k+'"'+(track.pgChecks[c.k] ? ' checked' : '')+'><span>'+esc(c.t)+'</span></label>';
+    }).join('')+
+    '<div class="pg-actions"><button type="button" class="btn sm primary" data-act="pg-confirm"'+(ticked<checks.length ? ' disabled' : '')+'>ตรวจแล้ว ข้อมูลถูกต้องครบ ('+ticked+'/'+checks.length+')</button>'+
+      (track.pgResetAsk ? '' : reset)+'</div>'+
+    (track.pgResetAsk ? reset : '')+
+    '<p class="hint">ถ้าเมื่อวาน/วันนี้กรอกผิด แก้ได้ที่ “บันทึกรายวันย้อนหลัง” ด้านล่าง (วันก่อนหน้านั้นล็อกแล้ว) · ยืนยันว่าข้อมูลถูกต้อง → ระบบจะเสนอวิธีปรับแผน · พบว่าบันทึกไม่ครบ → เริ่มเก็บใหม่ให้แม่นขึ้น แล้วระบบประเมินใหม่เอง</p>'+
+  '</div>';
+}
+function pgAdjustHTML(p, ev){
+  var rec = pgRecommend(p, ev), t = targetsOf(p), html = '<div class="pg-adjbox"><h4>สิ่งที่ระบบแนะนำให้ปรับ</h4>';
+  if(rec.kcal!=null){
+    html += '<div class="pg-rec"><b>ปรับเป้าแคลอรี่: '+fmtKcal(t.kcal)+' → '+fmtKcal(rec.kcal)+' kcal/วัน</b><br>'+
+      'จากข้อมูลจริง ร่างกายใช้พลังงานประมาณ '+fmtKcal(Math.round(ev.energy.implied))+' kcal/วัน — ถ้าจะให้ผลตามกรอบ ('+pgRate(ev.plan.c)+' กก./สัปดาห์) ควรกินประมาณ '+fmtKcal(rec.want)+' kcal'+
+      (rec.capped ? ' · ระบบปรับทีละไม่เกิน 300 kcal เพื่อความปลอดภัย แล้วค่อยประเมินรอบถัดไป' : '')+'</div>'+
+      '<button type="button" class="btn sm primary" data-act="pg-apply">ใช้เป้าใหม่ '+fmtKcal(rec.kcal)+' kcal</button>';
+  }
+  if(rec.text.length) html += pgListHTML(rec.text);
+  if(rec.kcal==null && !rec.text.length) html += '<p class="pg-note">ยังไม่มีตัวเลขพอให้ระบบเสนอเป้าใหม่ — ปรับวันฝึก/ท่าได้ที่หน้า “แผนของฉัน” หรือถามโค้ช</p>';
+  return html+'<div class="pg-actions"><button type="button" class="btn sm" data-act="nav" data-view="plan">ไปหน้าแผนของฉัน</button>'+
+    '<button type="button" class="btn sm ghost" data-act="pg-unconfirm">กลับไปตรวจข้อมูลอีกครั้ง</button></div>'+
+    '<p class="hint">ยืนยันข้อมูลเมื่อ '+esc(shortDateTH(pgState(p).confirmedAt))+' · หลังปรับเป้า ระบบเริ่มรอบประเมินใหม่และติดตามผลต่ออีก 2-3 สัปดาห์</p></div>';
+}
+function pgDetailsHTML(p, ev){
+  var t = targetsOf(p), adh = ev.adh, en = ev.energy, rows = [];
+  rows.push(['ช่วงข้อมูล', shortDateTH(ev.ws)+' – '+shortDateTH(ev.asOf)+' ('+adh.days+' วันที่จบแล้ว)']);
+  if(adh.sess) rows.push(['เข้าฝึก', adh.sessDone+'/'+adh.sess+' วัน ('+Math.round(adh.sessPct*100)+'%) — เกณฑ์ 75%']);
+  if(adh.cardio) rows.push(['Cardio ตามแผน', adh.cardioDone+'/'+adh.cardio+' วัน · รวม '+adh.cardioMin+' นาที']);
+  rows.push(['กรอกแคลอรี่', adh.kcal.length+'/'+adh.days+' วัน — เกณฑ์ 70%']);
+  if(adh.avgIn!=null) rows.push(['กินเฉลี่ย', Math.round(adh.avgIn).toLocaleString()+' kcal/วัน (เป้า '+fmtKcal(t.kcal)+' ±10%) · อยู่ในช่วงเป้า '+adh.kcalOkDays+' วัน']);
+  var pr = mean(adh.prot), sl = mean(adh.sleep);
+  if(pr!=null) rows.push(['โปรตีนเฉลี่ย', Math.round(pr)+' g (เป้า '+t.proteinG+' g)']);
+  if(sl!=null) rows.push(['นอนเฉลี่ย', fmt1(sl)+' ชม. (เป้า '+fmtHours(t.sleepH)+')']);
+  rows.push(['ชั่งน้ำหนัก', ev.wpts.length+' ครั้ง'+(ev.reg ? ' · แนวโน้ม '+pgRate(ev.reg.b*7)+' ± '+(ev.reg.se*7).toFixed(2)+' กก./สัปดาห์' : '')]);
+  if(en.implied!=null) rows.push(['พลังงาน', 'ระบบคาด '+fmtKcal(Math.round(en.expected))+' (TDEE '+fmtKcal(t.tdee)+' + ออกกำลังกาย ~'+Math.round(en.exAct)+') · คำนวณจากข้อมูลจริง '+fmtKcal(Math.round(en.implied))+' ± '+Math.round(en.unc)+' kcal/วัน']);
+  var html = '<table class="logtab pg-tab"><tbody>'+rows.map(function(r){ return '<tr><td>'+esc(r[0])+'</td><td>'+esc(r[1])+'</td></tr>'; }).join('')+'</tbody></table>';
+  html += '<h4 class="pg-h4">คุณภาพข้อมูล</h4>'+(ev.issues.length ? pgListHTML(ev.issues) : '<p class="pg-note">ไม่พบจุดผิดสังเกต</p>');
+  if(ev.causes.length) html += '<h4 class="pg-h4">ปัจจัยที่อาจกระทบผล</h4>'+pgListHTML(ev.causes);
+  var adj = pgState(p).adjustments || [];
+  if(adj.length) html += '<h4 class="pg-h4">ประวัติการปรับเป้า</h4>'+pgListHTML(adj.slice().reverse().map(function(a){
+    return shortDateTH(a.date)+': แคลอรี่ '+fmtKcal(a.fromKcal)+' → '+fmtKcal(a.toKcal)+' kcal (TDEE '+fmtKcal(a.fromTdee)+' → '+fmtKcal(a.toTdee)+')';
+  }));
+  html += '<p class="hint" style="margin-top:10px">วิธีประเมิน: หาแนวโน้มน้ำหนักจากการชั่งย้อนหลัง '+PG_WINDOW+' วัน (เส้นตรงที่ fit ดีที่สุด + ค่าความคลาดเคลื่อน) แล้วเทียบกรอบ · ความแข็งแรงดู e1RM ย้อนหลัง '+PG_STR_WINDOW+' วัน · '+
+    'พลังงานที่ใช้จริง = กินเฉลี่ย − น้ำหนักที่เปลี่ยน × 7,700 kcal · ผลที่หลุดกรอบนับว่าผิดปกติเฉพาะตอนเข้าฝึก ≥ 75% และกินตามเป้า (กรอก ≥ 70% ของวัน เฉลี่ยอยู่ใน ±10%) · 3 สัปดาห์แรกของรอบ ยังไม่ตัดสินว่าผิดปกติกรณีน้ำหนักเปลี่ยนเร็วกว่ากรอบ และกรณีข้อมูลพลังงานไม่สอดคล้อง เพราะน้ำและไกลโคเจนทำให้น้ำหนักแกว่งแรง</p>';
+  return html;
+}
+function pgEvalCardHTML(p, ev){
+  var hist = ev.history, streak = PG_LEVELS[ev.level].n >= 3 ? ev.run + 1 : 0;
+  var html = '<div class="card pg-card pg-eval pg-'+ev.level+'">'+
+    '<div class="pg-kicker">ผลการประเมินอัตโนมัติ · ข้อมูล '+esc(shortDateTH(ev.ws))+' – '+esc(shortDateTH(ev.asOf))+'</div>'+
+    pgBadge(ev.level)+'<p class="pg-summary">'+esc(pgSummaryText(ev))+(streak>=2 ? ' <b>(หลุดกรอบต่อเนื่อง '+streak+' สัปดาห์)</b>' : '')+'</p>';
+  if(hist.length){
+    html += '<div class="pg-weeks">'+hist.map(function(x){
+      return '<span class="pg-wk pg-'+x.level+'" title="'+esc(shortDateTH(x.date)+': '+PG_LEVELS[x.level].label)+'">สัปดาห์ '+x.week+'</span>';
+    }).join('')+'<span class="pg-wk now pg-'+ev.level+'" title="'+esc(PG_LEVELS[ev.level].label)+'">ตอนนี้</span></div>';
+  }
+  html += '<div class="pg-signals">'+ev.signals.map(function(s){
+    return '<div class="pg-sig pg-'+s.level+'"><span class="pg-ic">'+PG_LEVELS[s.level].icon+'</span><div><div class="pg-st">'+esc(s.title)+'</div><div class="pg-sd">'+esc(s.text)+'</div></div></div>';
+  }).join('')+'</div>';
+  if(ev.level==='anomaly') html += pgCheckHTML(p, ev);
+  else if(ev.level==='adjust') html += pgAdjustHTML(p, ev);
+  else if(ev.issues.some(function(x){ return x.lvl==='warn'; })) html += '<p class="pg-dq">⚠️ คุณภาพข้อมูล: พบ '+ev.issues.length+' จุดที่ควรบันทึกให้ครบ/แม่นขึ้น เพื่อให้ระบบประเมินได้ถูกต้อง (ดูในรายละเอียด)</p>';
+  var open = !!track.pgOpen;
+  html += '<button type="button" class="ex-open" data-act="pg-open" aria-expanded="'+open+'" style="margin-top:12px">'+(open ? 'ซ่อนข้อมูลที่ใช้ประเมิน ▴' : 'ดูข้อมูลที่ใช้ประเมิน ▾')+'</button>';
+  if(open) html += pgDetailsHTML(p, ev);
+  return html+'</div>';
+}
+function pgSectionHTML(p){
+  var ev = pgCurrent(p);
+  return '<div class="section-title">เป้าหมาย & กรอบพัฒนาการ (Progression & Goal)</div>'+pgPlanCardHTML(p, ev)+pgEvalCardHTML(p, ev);
+}
+/* แจ้งเตือนหน้า "วันนี้" ทันทีที่ระบบพบความผิดปกติ — รายละเอียดและการตรวจข้อมูลอยู่หน้าความคืบหน้า */
+function pgAlertHTML(p){
+  if(!p || !p.startDate) return '';
+  var ev = pgCurrent(p);
+  if(PG_LEVELS[ev.level].n < 3) return '';
+  return '<div class="banner warn"><div class="ic">'+PG_LEVELS[ev.level].icon+'</div><div><b>กรอบแผน: '+esc(PG_LEVELS[ev.level].label)+'</b> — '+
+    esc(ev.level==='adjust' ? 'ระบบมีคำแนะนำให้ปรับแผนจากผลจริงของคุณ' : 'ผลลัพธ์ไม่เป็นไปตามกรอบของแผน ช่วยตรวจว่าข้อมูลที่บันทึกครบและถูกต้อง')+
+    '<div style="margin-top:6px"><button type="button" class="btn sm" data-act="nav" data-view="progress">ดูที่หน้าความคืบหน้า →</button></div></div></div>';
+}
+
 function historyHTML(p){
   var today = todayISO();
   // ประวัติจากแผนก่อนหน้า (ก่อนวันเริ่มปัจจุบัน) ยังต้องเห็นอยู่ — แสดงเฉพาะวันที่มีบันทึกจริง
@@ -2332,7 +3005,7 @@ function renderProgress(){
     '<div class="sub">ทุกตัวเลขในหน้านี้คำนวณจากสิ่งที่คุณบันทึกไว้จริงเท่านั้น ไม่มีค่าตัวอย่างผสม — ช่องไหนยังว่างแปลว่ายังไม่มีข้อมูลพอ</div></div>'+
     '<div class="head-actions"><button type="button" class="btn" data-act="nav" data-view="today">กลับไปเช็คลิสต์วันนี้</button></div></div>';
 
-  html += fatAlertHTML(p) + fatBarHTML(p) + historyHTML(p);
+  html += fatAlertHTML(p) + pgSectionHTML(p) + fatBarHTML(p) + historyHTML(p);
 
   var deltaFirst = (last && startW!=null) ? (last.kg - startW) : null;
   var remain = (last && t.goalWeight!=null) ? (last.kg - t.goalWeight) : null;
@@ -3490,6 +4163,17 @@ document.addEventListener("click", function(ev){
   if(act==='fat-toggle'){ track.fatOpen = !track.fatOpen; render(); return; }
   if(act==='fat-ack'){ var ft = fatTug(track.program); lsSet('gymbro_fat_seen', {gains:ft.gains.length, losses:ft.losses.length}); render(); return; }
   if(act==='hist-more'){ track.histDays += 14; render(); return; }
+  if(act==='pg-crit'){ track.pgCrit = !track.pgCrit; render(); return; }
+  if(act==='pg-open'){ track.pgOpen = !track.pgOpen; render(); return; }
+  if(act==='pg-confirm'){ if(el.disabled) return; track.pgChecks = {}; pgSave({confirmedAt: todayISO()}); return; }
+  if(act==='pg-unconfirm'){ pgSave({confirmedAt: null}); return; }
+  if(act==='pg-reset'){ track.pgResetAsk = !track.pgResetAsk; render(); return; }
+  if(act==='pg-reset-go'){
+    track.pgResetAsk = false; track.pgChecks = {};
+    pgSave({evalFrom: todayISO(), confirmedAt: null, resets: (pgState(track.program).resets||[]).concat([todayISO()])});
+    return;
+  }
+  if(act==='pg-apply'){ pgApply(); return; }
   if(act==='progress-ex'){ track.progressEx = el.getAttribute('data-ex'); render(); return; }
   if(act==='hard-restart'){
     lsRemove("gymbro_program"); lsRemove("gymbro_logs"); lsRemove("gymbro_weights"); lsRemove("gymbro_onb_proto"); lsRemove("gymbro_fat_seen");
@@ -3637,6 +4321,7 @@ document.addEventListener("change", function(ev){
     return;
   }
   if(act==='sleep-hyg'){ patchSleep(iso, {hygiene: el.checked}); return; }
+  if(act==='pg-check'){ track.pgChecks[el.getAttribute('data-k')] = el.checked; render(); return; }
   if(act==='cardio-min'){
     var cm = numInRange(el.value, 0, 600);
     if(el.value==='') saveDay(iso, {cardio:{}});

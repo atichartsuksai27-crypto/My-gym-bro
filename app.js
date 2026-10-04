@@ -782,7 +782,7 @@ var track = {
   openDate:null, openSets:{}, saveStatus:'', openSwap:null,
   schedTab:'week', editing:false, progressEx:null, openBench:{}, sleepHoursError:{},
   demoExercise:null, // โมดัลภาพเคลื่อนไหวท่าในหน้าตรวจแผน (null = ปิด)
-  histOpen:null, histDays:14, finalizedThrough:null, schedDraft:null
+  histOpen:null, histDays:14, finalizedThrough:null, schedDraft:null, fatOpen:false
 };
 function persistProgram(){
   var ok = lsSet("gymbro_program", track.program);
@@ -1935,8 +1935,11 @@ function fatBarHTML(p){
     return '<tr><td>'+esc(shortDateTH(d.date))+'</td><td>'+d.kcal.toLocaleString()+'</td><td>'+d.tdee.toLocaleString()+'</td>'+
       '<td class="'+(d.bal>=0?'fat-pos':'fat-neg')+'">'+(d.bal>=0?'+':'')+d.bal.toLocaleString()+'</td></tr>';
   }).join('');
-  return head+
-    '<div class="fat-now '+side+'">'+now+'</div>'+bar+
+  var open = !!track.fatOpen;
+  var toggle = '<button type="button" class="ex-open" data-act="fat-toggle" aria-expanded="'+open+'" style="margin-top:10px">'+(open?'ซ่อนข้อมูล ▴':'แสดงข้อมูล ▾')+'</button>';
+  if(!open) return head+bar+toggle+'</div>';
+  return head+bar+toggle+
+    '<div class="fat-now '+side+'" style="margin-top:12px">'+now+'</div>'+
     '<div class="stat-strip" style="margin-top:14px">'+
       '<div class="stat-b"><div class="l">ลดไขมันได้แล้ว</div><div class="v fat-pos">'+t.losses.length+' <small>ครั้ง (กก.)</small></div><div class="d">ฝั่งขวาครบ 7,700 kcal</div></div>'+
       '<div class="stat-b"><div class="l">ไขมันเพิ่มขึ้น</div><div class="v fat-neg">'+t.gains.length+' <small>ครั้ง (กก.)</small></div><div class="d">ฝั่งซ้ายครบ 7,700 kcal</div></div>'+
@@ -3052,6 +3055,7 @@ document.addEventListener("click", function(ev){
     return;
   }
   if(act==='hist-open'){ track.histOpen = (track.histOpen===iso ? null : iso); track.saveStatus=''; render(); return; }
+  if(act==='fat-toggle'){ track.fatOpen = !track.fatOpen; render(); return; }
   if(act==='fat-ack'){ var ft = fatTug(track.program); lsSet('gymbro_fat_seen', {gains:ft.gains.length, losses:ft.losses.length}); render(); return; }
   if(act==='hist-more'){ track.histDays += 14; render(); return; }
   if(act==='progress-ex'){ track.progressEx = el.getAttribute('data-ex'); render(); return; }

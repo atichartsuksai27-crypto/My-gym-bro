@@ -354,7 +354,13 @@ function repSchemeFor(goal){ return REP_SCHEME[goal] || '3 x 10-12'; }
 var PERSIST_ONBOARDING_STATE = true;
 function freshState(){
   return {step:0, answers:{}, mode:null, nav:'today', editPlan:false,
-          plan:{manualPick:{}, unlockedEx:{}, forceLowTier:{}, splitOverride:null}};
+          plan:{manualPick:{}, unlockedEx:{}, forceLowTier:{}, splitOverride:null,
+                trainDays:null, cardioDays:[], cardioMinutes:30}};
+}
+function loadPlanSchedule(dst, src){
+  dst.trainDays = Array.isArray(src.trainDays) ? src.trainDays : null;
+  dst.cardioDays = Array.isArray(src.cardioDays) ? src.cardioDays : [];
+  dst.cardioMinutes = src.cardioMinutes>0 ? src.cardioMinutes : 30;
 }
 var state = freshState();
 if(PERSIST_ONBOARDING_STATE){
@@ -369,6 +375,7 @@ if(PERSIST_ONBOARDING_STATE){
       state.plan.unlockedEx = saved.plan.unlockedEx || {};
       state.plan.forceLowTier = saved.plan.forceLowTier || {};
       state.plan.splitOverride = saved.plan.splitOverride || null;
+      loadPlanSchedule(state.plan, saved.plan);
     }
   }
 }
@@ -676,6 +683,21 @@ function assignSessions(splitKey, days){
   var seq = def.sessions.map(function(se){ return se.key; });
   return sorted.map(function(d,i){ return {day:d, session:seq[i%seq.length]}; });
 }
+/* วันว่าง (Q2) = วันที่ "เลือกได้" เท่านั้น วันฝึก/วัน cardio จริงเลือกแยกในหน้าตรวจแผน */
+function minTrainDays(splitKey, a){
+  var avail = (a.Q2||[]).length;
+  if(splitKey==='fullbody') return Math.min(2, avail);
+  return SPLIT_DEFS[splitKey].minDays;
+}
+function inAvailable(days, a){
+  var avail = a.Q2||[];
+  return DAYS.filter(function(d){ return avail.indexOf(d)>-1 && (days||[]).indexOf(d)>-1; });
+}
+function planTrainDays(a){
+  var td = state.plan.trainDays;
+  return td ? inAvailable(td, a) : inAvailable(a.Q2, a);
+}
+function planCardioDays(a){ return inAvailable(state.plan.cardioDays, a); }
 function weekdayAdjacencyWarning(days){
   var idx = (days||[]).map(function(d){return DAYS.indexOf(d);}).sort(function(x,y){return x-y;});
   for(var i=0;i<idx.length;i++){
@@ -709,8 +731,9 @@ function setCountFor(setsRepsStr){
 function buildPlanSnapshot(a){
   var split = effectiveSplit(a);
   var splitDef = SPLIT_DEFS[split];
+  var trainDays = planTrainDays(a);
   var dayToSession = {};
-  assignSessions(split, a.Q2||[]).forEach(function(x){ dayToSession[x.day]=x.session; });
+  assignSessions(split, trainDays).forEach(function(x){ dayToSession[x.day]=x.session; });
   var sessions = splitDef.sessions.map(function(se){
     var exercises = se.patterns.map(function(p){
       var sel = selectionFor(p, a);
@@ -726,7 +749,9 @@ function buildPlanSnapshot(a){
   });
   return {
     splitKey:split, splitLabel:splitDef.label, goal:a.Q1,
-    days:(a.Q2||[]).slice(), dayToSession:dayToSession, sessions:sessions,
+    days:trainDays, dayToSession:dayToSession, sessions:sessions,
+    availableDays:(a.Q2||[]).slice(),
+    cardioDays:planCardioDays(a), cardioMinutes:state.plan.cardioMinutes||30,
     minutesEstimate:a.Q3||'45-60 นาที',
     trainTime:a.Q24||'ไม่แน่นอนแล้วแต่วัน',
     targets: computeTargets(a),
@@ -744,7 +769,8 @@ var track = {
   viewMonth:null, weekStart:null,
   openDate:null, openSets:{}, saveStatus:'', openSwap:null,
   schedTab:'week', editing:false, progressEx:null, openBench:{}, sleepHoursError:{},
-  demoExercise:null // โมดัลภาพเคลื่อนไหวท่าในหน้าตรวจแผน (null = ปิด)
+  demoExercise:null, // โมดัลภาพเคลื่อนไหวท่าในหน้าตรวจแผน (null = ปิด)
+  histOpen:null, histDays:14, finalizedThrough:null
 };
 function persistProgram(){
   var ok = lsSet("gymbro_program", track.program);
@@ -774,6 +800,42 @@ function sessionKeyFor(program, iso){
   if((program.days||[]).indexOf(wd)===-1) return null;
   return program.dayToSession[wd] || null;
 }
+function cardioPlannedFor(program, iso){
+  return (program.cardioDays||[]).indexOf(thaiWeekdayOfDate(parseISO(iso)))>-1;
+}
+function cardioMinutesOn(iso){
+  var c = (logFor(iso)||{}).cardio;
+  return c && c.minutes>0 ? c.minutes : null;
+}
+/* ชื่อวัน = สิ่งที่วันนั้นมีจริง (เซสชันตามตาราง / Cardio ตามแผนหรือที่บันทึกเพิ่ม)
+   ส่วนที่ผ่านวันไปแล้วแต่ไม่สำเร็จ ติด missed เพื่อแสดงเป็นตัวแดง */
+function dayActivity(program, iso){
+  var today = todayISO();
+  var past = iso < today && iso >= (program.startDate||today);
+  var log = logFor(iso) || {};
+  var sKey = sessionKeyFor(program, iso);
+  var planned = cardioPlannedFor(program, iso);
+  var mins = cardioMinutesOn(iso);
+  var parts = [];
+  if(sKey){
+    var sess = sessionDefFor(program, sKey);
+    var allEx = !!sess && sess.exercises.length>0 && sess.exercises.every(function(ex){ return ((log.exercises||{})[ex.id]||{}).done; });
+    parts.push({label:sKey, missed: past && !log.completed && !allEx});
+  }
+  if(planned || mins) parts.push({label:'Cardio'+(mins? ' '+mins+' นาที' : ''), missed: past && planned && !mins});
+  return parts;
+}
+function dayParts(program, iso){
+  var lg = logFor(iso);
+  return (lg && lg.final && lg.final.parts) ? lg.final.parts : dayActivity(program, iso);
+}
+function dayLabelHTML(program, iso, restLabel){
+  var parts = dayParts(program, iso);
+  if(!parts.length) return esc(restLabel||'พัก');
+  return parts.map(function(x){
+    return x.missed ? '<span class="act-miss" title="ไม่สำเร็จ">'+esc(x.label)+'</span>' : esc(x.label);
+  }).join(' + ');
+}
 function sessionDefFor(program, sKey){
   if(!sKey) return null;
   var found = (program.sessions||[]).filter(function(s){return s.key===sKey;})[0];
@@ -783,8 +845,14 @@ function targetsOf(program){
   return (program && program.targets) ? program.targets : computeTargets(state.answers);
 }
 
+/* แก้ได้เฉพาะวันนี้กับเมื่อวาน (ตามเวลาเครื่อง) — พ้นเที่ยงคืนของวันถัดไปแล้วล็อกถาวร */
+var LOCKED_MSG = 'วันนี้ถูกล็อกแล้ว — แก้ไขได้เฉพาะวันนี้และเมื่อวานเท่านั้น';
+function editableFrom(){ return fmtDateISO(addDays(new Date(), -1)); }
+function isEditable(iso){ return iso <= todayISO() && iso >= editableFrom(); }
+
 /* ---------- เขียน log รายวัน: อ่านของเดิมมา merge เสมอ ไม่ให้ข้อมูลหมวดอื่นหาย ---------- */
 function saveDay(iso, patch){
+  if(!isEditable(iso)){ track.saveStatus = LOCKED_MSG; render(); return; }
   var cur = logFor(iso) || {};
   var program = track.program || {};
   var body = {
@@ -795,6 +863,7 @@ function saveDay(iso, patch){
     completed: cur.completed || false,
     nutrition: cur.nutrition || {},
     sleep: cur.sleep || {},
+    cardio: cur.cardio || {},
     updatedAt: new Date().toISOString()
   };
   Object.keys(patch).forEach(function(k){ body[k] = patch[k]; });
@@ -805,6 +874,7 @@ function saveDay(iso, patch){
   render();
 }
 function saveWeight(iso, kg){
+  if(!isEditable(iso)){ track.saveStatus = LOCKED_MSG; render(); return; }
   var body = {date:iso, kg:kg, updatedAt:new Date().toISOString()};
   track.weights[iso] = body;
   var ok = persistWeights();
@@ -820,24 +890,67 @@ function dayItems(program, iso){
   var items = [];
   var sKey = sessionKeyFor(program, iso);
   var sess = sessionDefFor(program, sKey);
+  var NA = 'ไม่ได้บันทึก';
   if(sess){
     sess.exercises.forEach(function(ex){
       var e = (log.exercises||{})[ex.id] || {};
-      items.push({group:'workout', key:'ex-'+ex.id, done: !!e.done});
+      var exDone = !!e.done || !!log.completed;
+      items.push({group:'workout', key:'ex-'+ex.id, label:ex.th, val: exDone?'ทำแล้ว':'ยังไม่ติ๊ก', done: exDone});
     });
   }
+  if(cardioPlannedFor(program, iso)){
+    var cm = cardioMinutesOn(iso);
+    items.push({group:'cardio', key:'cardio', label:'Cardio', val: cm? cm+' / '+(program.cardioMinutes||30)+' นาที' : NA, done: !!cm});
+  }
   var n = log.nutrition || {};
-  items.push({group:'food', key:'protein', done: n.proteinG!=null && n.proteinG >= t.proteinG*0.9});
-  items.push({group:'food', key:'kcal', done: kcalOk(n.kcal, t.kcal)});
-  items.push({group:'food', key:'water', done: n.waterL!=null && n.waterL >= t.waterL});
+  items.push({group:'food', key:'protein', label:'โปรตีน', val: n.proteinG!=null? n.proteinG+' / '+t.proteinG+' g' : NA, done: n.proteinG!=null && n.proteinG >= t.proteinG*0.9});
+  items.push({group:'food', key:'kcal', label:'แคลอรี่', val: n.kcal!=null? fmtKcal(n.kcal)+' / '+fmtKcal(t.kcal)+' kcal' : NA, done: kcalOk(n.kcal, t.kcal)});
+  items.push({group:'food', key:'water', label:'น้ำ', val: n.waterL!=null? n.waterL+' / '+fmt1(t.waterL)+' ล.' : NA, done: n.waterL!=null && n.waterL >= t.waterL*0.9});
   for(var i=0;i<t.meals;i++){
-    items.push({group:'food', key:'meal'+i, done: !!(n.meals && n.meals[i])});
+    var ate = !!(n.meals && n.meals[i]);
+    items.push({group:'food', key:'meal'+i, label:'มื้อ '+(i+1), val: ate?'กินแล้ว':NA, done: ate});
   }
   var sl = log.sleep || {};
-  items.push({group:'sleep', key:'hours', done: sl.hours!=null && isFinite(sl.hours) && sl.hours>=0 && sl.hours<=24 && t.sleepH!=null && sl.hours >= t.sleepH-0.5});
-  if(t.sleepHygiene) items.push({group:'sleep', key:'hygiene', done: !!sl.hygiene});
-  items.push({group:'body', key:'weight', done: weightFor(iso)!=null});
+  items.push({group:'sleep', key:'hours', label:'ชั่วโมงนอน', val: sl.hours!=null? sl.hours+' ชม.' : NA, done: sl.hours!=null && isFinite(sl.hours) && sl.hours>=0 && sl.hours<=24 && t.sleepH!=null && sl.hours >= t.sleepH-0.5});
+  if(t.sleepHygiene) items.push({group:'sleep', key:'hygiene', label:'Sleep hygiene', val: sl.hygiene?'ทำแล้ว':NA, done: !!sl.hygiene});
+  var kg = weightFor(iso);
+  items.push({group:'body', key:'weight', label:'น้ำหนักตัว', val: kg!=null? fmt1(kg)+' กก.' : NA, done: kg!=null});
   return items;
+}
+
+/* ---------- ประวัติรายวัน: วันที่ล็อกแล้วเก็บผลสุดท้ายไว้ใน log.final (ไม่เปลี่ยนตามแผน/เป้าที่แก้ทีหลัง) ---------- */
+var REPORT_GROUPS = [
+  {k:'workout', label:'การฝึก'}, {k:'cardio', label:'Cardio'}, {k:'food', label:'โภชนาการ'},
+  {k:'sleep', label:'การนอน'}, {k:'body', label:'น้ำหนักตัว'}
+];
+function dayReport(program, iso){
+  var lg = logFor(iso);
+  if(lg && lg.final) return lg.final;
+  var items = dayItems(program, iso).map(function(x){ return {group:x.group, label:x.label, val:x.val, done:x.done}; });
+  return {items:items, complete: items.every(function(x){ return x.done; })};
+}
+function finalizeLockedDays(){
+  var p = track.program;
+  if(!p || !p.startDate) return;
+  var until = editableFrom();
+  if(track.finalizedThrough===until) return;
+  var changed = [];
+  // ทุกวันตั้งแต่วันเริ่มจนก่อนช่วงที่ยังแก้ได้ — วันที่ไม่มีบันทึกเลยได้ stub ไว้เป็นวันที่ไม่ครบ
+  for(var iso = p.startDate; iso < until; iso = fmtDateISO(addDays(parseISO(iso), 1))){
+    var lg = track.logs[iso];
+    if(lg && lg.final) continue;
+    var rep = dayReport(p, iso);
+    var next = lg ? {} : {date: iso, stub: true};
+    if(lg) Object.keys(lg).forEach(function(k){ next[k] = lg[k]; });
+    next.final = {at: new Date().toISOString(), parts: dayActivity(p, iso), items: rep.items, complete: rep.complete};
+    track.logs[iso] = next;
+    changed.push(iso);
+  }
+  track.finalizedThrough = until;
+  if(!changed.length) return;
+  if(persistLogs() && syncOn()){
+    Promise.resolve(GymBroSync.pushDailyLogs(auth.session.user.id, changed.map(function(d){ return {date:d, payload:track.logs[d]}; }))).catch(function(){});
+  }
 }
 function dayCounts(program, iso){
   var items = dayItems(program, iso);
@@ -850,6 +963,7 @@ function dayStatus(program, iso){
   if(iso < (program.startDate||today)) return 'before';
   if(iso > today) return sKey ? 'future' : 'rest-future';
   var log = logFor(iso);
+  if(log && log.stub) log = null;
   if(!sKey){
     if(!log) return 'rest';
     var c = dayCounts(program, iso);
@@ -1323,7 +1437,7 @@ function sectionFood(iso){
   var doneN = 0;
   if(n.proteinG!=null && n.proteinG>=t.proteinG*0.9) doneN++;
   if(kcalOk(n.kcal, t.kcal)) doneN++;
-  if(n.waterL!=null && n.waterL>=t.waterL) doneN++;
+  if(n.waterL!=null && n.waterL>=t.waterL*0.9) doneN++;
   for(var j=0;j<t.meals;j++){ if(meals[j]) doneN++; }
   return '<div class="sec-card">'+
     '<div class="sec-head"><span class="sq" style="background:var(--food)"></span><h2>โภชนาการ</h2>'+
@@ -1334,9 +1448,9 @@ function sectionFood(iso){
         '<div class="cb"><div class="t">โปรตีนวันนี้</div><div class="s">เป้า '+t.proteinG+' g (2 g ต่อน้ำหนักตัว 1 กก.) — ติ๊กผ่านเมื่อถึง 90% ขึ้นไป</div></div>'+
         '<div class="val"><input type="number" inputmode="decimal" data-act="nut" data-field="proteinG" data-date="'+iso+'" data-fkey="nut-p-'+iso+'" value="'+num(n.proteinG)+'" placeholder="g"><span class="tgt">/ '+t.proteinG+' g</span></div></div>'+
       '<div class="chk'+(kcalOk(n.kcal, t.kcal)?' on':'')+'">'+
-        '<div class="cb"><div class="t">พลังงานที่กินวันนี้</div><div class="s">เป้า '+fmtKcal(t.kcal)+' kcal · '+esc(t.kcalDirection)+(t.kcal!=null?' — ผ่านเมื่ออยู่ในช่วง '+Math.round(t.kcal*0.9).toLocaleString()+'–'+Math.round(t.kcal*1.1).toLocaleString()+' kcal (กินน้อยเกินไปก็ยังไม่ผ่าน)':'')+'</div></div>'+
+        '<div class="cb"><div class="t">พลังงานที่กินวันนี้</div><div class="s">เป้า '+fmtKcal(t.kcal)+' kcal · '+esc(t.kcalDirection)+(t.kcal!=null?' — ผ่านเมื่ออยู่ในช่วง '+Math.ceil(t.kcal*0.9).toLocaleString()+'–'+Math.floor(t.kcal*1.1).toLocaleString()+' kcal (กินน้อยเกินไปก็ยังไม่ผ่าน)':'')+'</div></div>'+
         '<div class="val"><input type="number" inputmode="decimal" data-act="nut" data-field="kcal" data-date="'+iso+'" data-fkey="nut-k-'+iso+'" value="'+num(n.kcal)+'" placeholder="kcal"><span class="tgt">/ '+fmtKcal(t.kcal)+'</span></div></div>'+
-      '<div class="chk'+((n.waterL!=null&&n.waterL>=t.waterL)?' on':'')+'">'+
+      '<div class="chk'+((n.waterL!=null&&n.waterL>=t.waterL*0.9)?' on':'')+'">'+
         '<div class="cb"><div class="t">น้ำดื่ม</div><div class="s">เป้า '+fmt1(t.waterL)+' ลิตร (≈35 มล. ต่อน้ำหนักตัว 1 กก.)</div></div>'+
         '<div class="val"><input type="number" inputmode="decimal" step="0.1" data-act="nut" data-field="waterL" data-date="'+iso+'" data-fkey="nut-w-'+iso+'" value="'+num(n.waterL)+'" placeholder="ลิตร"><span class="tgt">/ '+fmt1(t.waterL)+' ล.</span></div></div>'+
       '<div class="chk"><div class="cb"><div class="t">มื้ออาหารตามแผน</div><div class="s">'+t.meals+' มื้อ/วัน ตามที่ตอบไว้ — กดเพื่อติ๊กเมื่อกินแล้ว</div>'+
@@ -1394,8 +1508,41 @@ function sectionBody(iso){
     '</div></div></div>';
 }
 
+function sectionCardio(iso){
+  var p = track.program;
+  var planned = cardioPlannedFor(p, iso);
+  var mins = cardioMinutesOn(iso);
+  var target = p.cardioMinutes || 30;
+  return '<div class="sec-card">'+
+    '<div class="sec-head"><span class="sq" style="background:var(--branch)"></span><h2>Cardio</h2>'+
+    '<span class="meta">'+(planned ? 'ตามแผน ~'+target+' นาที' : 'ไม่ได้อยู่ในแผนวันนี้ — ถ้าทำก็บันทึกได้')+'</span>'+
+    (planned ? '<span class="cnt">'+(mins?1:0)+'/1</span>' : '')+'</div>'+
+    '<div class="chk-list"><div class="chk'+(mins?' on':'')+'">'+
+      '<div class="cb"><div class="t">เวลาที่ทำ cardio วันนี้</div><div class="s">กรอกจำนวนนาทีที่ทำจริง (เดินเร็ว วิ่ง ปั่นจักรยาน ฯลฯ)</div></div>'+
+      '<div class="val"><input type="number" inputmode="numeric" min="0" max="600" data-act="cardio-min" data-date="'+iso+'" data-fkey="cardio-'+iso+'" value="'+num(mins)+'" placeholder="นาที"><span class="tgt">'+(planned?'/ '+target+' นาที':'นาที')+'</span></div>'+
+    '</div></div></div>';
+}
+
 function dayEditor(iso){
-  return sectionWorkout(iso) + sectionFood(iso) + sectionSleep(iso) + sectionBody(iso);
+  return sectionWorkout(iso) + sectionCardio(iso) + sectionFood(iso) + sectionSleep(iso) + sectionBody(iso);
+}
+function dayDetailHTML(iso){
+  var rep = dayReport(track.program, iso);
+  return REPORT_GROUPS.map(function(g){
+    var its = rep.items.filter(function(x){ return x.group===g.k; });
+    if(!its.length) return '';
+    var ok = its.every(function(x){ return x.done; });
+    return '<div class="sec-card"><div class="sec-head"><h2'+(ok?'':' class="act-miss"')+'>'+esc(g.label)+'</h2>'+
+      '<span class="cnt">'+its.filter(function(x){return x.done;}).length+'/'+its.length+'</span></div>'+
+      '<div class="hist-items">'+its.map(function(x){
+        return '<div class="hist-item'+(x.done?'':' act-miss')+'"><span>'+esc(x.label)+'</span><span class="mono">'+esc(x.val)+'</span></div>';
+      }).join('')+'</div></div>';
+  }).join('');
+}
+/* วันที่ยังแก้ได้ = ฟอร์มบันทึก, วันที่ล็อกแล้ว = ดูผลสุดท้ายอย่างเดียว */
+function dayPanelBody(iso){
+  if(isEditable(iso)) return dayEditor(iso);
+  return '<div class="banner info"><div class="ic">🔒</div><div>วันนี้ถูกล็อกแล้ว ดูได้อย่างเดียว — บันทึกหรือแก้ไขได้เฉพาะวันนี้และเมื่อวาน</div></div>'+dayDetailHTML(iso);
 }
 
 /* ---------- หน้า: วันนี้ ---------- */
@@ -1410,8 +1557,8 @@ function renderToday(){
 
   var html = '<div class="page-head"><div>'+
       '<div class="eyebrow">'+esc(longDateTH(iso))+'</div>'+
-      '<h1>วันนี้</h1>'+
-      '<div class="sub">'+(sKey? 'เซสชัน “'+esc(sKey)+'” ตามตารางที่ผูกกับวันที่จริง — ติ๊กทีละข้อระหว่างวันได้เลย ข้อมูลบันทึกทันทีที่กด' : 'วันพักตามตาราง — เช็คลิสต์เหลือเฉพาะโภชนาการ การนอน และน้ำหนักตัว')+'</div>'+
+      '<h1>วันนี้: '+dayLabelHTML(p, iso, 'พัก')+'</h1>'+
+      '<div class="sub">'+(sKey||cardioPlannedFor(p, iso)? 'ตามตารางที่ผูกกับวันที่จริง — ติ๊กทีละข้อระหว่างวันได้เลย ข้อมูลบันทึกทันทีที่กด' : 'วันพักตามตาราง — ถ้าทำ cardio เพิ่มก็บันทึกได้ เช็คลิสต์ที่เหลือคือโภชนาการ การนอน และน้ำหนักตัว')+'</div>'+
     '</div><div class="head-actions">'+
       '<button type="button" class="btn" data-act="nav" data-view="schedule">ดูตารางทั้งสัปดาห์</button>'+
       '<button type="button" class="btn" data-act="nav" data-view="progress">ความคืบหน้า</button>'+
@@ -1425,9 +1572,9 @@ function renderToday(){
         (track.saveStatus? '<span class="save-status">'+esc(track.saveStatus)+'</span>':'')+
       '</div>'+
       '<div class="side-card"><h3>พรุ่งนี้</h3>'+
-        '<p><b>'+esc(tKey||'พักฟื้น')+'</b><br>'+esc(tSess? tSess.exercises.map(function(e){return e.th;}).slice(0,3).join(' · ') : 'ยืดกล้ามเนื้อ เดินเบาๆ และนอนให้ครบเป้า')+'</p>'+
+        '<p><b>'+dayLabelHTML(p, tomorrowIso, 'พักฟื้น')+'</b><br>'+esc(tSess? tSess.exercises.map(function(e){return e.th;}).slice(0,3).join(' · ') : (cardioPlannedFor(p, tomorrowIso)? 'Cardio ~'+(p.cardioMinutes||30)+' นาที' : 'ยืดกล้ามเนื้อ เดินเบาๆ และนอนให้ครบเป้า'))+'</p>'+
         '<button type="button" class="linkbtn" data-act="nav" data-view="schedule">ดูตารางทั้งสัปดาห์ →</button></div>'+
-      '<div class="side-card"><h3>ทำตามแผนไม่ได้?</h3><p>ข้ามได้โดยไม่ต้องแก้อะไร — วันที่ไม่ได้ติ๊กจะขึ้นว่า “ยังไม่บันทึก” เฉยๆ ไม่มีสีแดงเตือน และย้อนกลับไปบันทึกทีหลังได้จากหน้าตารางฝึก</p>'+
+      '<div class="side-card"><h3>ทำตามแผนไม่ได้?</h3><p>ข้ามได้โดยไม่ต้องแก้อะไร — เมื่อผ่านวันไปแล้ว ชื่อกิจกรรมที่ไม่สำเร็จจะเป็นตัวแดงในตารางฝึก — บันทึกย้อนหลังได้แค่เมื่อวาน หลังจากนั้นวันนั้นจะล็อก</p>'+
         '<button type="button" class="linkbtn" data-act="nav" data-view="plan">ปรับแผน/เปลี่ยนวันฝึก →</button></div>'+
     '</aside></div>';
 
@@ -1462,18 +1609,22 @@ function renderWeekGrid(){
     var sKey = sessionKeyFor(p, iso);
     var sess = sessionDefFor(p, sKey);
     var stt = dayStatus(p, iso);
-    var openable = (iso <= today && iso >= p.startDate);
-    var cls = 'wk-card' + (sKey?'':' rest') + (iso===today?' is-today':'') + (iso < p.startDate?' before':'');
+    var openable = iso <= today && (iso >= p.startDate || !!logFor(iso));
+    var hasCardio = cardioPlannedFor(p, iso);
+    var active = !!sKey || hasCardio || !!cardioMinutesOn(iso);
+    var cls = 'wk-card' + (active?'':' rest') + (iso===today?' is-today':'') + (iso < p.startDate?' before':'');
     var chips = (iso===today?'<span class="chip now">วันนี้</span>':'') +
-                (sKey?'<span class="chip">'+esc(p.minutesEstimate||'')+'</span>':'<span class="chip">พัก</span>') +
+                (sKey?'<span class="chip">'+esc(p.minutesEstimate||'')+'</span>':(active?'':'<span class="chip">พัก</span>')) +
                 (STATUS_CHIP[stt]||'');
+    var cardioTxt = hasCardio ? 'Cardio ~'+(p.cardioMinutes||30)+' นาที' : '';
     var sub = sess
-      ? sess.exercises.map(function(e){return e.th;}).join(' · ')
-      : 'ยืดกล้ามเนื้อ 10 นาที · เดินเบาๆ · เน้นนอนให้ครบเป้า';
+      ? sess.exercises.map(function(e){return e.th;}).join(' · ') + (cardioTxt? ' · '+cardioTxt : '')
+      : (cardioTxt || (active ? 'ทำ cardio เพิ่มนอกแผน' : 'ยืดกล้ามเนื้อ 10 นาที · เดินเบาๆ · เน้นนอนให้ครบเป้า'));
+    if(iso < p.startDate){ chips = STATUS_CHIP.before; sub = logFor(iso) ? 'ก่อนเริ่มแผนปัจจุบัน — กดเพื่อดูบันทึก' : 'ก่อนเริ่มแผนปัจจุบัน'; }
     cards += '<button type="button" class="'+cls+'"'+(openable?' data-act="open-day" data-date="'+iso+'" data-open="1"':' disabled')+'>'+
       '<div class="wk-top"><span class="wk-day mono">'+esc(DAYS_SHORT[i])+'</span><span class="wk-date mono">'+d.getDate()+' '+esc(TH_MONTHS[d.getMonth()])+'</span>'+
       '<span class="wk-chips">'+chips+'</span></div>'+
-      '<div class="wk-name">'+esc(sKey||'พักฟื้น')+'</div>'+
+      '<div class="wk-name">'+dayLabelHTML(p, iso, 'พักฟื้น')+'</div>'+
       '<div class="wk-sub">'+esc(sub)+'</div></button>';
   }
   var we = addDays(ws,6);
@@ -1483,7 +1634,7 @@ function renderWeekGrid(){
       '<button type="button" data-act="week-today">สัปดาห์นี้</button>'+
       '<button type="button" data-act="week-next">สัปดาห์ถัดไป →</button></div></div>'+
     '<div class="wk-grid">'+cards+'</div>'+
-    '<p class="hint" style="margin-top:12px">คลิกวันที่ผ่านมาแล้วหรือวันนี้เพื่อเปิดบันทึกของวันนั้น — วันในอนาคตและวันก่อนเริ่มโปรแกรมกดไม่ได้</p>';
+    '<p class="hint" style="margin-top:12px">คลิกวันที่ผ่านมาแล้วหรือวันนี้เพื่อเปิดบันทึกของวันนั้น — บันทึก/แก้ไขได้เฉพาะวันนี้และเมื่อวาน วันก่อนหน้านั้นดูได้อย่างเดียว</p>';
 }
 
 function renderMonthGrid(){
@@ -1502,7 +1653,8 @@ function renderMonthGrid(){
     var sKey = sessionKeyFor(p, iso);
     var stt = dayStatus(p, iso);
     var cls = "month-day", mark = "", openable = false;
-    if(!sKey) cls += " rest";
+    var mActive = !!sKey || cardioPlannedFor(p, iso) || !!cardioMinutesOn(iso);
+    if(!mActive) cls += " rest";
     if(stt==='before') cls += " before-start";
     else if(stt==='future'){ cls += " future"; mark = "ยังไม่ถึง"; }
     else if(stt==='done'){ cls += " done"; mark = "✓ ครบ"; openable = true; }
@@ -1515,7 +1667,7 @@ function renderMonthGrid(){
     var close = openable ? 'button' : 'div';
     cells += '<'+tag+' class="'+cls+'">'+
       '<span class="md-num mono">'+dd+'</span>'+
-      '<span class="md-sess'+(sKey?'':' rest')+'">'+esc(sKey||'พัก')+'</span>'+
+      '<span class="md-sess'+(mActive?'':' rest')+'">'+dayLabelHTML(p, iso, 'พัก')+'</span>'+
       (mark?'<span class="md-mark mono">'+esc(mark)+'</span>':'')+
       '</'+close+'>';
   }
@@ -1525,7 +1677,7 @@ function renderMonthGrid(){
       '<button type="button" data-act="month-today">เดือนนี้</button>'+
       '<button type="button" data-act="month-next">เดือนถัดไป →</button></div></div>'+
     '<div class="month-grid">'+dowRow+cells+'</div>'+
-    '<p class="hint" style="margin-top:12px">พื้นเขียว = ทำครบและติ๊กแล้ว · ขอบสีน้ำเงิน = บันทึกบางส่วน · ไม่มีสีเน้น = ยังไม่บันทึก (ตั้งใจไม่ใช้สีแดงกับวันที่พลาด) — คลิกวันเพื่อบันทึกย้อนหลัง</p>';
+    '<p class="hint" style="margin-top:12px">พื้นเขียว = ทำครบและติ๊กแล้ว · ขอบสีน้ำเงิน = บันทึกบางส่วน · <span class="act-miss">ตัวแดง</span> = กิจกรรมที่ผ่านวันไปแล้วแต่ไม่สำเร็จ — คลิกวันเพื่อเปิดดู (แก้ไขได้เฉพาะวันนี้และเมื่อวาน)</p>';
 }
 
 function renderSchedule(){
@@ -1545,10 +1697,10 @@ function renderSchedule(){
     var iso = track.openDate;
     html += '<div class="log-panel" id="logPanel">'+
       '<h3>บันทึกของ '+esc(longDateTH(iso))+'</h3>'+
-      '<div class="lp-sub">'+esc(iso)+' · '+(sessionKeyFor(p,iso)||'วันพัก')+' — แก้ไขย้อนหลังได้ ข้อมูลบันทึกทันทีที่กรอก</div>'+
-      '<div class="stack">'+dayEditor(iso)+'</div>'+
+      '<div class="lp-sub">'+esc(iso)+' · '+dayLabelHTML(p, iso, 'วันพัก')+(isEditable(iso)?' — แก้ไขได้ถึงเที่ยงคืนของวันถัดไป ข้อมูลบันทึกทันทีที่กรอก':' — ล็อกแล้ว')+'</div>'+
+      '<div class="stack">'+dayPanelBody(iso)+'</div>'+
       '<div class="log-actions"><button type="button" class="btn" data-act="close-day">ปิด</button>'+
-      (logFor(iso)? '<button type="button" class="btn ghost" data-act="clear-day" data-date="'+iso+'">ล้างบันทึกของวันนี้</button>':'')+
+      (logFor(iso) && isEditable(iso)? '<button type="button" class="btn ghost" data-act="clear-day" data-date="'+iso+'">ล้างบันทึกของวันนี้</button>':'')+
       '<span class="save-status">'+esc(track.saveStatus||'')+'</span></div>'+
       '</div>';
   }
@@ -1632,6 +1784,42 @@ function milestonesOf(p){
   return list;
 }
 
+function historyHTML(p){
+  var today = todayISO();
+  // ประวัติจากแผนก่อนหน้า (ก่อนวันเริ่มปัจจุบัน) ยังต้องเห็นอยู่ — แสดงเฉพาะวันที่มีบันทึกจริง
+  var firstDay = Object.keys(track.logs).concat([p.startDate]).sort()[0];
+  var oldest = fmtDateISO(addDays(new Date(), -(track.histDays-1)));
+  if(oldest < firstDay) oldest = firstDay;
+  var rows = '';
+  for(var d=new Date(); fmtDateISO(d) >= oldest; d=addDays(d,-1)){
+    var iso = fmtDateISO(d);
+    if(iso < p.startDate && !logFor(iso)) continue;
+    var rep = dayReport(p, iso);
+    var past = iso < today, open = track.histOpen===iso, editable = isEditable(iso);
+    var status = !past ? '<span class="chip">กำลังบันทึก</span>'
+      : rep.complete ? '<span class="chip ok">ครบ ✓'+(editable?'':' 🔒')+'</span>'
+      : '<span class="chip miss">ไม่ครบ'+(editable?' · แก้ได้ถึงเที่ยงคืนนี้':' 🔒')+'</span>';
+    var groups = REPORT_GROUPS.map(function(g){
+      var its = rep.items.filter(function(x){ return x.group===g.k; });
+      if(!its.length) return '';
+      var n = its.filter(function(x){ return x.done; }).length;
+      return '<span class="chip'+(past && n<its.length?' miss':'')+'">'+esc(g.label)+' '+n+'/'+its.length+'</span>';
+    }).join('');
+    rows += '<button type="button" class="hist-row'+(past && !rep.complete?' miss':'')+(open?' open':'')+'" data-act="hist-open" data-date="'+iso+'" aria-expanded="'+open+'">'+
+      '<div class="hist-top"><span class="hist-date">'+esc(longDateTH(iso))+'</span><span>· '+dayLabelHTML(p, iso, 'พัก')+'</span>'+status+'</div>'+
+      '<div class="hist-groups">'+groups+'</div></button>';
+    if(open){
+      rows += '<div class="log-panel"><div class="stack">'+dayPanelBody(iso)+'</div>'+
+        '<div class="log-actions"><button type="button" class="btn" data-act="hist-open" data-date="'+iso+'">ปิด</button>'+
+        '<span class="save-status">'+esc(track.saveStatus||'')+'</span></div></div>';
+    }
+  }
+  var more = oldest > firstDay ? '<button type="button" class="btn ghost" data-act="hist-more" style="margin-top:10px">ดูย้อนหลังเพิ่มอีก 14 วัน</button>' : '';
+  return '<div class="section-title">บันทึกรายวันย้อนหลัง</div><div class="card">'+
+    '<p class="hint" style="margin-top:0">ระบบตัดบันทึกทุกเที่ยงคืน — วันนี้และเมื่อวานยังบันทึก/แก้ไขได้ (กดที่วันเพื่อเปิด) วันก่อนหน้านั้นถูกล็อกเป็นประวัติถาวร · <span class="act-miss">สีแดง</span> = ข้อมูลไม่ครบหรือไม่ถึงเป้า (แคลอรี่ผ่านเมื่ออยู่ในช่วง ±10% ของเป้า · โปรตีนและน้ำผ่านเมื่อถึง 90% ขึ้นไป)</p>'+
+    '<div class="hist-list">'+rows+'</div>'+more+'</div>';
+}
+
 function renderProgress(){
   var p = track.program, t = targetsOf(p);
   var series = weightSeries();
@@ -1643,6 +1831,8 @@ function renderProgress(){
     '<h1>ความคืบหน้า</h1>'+
     '<div class="sub">ทุกตัวเลขในหน้านี้คำนวณจากสิ่งที่คุณบันทึกไว้จริงเท่านั้น ไม่มีค่าตัวอย่างผสม — ช่องไหนยังว่างแปลว่ายังไม่มีข้อมูลพอ</div></div>'+
     '<div class="head-actions"><button type="button" class="btn" data-act="nav" data-view="today">กลับไปเช็คลิสต์วันนี้</button></div></div>';
+
+  html += historyHTML(p);
 
   var deltaFirst = (last && startW!=null) ? (last.kg - startW) : null;
   var remain = (last && t.goalWeight!=null) ? (last.kg - t.goalWeight) : null;
@@ -1854,6 +2044,9 @@ function renderPlan(){
           '<div class="ex-meta"><span class="ex-sets mono">'+esc(ex.setsReps)+'</span></div></div></div>';
       }).join('')+'</div>';
   }).join('');
+  if((p.cardioDays||[]).length){
+    html += '<div class="session-heading">Cardio <span class="sh-sub">'+p.cardioDays.length+'x/สัปดาห์ — '+esc(p.cardioDays.join(', '))+' · ~'+(p.cardioMinutes||30)+' นาที</span></div>';
+  }
 
   html += '<div class="disclaimer-block"><h3>สิ่งที่ต้องรู้ก่อนใช้จริง</h3><ul>'+
     '<li>ตัวเลข sets/reps, tier ของท่า และเกณฑ์แคลอรี่/มาโคร/น้ำ/การนอนทั้งหมดเป็น <b>placeholder</b> ที่ยังไม่ผ่านการ review จากเทรนเนอร์/นักโภชนาการตัวจริง</li>'+
@@ -2161,12 +2354,15 @@ function resultsHTML(){
   var t = computeTargets(a);
   var bmiNow = bmiOf(parseFloat(a.Q12), parseFloat(a.Q11));
   var bmiTarget = t.goalWeight ? bmiOf(t.goalWeight, parseFloat(a.Q11)) : null;
-  var adjacency = weekdayAdjacencyWarning(a.Q2||[]);
+  var trainDays = planTrainDays(a), cardioDays = planCardioDays(a);
+  var adjacency = weekdayAdjacencyWarning(trainDays);
   var pKcal = t.proteinG*4, fKcal = t.fatG*9, cKcal = t.carbG*4, tot = pKcal+fKcal+cKcal;
   var pPct = Math.round(pKcal/tot*100), fPct = Math.round(fKcal/tot*100), cPct = 100-pPct-fPct;
 
   var split = effectiveSplit(a), splitDef = SPLIT_DEFS[split], feas = splitFeasibility(a);
-  var assignment = assignSessions(split, a.Q2||[]);
+  var minTrain = minTrainDays(split, a);
+  var scheduleOk = trainDays.length >= minTrain;
+  var assignment = assignSessions(split, trainDays);
   var dayToSession = {};
   assignment.forEach(function(x){ dayToSession[x.day]=x.session; });
   var autoPick = autoSplit(a);
@@ -2191,16 +2387,30 @@ function resultsHTML(){
     ? '<div class="split-auto-line">คุณเลือกรูปแบบนี้เอง — <button type="button" data-act="split-auto">ให้ระบบแนะนำอัตโนมัติแทน</button></div>'
     : '<div class="split-auto-line">ระบบแนะนำอัตโนมัติตามวันว่างและประสบการณ์ที่ตอบไว้ — กดเลือกรูปแบบอื่นด้านบนได้ถ้าต้องการ</div>';
 
+  var cardioMin = state.plan.cardioMinutes || 30;
   var weekPreview = DAYS.map(function(d,i){
-    var active = (a.Q2||[]).indexOf(d)>-1;
-    var sKey = dayToSession[d];
-    var seDef = active ? splitDef.sessions.filter(function(s){return s.key===sKey;})[0] : null;
+    var avail = (a.Q2||[]).indexOf(d)>-1;
+    var train = trainDays.indexOf(d)>-1, cardio = cardioDays.indexOf(d)>-1;
+    var sKey = train ? dayToSession[d] : null;
+    var seDef = sKey ? splitDef.sessions.filter(function(s){return s.key===sKey;})[0] : null;
     var chips = seDef ? seDef.patterns.map(function(p){ return '<span class="chip">'+esc(PATTERN_SHORT[p]||p)+'</span>'; }).join('') : '';
-    return '<div class="wk-card'+(active?'':' rest')+'"><div class="wk-top"><span class="wk-day mono">'+esc(DAYS_SHORT[i])+'</span>'+
-      (active?'<span class="chip">'+esc(a.Q3||'')+'</span>':'<span class="chip">พัก</span>')+'</div>'+
-      '<div class="wk-name">'+esc(active? sKey : 'พักฟื้น')+'</div>'+
-      '<div class="wk-sub">'+(chips||'ยืดกล้ามเนื้อ · เดินเบาๆ · นอนให้ครบ')+'</div></div>';
+    var name = [sKey, cardio?'Cardio':null].filter(Boolean).join(' + ') || (avail ? 'พัก' : 'ไม่ว่าง');
+    var btns = avail
+      ? '<div class="sched-btns">'+
+          '<button type="button" class="opt'+(train?' sel':'')+'" data-act="train-day" data-day="'+esc(d)+'" aria-pressed="'+train+'">ฝึก</button>'+
+          '<button type="button" class="opt'+(cardio?' sel':'')+'" data-act="cardio-day" data-day="'+esc(d)+'" aria-pressed="'+cardio+'">Cardio</button>'+
+        '</div>'
+      : '<div class="wk-sub">ไม่ได้เลือกเป็นวันว่างในแบบสอบถาม</div>';
+    return '<div class="wk-card'+(train||cardio?'':' rest')+(avail?'':' unavail')+'"><div class="wk-top"><span class="wk-day mono">'+esc(DAYS_SHORT[i])+'</span>'+
+      (train?'<span class="chip">'+esc(a.Q3||'')+'</span>':'')+(cardio?'<span class="chip">Cardio '+cardioMin+' นาที</span>':'')+'</div>'+
+      '<div class="wk-name">'+esc(name)+'</div>'+
+      (chips?'<div class="wk-sub">'+chips+'</div>':'')+btns+'</div>';
   }).join('');
+  var scheduleNote = scheduleOk
+    ? '<div class="split-auto-line">เลือกวันฝึกไว้ '+trainDays.length+' วัน (ขั้นต่ำของ '+esc(splitDef.label)+' คือ '+minTrain+' วัน) · Cardio '+cardioDays.length+' วัน — เลือกได้เฉพาะวันที่ว่างตามที่ตอบไว้ ไม่ต้องใช้ครบทุกวัน และ cardio จะอยู่วันเดียวกับวันฝึกหรือคนละวันก็ได้</div>'
+    : '<div class="banner warn"><div class="ic">⚠️</div><div>'+esc(splitDef.label)+' ต้องมีวันฝึกอย่างน้อย <b>'+minTrain+' วัน/สัปดาห์</b> ตอนนี้เลือกไว้ '+trainDays.length+' วัน — กด “ฝึก” เพิ่มในวันที่ว่างก่อนเริ่มโปรแกรม</div></div>';
+  var cardioRow = '<div class="sched-row"><label for="cardioTargetInput">เวลา cardio ต่อครั้ง</label>'+
+    '<input type="number" id="cardioTargetInput" inputmode="numeric" min="5" max="300" data-act="cardio-target" data-fkey="cardio-target" value="'+cardioMin+'"> นาที</div>';
 
   function buildExRow(pattern){
     var sel = selectionFor(pattern, a);
@@ -2241,7 +2451,7 @@ function resultsHTML(){
     var warnRec = (isOverride && !feas[split].recommended) ? ' — รูปแบบนี้ปกติแนะนำสำหรับคนที่มีประสบการณ์มากกว่านี้ ระบบยังสร้างตารางให้ตามที่คุณเลือกได้ แต่โปรดสังเกตความเหนื่อยล้า/ฟอร์มท่าให้ดีเป็นพิเศษในช่วงแรก' : '';
     var daysStr=(a.Q2||[]).join(', '), body;
     if(split==='fullbody'){
-      body = ' เพราะวันที่เลือก ('+daysStr+') '+
+      body = ' เพราะวันฝึกที่เลือก ('+(trainDays.join(', ')||'—')+') '+
         (adjacency ? 'มีวันที่ติดกัน — โปรดสังเกตว่ากล้ามเนื้อกลุ่มเดิมอาจได้พักไม่ถึง ~48 ชม. แนะนำให้เว้นอย่างน้อย 1 วันระหว่างเซสชันถ้าเป็นไปได้'
           : 'ไม่ติดกัน ทำให้แต่ละกลุ่มกล้ามเนื้อได้พัก ≥48 ชม. ระหว่างเซสชันพอดี')+
         ' และประสบการณ์ระดับ "'+a.Q16+'" เหมาะกับ Full Body ที่สุดในบรรดา 4 รูปแบบที่ MVP นี้รองรับ';
@@ -2274,8 +2484,11 @@ function resultsHTML(){
 
     '<div class="section-title">รูปแบบโปรแกรมและตารางรายสัปดาห์</div>'+
     splitPicker + splitFooter +
-    '<div class="wk-grid" style="margin-top:12px">'+weekPreview+'</div>'+
     '<div class="reasoning-card">'+reasoning+'</div>'+
+    '<div class="section-title">เลือกวันฝึกและวัน cardio</div>'+
+    '<p class="hint">วันว่างที่ตอบไว้คือวันที่ “เลือกได้” — กดเลือกเฉพาะวันที่จะเล่นจริง</p>'+
+    '<div class="wk-grid" style="margin-top:12px">'+weekPreview+'</div>'+
+    scheduleNote + cardioRow +
     (Object.keys(state.plan.forceLowTier).length ? '<div class="banner info"><div class="ic">ⓘ</div><div>คุณเพิ่งแจ้งว่าหายจากอาการบาดเจ็บสำหรับบางท่า — ระบบเริ่มท่าในกลุ่มนั้นใหม่จาก <b>Tier ต่ำสุด</b> ก่อนเสมอเพื่อความปลอดภัย</div></div>' : '')+
 
     '<div class="section-title">รายละเอียดเซสชัน</div>'+
@@ -2283,7 +2496,7 @@ function resultsHTML(){
     sessionBlocks+
 
     (track.editing ? renderStartSetup() :
-      '<div class="sum-actions"><button type="button" class="btn primary" data-act="edit-start">'+(track.program?'บันทึกแผนใหม่ (ตั้งวันเริ่ม) →':'เริ่มโปรแกรม →')+'</button>'+
+      '<div class="sum-actions"><button type="button" class="btn primary" data-act="edit-start"'+(scheduleOk?'':' disabled')+'>'+(track.program?'บันทึกแผนใหม่ (ตั้งวันเริ่ม) →':'เริ่มโปรแกรม →')+'</button>'+
       '<button type="button" class="btn ghost" data-act="back-summary">← กลับไปหน้าสรุปคำตอบ</button>'+
       (track.program? '<button type="button" class="btn ghost" data-act="exit-edit">ยกเลิก กลับไปแอป</button>':'')+'</div>')+
     '</div>' + demoModalHTML();
@@ -2373,6 +2586,7 @@ function render(toTop){
     if(toTop) window.scrollTo({top:0, behavior:"auto"});
     return;
   }
+  finalizeLockedDays();
   var view = currentView();
   var f = captureFocus();
   renderNav(view);
@@ -2572,6 +2786,7 @@ document.addEventListener("click", function(ev){
   if(act==='open-day'){ track.openDate = iso; track.saveStatus=''; track.scrollToPanel=true; render(); return; }
   if(act==='close-day'){ track.openDate=null; track.saveStatus=''; render(); return; }
   if(act==='clear-day'){
+    if(!isEditable(iso)) return;
     delete track.logs[iso];
     persistLogs();
     track.saveStatus=''; track.openDate=null; render();
@@ -2595,6 +2810,8 @@ document.addEventListener("click", function(ev){
     patchNutrition(iso, {meals:meals});
     return;
   }
+  if(act==='hist-open'){ track.histOpen = (track.histOpen===iso ? null : iso); track.saveStatus=''; render(); return; }
+  if(act==='hist-more'){ track.histDays += 14; render(); return; }
   if(act==='progress-ex'){ track.progressEx = el.getAttribute('data-ex'); render(); return; }
   if(act==='hard-restart'){
     lsRemove("gymbro_program"); lsRemove("gymbro_logs"); lsRemove("gymbro_weights"); lsRemove("gymbro_onb_proto");
@@ -2603,9 +2820,15 @@ document.addEventListener("click", function(ev){
     render(true);
     return;
   }
-  if(act==='edit-plan'){ state.editPlan=true; state.step=9; state.mode='results'; track.editing=false; persist(); render(true); return; }
+  if(act==='edit-plan'){
+    if(track.program && state.plan.trainDays==null){
+      state.plan.trainDays = (track.program.days||[]).slice();
+      state.plan.cardioDays = (track.program.cardioDays||[]).slice();
+      state.plan.cardioMinutes = track.program.cardioMinutes || 30;
+    }
+    state.editPlan=true; state.step=9; state.mode='results'; track.editing=false; persist(); render(true); return; }
   if(act==='exit-edit'){ state.editPlan=false; track.editing=false; persist(); render(true); return; }
-  if(act==='edit-start'){ track.editing=true; track.saveStatus=''; render(); return; }
+  if(act==='edit-start'){ if(el.disabled) return; track.editing=true; track.saveStatus=''; render(); return; }
   if(act==='cancel-start'){ track.editing=false; render(); return; }
   if(act==='save-start'){
     var input = document.getElementById('startDateInput');
@@ -2625,6 +2848,12 @@ document.addEventListener("click", function(ev){
       if(!inScope(state.answers) || gateIssues.length || gateSafety.blocked){
         track.saveStatus = 'ยังสร้างตารางไม่ได้ — ข้อมูลไม่ครบหรืออยู่นอกขอบเขตที่รองรับ ('+
           (gateSafety.blocked ? gateSafety.reason : (gateIssues[0] || 'เป้าหมาย/สถานที่ยังไม่รองรับ'))+') กลับไปแก้แบบสอบถามก่อน';
+        render();
+        return;
+      }
+      var gSplit = effectiveSplit(state.answers);
+      if(planTrainDays(state.answers).length < minTrainDays(gSplit, state.answers)){
+        track.saveStatus = 'ยังสร้างตารางไม่ได้ — '+SPLIT_DEFS[gSplit].label+' ต้องมีวันฝึกอย่างน้อย '+minTrainDays(gSplit, state.answers)+' วัน/สัปดาห์';
         render();
         return;
       }
@@ -2656,6 +2885,14 @@ document.addEventListener("click", function(ev){
   }
   if(act==='split'){ if(el.disabled) return; state.plan.splitOverride = el.getAttribute('data-split'); state.plan.manualPick={}; persist(); render(); return; }
   if(act==='split-auto'){ state.plan.splitOverride=null; state.plan.manualPick={}; persist(); render(); return; }
+  if(act==='train-day' || act==='cardio-day'){
+    var dday = el.getAttribute('data-day');
+    var list = act==='train-day' ? planTrainDays(state.answers) : planCardioDays(state.answers);
+    var at = list.indexOf(dday);
+    if(at>-1) list.splice(at,1); else list.push(dday);
+    if(act==='train-day') state.plan.trainDays = list; else state.plan.cardioDays = list;
+    persist(); render(); return;
+  }
   if(act==='swap-toggle'){ var pt=el.getAttribute('data-pattern'); track.openSwap = (track.openSwap===pt? null : pt); render(); return; }
   if(act==='demo'){ track.demoExercise = {exId:el.getAttribute('data-exid'), pattern:el.getAttribute('data-pattern'), th:el.getAttribute('data-th'), sub:el.getAttribute('data-sub')}; render(); return; }
   if(act==='demo-stop'){ return; } // คลิกภายในโมดัลไม่ปิด (กันคลิกทะลุไป backdrop)
@@ -2687,6 +2924,18 @@ document.addEventListener("change", function(ev){
     return;
   }
   if(act==='sleep-hyg'){ patchSleep(iso, {hygiene: el.checked}); return; }
+  if(act==='cardio-min'){
+    var cm = numInRange(el.value, 0, 600);
+    if(el.value==='') saveDay(iso, {cardio:{}});
+    else if(cm.valid) saveDay(iso, {cardio:{minutes: Math.round(cm.value)}});
+    else render();
+    return;
+  }
+  if(act==='cardio-target'){
+    var ct = numInRange(el.value, 5, 300);
+    if(ct.valid && ct.value!=null){ state.plan.cardioMinutes = Math.round(ct.value); persist(); }
+    render(); return;
+  }
   if(act==='weight'){
     var kg = numOrNull(el.value);
     if(kg==null){ return; }
@@ -2780,8 +3029,12 @@ function hydrateFromRemote(userId){
     var rows = (res && res.data) || [];
     var merged = {}, toPush = [];
     Object.keys(track.logs).forEach(function(d){ merged[d] = track.logs[d]; });
-    rows.forEach(function(r){ if(!(r.log_date in merged)) merged[r.log_date] = r.payload; });
-    Object.keys(track.logs).forEach(function(d){ toPush.push(GymBroSync.pushDailyLog(userId, d, track.logs[d])); });
+    // stub (วันว่างที่ระบบล็อกให้เอง) ต้องไม่ชนะข้อมูลจริงที่บันทึกไว้จากเครื่องอื่น
+    rows.forEach(function(r){
+      var loc = merged[r.log_date];
+      if(!loc || (loc.stub && r.payload && !r.payload.stub)) merged[r.log_date] = r.payload;
+    });
+    Object.keys(track.logs).forEach(function(d){ if(merged[d]===track.logs[d]) toPush.push(GymBroSync.pushDailyLog(userId, d, track.logs[d])); });
     track.logs = merged; lsSet("gymbro_logs", track.logs);
     if(toPush.length) return Promise.all(toPush);
   }).catch(function(){}).then(function(){
@@ -2810,12 +3063,13 @@ function hydrateFromRemote(userId){
         state.plan.unlockedEx = remote.plan.unlockedEx||{};
         state.plan.forceLowTier = remote.plan.forceLowTier||{};
         state.plan.splitOverride = remote.plan.splitOverride||null;
+        loadPlanSchedule(state.plan, remote.plan);
       }
       lsSet("gymbro_onb_proto", state);
     } else if(hasLocalAnswers){
       return GymBroSync.pushOnboarding(userId, state);
     }
-  }).catch(function(){});
+  }).catch(function(){}).then(function(){ track.finalizedThrough = null; });
 }
 
 /* ---------- boot: เช็ค session ก่อน render ครั้งแรกเสมอ ถ้า Supabase โหลดไม่ได้เลย

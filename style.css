@@ -352,6 +352,12 @@ input:focus{border-color:var(--accent); outline:none;}
 .wk-chips{margin-left:auto; display:flex; gap:5px; flex-wrap:wrap;}
 .wk-name{font-weight:700; font-size:14px;}
 .act-miss{color:var(--warn); font-weight:700;}
+.wu-list{display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:8px; font-size:12px;}
+.wu-label{color:var(--text-3);}
+.wu-item{display:inline-flex; align-items:center; gap:5px; border:1px dashed var(--border-strong); border-radius:var(--r-sm); padding:3px 8px; cursor:pointer; color:var(--text-2); font-family:ui-monospace,monospace;}
+.wu-item input{margin:0; accent-color:var(--accent);}
+.wu-item.on{border-style:solid; border-color:var(--accent-line); background:var(--accent-soft); color:var(--text);}
+.wu-basis{font-size:11px; color:var(--text-4); margin-top:3px;}
 .hist-items{display:flex; flex-direction:column; gap:4px; font-size:13.5px;}
 .hist-item{display:flex; justify-content:space-between; gap:12px; padding:4px 0; border-bottom:1px dashed var(--border);}
 .hist-item:last-child{border-bottom:0;}

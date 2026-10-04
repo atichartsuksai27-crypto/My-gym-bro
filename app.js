@@ -853,6 +853,46 @@ function sessionDefFor(program, sKey){
   var found = (program.sessions||[]).filter(function(s){return s.key===sKey;})[0];
   return found || null;
 }
+/* ---------- Warm-up set: บันทึกเป็นข้อมูลเท่านั้น ไม่นับความครบ/สตรีค/สีแดง ----------
+   ท่า compound ที่ใช้น้ำหนักท่าแรกของเซสชัน 3 เซ็ต (40/60/80%), compound ถัดไป 2 เซ็ต (60/80%),
+   ท่า isolation 1 เซ็ต (50%), ท่าน้ำหนักตัว 1 เซ็ตแบบเบา, core จับเวลาไม่ต้องวอร์ม */
+var WARMUP_COMPOUND = ['squat','hinge','hpush','hpull','vpush','vpull'];
+var WARMUP_WEIGHTED = ['barbell','dumbbell','machine','cable'];
+function warmupStepsFor(sess){
+  var out = {}, firstHeavy = true;
+  (sess ? sess.exercises : []).forEach(function(ex){
+    var steps;
+    if(ex.timeBased) steps = [];
+    else if(WARMUP_WEIGHTED.indexOf(ex.equip)===-1) steps = [{pct:null, reps:'6-8', note:'แบบเบา/ช่วงสั้นกว่าเซ็ตจริง'}];
+    else if(WARMUP_COMPOUND.indexOf(ex.pattern)===-1) steps = [{pct:0.5, reps:'10-12'}];
+    else if(firstHeavy){ steps = [{pct:0.4, reps:'8-10'},{pct:0.6, reps:'5'},{pct:0.8, reps:'2-3'}]; firstHeavy = false; }
+    else steps = [{pct:0.6, reps:'5'},{pct:0.8, reps:'2-3'}];
+    out[ex.id] = steps;
+  });
+  return out;
+}
+function warmupKg(refKg, pct, equip){
+  if(!refKg || !pct) return null;
+  var step = equip==='dumbbell' ? 1 : 2.5;
+  var kg = Math.round(refKg*pct/step)*step;
+  if(equip==='barbell') kg = Math.max(20, kg);
+  return Math.max(step, kg);
+}
+function warmupSummary(program, iso){
+  var sess = sessionDefFor(program, sessionKeyFor(program, iso));
+  var steps = warmupStepsFor(sess), exData = (logFor(iso)||{}).exercises || {};
+  var byEx = [], done = 0, total = 0;
+  (sess ? sess.exercises : []).forEach(function(ex){
+    var n = steps[ex.id].length;
+    if(!n) return;
+    var flags = (exData[ex.id]||{}).warmup || [];
+    var d = 0;
+    for(var i=0;i<n;i++){ if(flags[i]) d++; }
+    byEx.push({label:ex.th, done:d, total:n});
+    done += d; total += n;
+  });
+  return {done:done, total:total, byEx:byEx};
+}
 function targetsOf(program){
   return (program && program.targets) ? program.targets : computeTargets(state.answers);
 }
@@ -939,7 +979,7 @@ function dayReport(program, iso){
   var lg = logFor(iso);
   if(lg && lg.final) return lg.final;
   var items = dayItems(program, iso).map(function(x){ return {group:x.group, label:x.label, val:x.val, done:x.done}; });
-  return {items:items, complete: items.every(function(x){ return x.done; })};
+  return {items:items, complete: items.every(function(x){ return x.done; }), warmup: warmupSummary(program, iso)};
 }
 function finalizeLockedDays(){
   var p = track.program;
@@ -954,7 +994,7 @@ function finalizeLockedDays(){
     var rep = dayReport(p, iso);
     var next = lg ? {} : {date: iso, stub: true};
     if(lg) Object.keys(lg).forEach(function(k){ next[k] = lg[k]; });
-    next.final = {at: new Date().toISOString(), parts: dayActivity(p, iso), items: rep.items, complete: rep.complete};
+    next.final = {at: new Date().toISOString(), parts: dayActivity(p, iso), items: rep.items, complete: rep.complete, warmup: rep.warmup};
     track.logs[iso] = next;
     changed.push(iso);
   }
@@ -1386,6 +1426,24 @@ function strengthSummaryHTML(exDef, hist){
     '<p class="hint" style="margin-top:10px">ตัวเลขทั้งหมดเป็น <b>ประมาณการ 1RM (Estimated 1RM)</b> จากน้ำหนัก × ครั้งที่บันทึกไว้ ไม่ใช่ 1RM ที่ยกได้จริง — Benchmark เป็นข้อมูลเปรียบเทียบกับกลุ่มอ้างอิงเท่านั้น ไม่ใช่เป้าที่ต้องไปให้ถึง</p>';
 }
 
+function warmupHTML(ex, iso, e, steps, prev){
+  if(!steps.length) return '';
+  var todayMax = (e.sets||[]).reduce(function(m,s){ var w = s && s.weight!=null ? Number(s.weight) : 0; return w>m ? w : m; }, 0);
+  var refKg = todayMax || (prev && prev.weight) || null;
+  var flags = e.warmup || [];
+  var boxes = steps.map(function(st, i){
+    var kg = warmupKg(refKg, st.pct, ex.equip);
+    var what = st.pct==null ? (st.note||'แบบเบา')
+      : (kg!=null ? kg+' กก.' : '~'+Math.round(st.pct*100)+'%');
+    return '<label class="wu-item'+(flags[i]?' on':'')+'"><input type="checkbox" data-act="warmup" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" data-idx="'+i+'"'+(flags[i]?' checked':'')+'>'+
+      'W'+(i+1)+' · '+esc(what)+' × '+esc(st.reps)+'</label>';
+  }).join('');
+  var basis = steps[0].pct==null ? ''
+    : (refKg ? 'คำนวณจากน้ำหนักเซ็ตจริง '+refKg+' กก.'+(todayMax?' (วันนี้)':' (ครั้งก่อน)') : 'ยังไม่มีน้ำหนักอ้างอิง — ใช้ % ของน้ำหนักเซ็ตจริงที่จะยก');
+  return '<div class="wu-list"><span class="wu-label">Warm-up (ไม่บังคับ):</span>'+boxes+'</div>'+
+    (basis ? '<div class="wu-basis">'+esc(basis)+'</div>' : '');
+}
+
 function sectionWorkout(iso){
   var p = track.program, t = targetsOf(p);
   var sKey = sessionKeyFor(p, iso);
@@ -1398,6 +1456,7 @@ function sectionWorkout(iso){
   var sess = sessionDefFor(p, sKey) || {exercises:[]};
   var exData = log.exercises || {};
   var doneN = sess.exercises.filter(function(ex){ return (exData[ex.id]||{}).done; }).length;
+  var wuSteps = warmupStepsFor(sess);
   var rows = sess.exercises.map(function(ex){
     var e = exData[ex.id] || {};
     var open = !!track.openSets[iso+':'+ex.id];
@@ -1423,6 +1482,7 @@ function sectionWorkout(iso){
       '<input type="checkbox" data-act="ex-done" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" '+(e.done?'checked':'')+' aria-label="ทำท่า '+esc(ex.th)+' แล้ว">'+
       '<div class="cb"><div class="t">'+esc(ex.th)+'</div>'+
         '<div class="s">'+esc(ex.setsReps)+' · '+esc(PATTERN_SHORT[ex.pattern]||ex.pattern)+' · '+esc(prevTxt)+'</div>'+
+        warmupHTML(ex, iso, e, wuSteps[ex.id]||[], prev)+
         '<button type="button" class="ex-open" data-act="ex-toggle" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">'+(open?'ซ่อนช่องบันทึกเซ็ต ▴':(isBW?'บันทึกจำนวนครั้งต่อเซ็ต ▾':'บันทึกน้ำหนัก/ครั้งต่อเซ็ต ▾'))+'</button>'+
         (open? '<div class="setbox">'+setRows+'</div>' : '')+
         perfBlockFor(ex, iso, e, isBW)+
@@ -1540,6 +1600,12 @@ function dayEditor(iso){
 }
 function dayDetailHTML(iso){
   var rep = dayReport(track.program, iso);
+  var wu = rep.warmup && rep.warmup.total
+    ? '<div class="sec-card"><div class="sec-head"><h2>Warm-up</h2><span class="meta">บันทึกไว้เป็นข้อมูล ไม่นับความครบ</span>'+
+        '<span class="cnt">'+rep.warmup.done+'/'+rep.warmup.total+'</span></div><div class="hist-items">'+
+        rep.warmup.byEx.map(function(x){ return '<div class="hist-item"><span>'+esc(x.label)+'</span><span class="mono">'+x.done+'/'+x.total+' เซ็ต</span></div>'; }).join('')+
+      '</div></div>'
+    : '';
   return REPORT_GROUPS.map(function(g){
     var its = rep.items.filter(function(x){ return x.group===g.k; });
     if(!its.length) return '';
@@ -1548,7 +1614,7 @@ function dayDetailHTML(iso){
       '<span class="cnt">'+its.filter(function(x){return x.done;}).length+'/'+its.length+'</span></div>'+
       '<div class="hist-items">'+its.map(function(x){
         return '<div class="hist-item'+(x.done?'':' act-miss')+'"><span>'+esc(x.label)+'</span><span class="mono">'+esc(x.val)+'</span></div>';
-      }).join('')+'</div></div>';
+      }).join('')+'</div></div>'+(g.k==='workout' ? wu : '');
   }).join('');
 }
 /* วันที่ยังแก้ได้ = ฟอร์มบันทึก, วันที่ล็อกแล้ว = ดูผลสุดท้ายอย่างเดียว */
@@ -1823,6 +1889,7 @@ function historyHTML(p){
       var n = its.filter(function(x){ return x.done; }).length;
       return '<span class="chip'+(past && n<its.length?' miss':'')+'">'+esc(g.label)+' '+n+'/'+its.length+'</span>';
     }).join('');
+    if(rep.warmup && rep.warmup.total) groups += '<span class="chip" title="บันทึกไว้เป็นข้อมูล ไม่นับความครบ">Warm-up '+rep.warmup.done+'/'+rep.warmup.total+'</span>';
     rows += '<button type="button" class="hist-row'+(past && !rep.complete?' miss':'')+(open?' open':'')+'" data-act="hist-open" data-date="'+iso+'" aria-expanded="'+open+'">'+
       '<div class="hist-top"><span class="hist-date">'+esc(longDateTH(iso))+'</span><span>· '+dayLabelHTML(p, iso, 'พัก')+'</span>'+status+'</div>'+
       '<div class="hist-groups">'+groups+'</div></button>';
@@ -2709,7 +2776,7 @@ function patchExercise(iso, exId, patch){
   var exs = {};
   Object.keys(cur.exercises||{}).forEach(function(k){ exs[k] = cur.exercises[k]; });
   var e = exs[exId] || {};
-  var next = {sets: e.sets||[], done: !!e.done};
+  var next = {sets: e.sets||[], done: !!e.done, warmup: e.warmup||[]};
   Object.keys(patch).forEach(function(k){ next[k] = patch[k]; });
   exs[exId] = next;
   saveDay(iso, {exercises: exs});
@@ -3014,6 +3081,15 @@ document.addEventListener("change", function(ev){
   var iso = el.getAttribute('data-date');
   if(act==='ex-done'){ patchExercise(iso, el.getAttribute('data-ex'), {done: el.checked}); return; }
   if(act==='set'){ patchExercise(iso, el.getAttribute('data-ex'), {sets: setsFromDom(el.getAttribute('data-ex'), iso)}); return; }
+  if(act==='warmup'){
+    var wex = el.getAttribute('data-ex');
+    var wflags = (((logFor(iso)||{}).exercises||{})[wex]||{}).warmup || [];
+    wflags = wflags.slice();
+    wflags[parseInt(el.getAttribute('data-idx'),10)] = el.checked;
+    for(var wi=0; wi<wflags.length; wi++) wflags[wi] = !!wflags[wi];
+    patchExercise(iso, wex, {warmup: wflags});
+    return;
+  }
   if(act==='sess-complete'){ saveDay(iso, {completed: el.checked}); return; }
   if(act==='nut'){ var p={}; p[el.getAttribute('data-field')] = numOrNull(el.value); patchNutrition(iso, p); return; }
   if(act==='sleep-h'){

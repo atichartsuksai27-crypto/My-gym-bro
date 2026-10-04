@@ -1558,6 +1558,7 @@ function saveDay(iso, patch){
     sleep: cur.sleep || {},
     cardio: cur.cardio || {},
     stress: cur.stress || {},
+    prep: cur.prep || {},
     updatedAt: new Date().toISOString()
   };
   Object.keys(patch).forEach(function(k){ body[k] = patch[k]; });
@@ -2166,6 +2167,33 @@ function seriousSymptoms(iso){
   return out;
 }
 
+/* ---------- วอร์มร่างกายก่อนฝึก / คลายกล้ามเนื้อหลังฝึก (คนละอย่างกับ warm-up set) ----------
+   บันทึกเป็นข้อมูล ไม่นับความครบ/สีแดง — ท่าแนะนำเลือกตามกลุ่มกล้ามเนื้อของเซสชันวันนั้น
+   วอร์ม = เพิ่มอุณหภูมิกล้ามเนื้อ + ขยับข้อต่อแบบเคลื่อนไหว (ไม่ยืดค้างนาน ๆ ก่อนยก), คลาย = ยืดค้างตอนกล้ามเนื้ออุ่น */
+var PREP_WARM = {
+  legs:'แกว่งขาหน้า-หลัง/ซ้าย-ขวา 10 ครั้ง · สควอทน้ำหนักตัว 10 ครั้ง · ก้าวย่อ (lunge) เดิน 10 ก้าว',
+  chest:'หมุนแขนวงกว้าง 10 รอบ · กางแขนไขว้หน้าอก 10 ครั้ง · วิดพื้นกับผนัง 10 ครั้ง',
+  shoulders:'หมุนไหล่หน้า-หลัง 10 รอบ · ยกแขนขึ้นเหนือศีรษะช้า ๆ 10 ครั้ง',
+  back:'หมุนไหล่ 10 รอบ · ท่าแมว-วัว (cat-cow) 8 ครั้ง · ดึงยางยืดแยกออก (band pull-apart) 12 ครั้ง',
+  biceps:'งอ-เหยียดแขน และหมุนข้อมือ 10 ครั้ง', triceps:'เหยียดแขนเหนือศีรษะ-งอศอก 10 ครั้ง', reardelt:'กางแขนไปด้านหลังเบา ๆ 10 ครั้ง'
+};
+var PREP_COOL = {
+  legs:'ยืดต้นขาหน้า · ยืดต้นขาหลัง · ยืดสะโพก (ไขว่ห้างก้มตัว) · ยืดน่อง',
+  chest:'ยืดอกโดยดันแขนกับขอบประตู', shoulders:'ดึงแขนไขว้หน้าอก', back:'ท่าเด็ก (child\'s pose) · ห้อยแขนยืดหลังกับราว',
+  biceps:'ยืดต้นแขนหน้ากับผนัง', triceps:'ยืดต้นแขนหลังเหนือศีรษะ', reardelt:'กอดตัวเองยืดหลังไหล่'
+};
+var PREP_GROUP_ORDER = ['legs','chest','back','shoulders','reardelt','biceps','triceps'];
+function prepTips(sess, table){
+  var gs = sessionGroups(sess, false);
+  return PREP_GROUP_ORDER.filter(function(g){ return gs.indexOf(g)>-1 && table[g]; }).map(function(g){ return GROUP_LABEL[g]+': '+table[g]; });
+}
+function prepRowHTML(iso, key, on, title, sub, tips){
+  return '<div class="chk'+(on?' on':'')+'">'+
+    '<input type="checkbox" data-act="prep" data-date="'+iso+'" data-k="'+key+'" '+(on?'checked':'')+' aria-label="'+esc(title)+'">'+
+    '<div class="cb"><div class="t">'+esc(title)+' <span class="chip">ไม่นับในเช็คลิสต์</span></div><div class="s">'+esc(sub)+'</div>'+
+      (tips.length ? '<ul class="prep-tips">'+tips.map(function(t){ return '<li>'+esc(t)+'</li>'; }).join('')+'</ul>' : '')+
+    '</div></div>';
+}
 function sectionWorkout(iso){
   var p = track.program, t = targetsOf(p);
   var sKey = sessionKeyFor(p, iso);
@@ -2223,7 +2251,15 @@ function sectionWorkout(iso){
       var info = SYMPTOM_INFO[s.level];
       return '<div class="banner danger"><div class="ic">'+info.icon+'</div><div><b>'+esc(s.name||'')+': '+esc(s.text)+'</b> — '+info.label+' · '+esc(info.advice)+'</div></div>';
     }).join('')+
-    '<div class="chk-list">'+rows+'</div>'+
+    '<div class="chk-list">'+
+      prepRowHTML(iso, 'warm', !!(log.prep||{}).warm, 'วอร์มร่างกายก่อนเริ่ม (5-10 นาที)',
+        'เดินเร็ว/ปั่นจักรยาน/กระโดดตบเบา ๆ 3-5 นาทีให้ตัวอุ่น แล้วขยับข้อต่อแบบเคลื่อนไหว — ทำก่อน warm-up set ช่วยให้กล้ามเนื้อพร้อมใช้งานและลดการบาดเจ็บ',
+        prepTips(sess, PREP_WARM))+
+      rows+
+      prepRowHTML(iso, 'cool', !!(log.prep||{}).cool, 'คลายกล้ามเนื้อหลังฝึก (5-10 นาที)',
+        'เดินช้า ๆ 2-3 นาทีให้หัวใจเต้นช้าลง แล้วยืดค้างท่าละ 20-30 วินาที ไม่กระตุก ช่วยลดความตึงและช่วยการฟื้นตัว',
+        prepTips(sess, PREP_COOL))+
+    '</div>'+
     '<label class="log-complete-row"><input type="checkbox" data-act="sess-complete" data-date="'+iso+'" '+(log.completed?'checked':'')+'> ทำเซสชันนี้ครบแล้ว (ข้อนี้คือตัวที่นับสตรีคและ % ทำตามแผน)</label>'+
     '</div>';
 }
@@ -2478,7 +2514,8 @@ function sectionCardio(iso){
 }
 
 function dayEditor(iso){
-  return sectionWorkout(iso) + sectionCardio(iso) + sectionFood(iso) + sectionSleep(iso) + sectionStress(iso) + sectionBody(iso);
+  // น้ำหนักตัวขึ้นก่อน: ชั่งตอนเช้าหลังตื่นนอนเป็นสิ่งแรกของวัน
+  return sectionBody(iso) + sectionWorkout(iso) + sectionCardio(iso) + sectionFood(iso) + sectionSleep(iso) + sectionStress(iso);
 }
 function dayDetailHTML(iso){
   var rep = dayReport(track.program, iso);
@@ -2501,7 +2538,12 @@ function dayDetailHTML(iso){
 }
 /* อาการหลังออกกำลังกาย + รายการอาหาร ของวันนั้น (อ่านจาก log โดยตรง ใช้ได้ทั้งวันที่ล็อกแล้ว) */
 function dayExtrasHTML(iso){
-  var lg = logFor(iso) || {}, out = '', st = stressOf(iso);
+  var lg = logFor(iso) || {}, out = '', st = stressOf(iso), pr = lg.prep || {};
+  if(sessionKeyFor(track.program, iso) || pr.warm || pr.cool){
+    out += '<div class="sec-card"><div class="sec-head"><h2>วอร์มร่างกาย / คลายกล้ามเนื้อ</h2><span class="meta">บันทึกไว้เป็นข้อมูล ไม่นับความครบ</span></div><div class="hist-items">'+
+      '<div class="hist-item"><span>วอร์มร่างกายก่อนเริ่ม</span><span>'+(pr.warm?'ทำแล้ว ✓':'ไม่ได้บันทึก')+'</span></div>'+
+      '<div class="hist-item"><span>คลายกล้ามเนื้อหลังฝึก</span><span>'+(pr.cool?'ทำแล้ว ✓':'ไม่ได้บันทึก')+'</span></div></div></div>';
+  }
   if(st){
     out += '<div class="sec-card"><div class="sec-head"><h2>ความเครียด / อารมณ์</h2><span class="meta">บันทึกไว้เป็นข้อมูล ไม่นับความครบ</span></div><div class="hist-items">'+
       '<div class="hist-item"><span>'+esc(st.note ? 'สาเหตุ: '+st.note : 'ไม่ได้ระบุสาเหตุ')+'</span><span>'+esc(stressLabel(st.level))+'</span></div></div></div>';
@@ -3134,6 +3176,8 @@ function historyHTML(p){
     }).join('');
     if(rep.warmup && rep.warmup.total) groups += '<span class="chip" title="บันทึกไว้เป็นข้อมูล ไม่นับความครบ">Warm-up '+rep.warmup.done+'/'+rep.warmup.total+'</span>';
     if(seriousSymptoms(iso).length) groups += '<span class="chip miss">⚠️ มีอาการบาดเจ็บ</span>';
+    var prH = (logFor(iso)||{}).prep || {};
+    if(sessionKeyFor(p, iso) || prH.warm || prH.cool) groups += '<span class="chip" title="บันทึกไว้เป็นข้อมูล ไม่นับความครบ">วอร์ม/คลาย '+((prH.warm?1:0)+(prH.cool?1:0))+'/2</span>';
     var stH = stressOf(iso);
     if(stH) groups += '<span class="chip'+(stH.level>=4 ? ' warn' : '')+'" title="บันทึกไว้เป็นข้อมูล ไม่นับความครบ">เครียด '+stH.level+'/5</span>';
     rows += '<button type="button" class="hist-row'+(past && !rep.complete?' miss':'')+(open?' open':'')+'" data-act="hist-open" data-date="'+iso+'" aria-expanded="'+open+'">'+
@@ -4545,6 +4589,13 @@ document.addEventListener("change", function(ev){
     return;
   }
   if(act==='sleep-hyg'){ patchSleep(iso, {hygiene: el.checked}); return; }
+  if(act==='prep'){
+    var pp = {}, pcur = (logFor(iso)||{}).prep || {};
+    Object.keys(pcur).forEach(function(k){ pp[k] = pcur[k]; });
+    pp[el.getAttribute('data-k')] = el.checked;
+    saveDay(iso, {prep: pp});
+    return;
+  }
   if(act==='stress-note'){ patchStress(iso, {note: String(el.value||'').trim().slice(0, 200)}); return; }
   if(act==='pg-check'){ track.pgChecks[el.getAttribute('data-k')] = el.checked; render(); return; }
   if(act==='cardio-min'){

@@ -372,6 +372,7 @@ input:focus{border-color:var(--accent); outline:none;}
 .food-row select{max-width:none;}
 .sym-chips{display:flex; flex-wrap:wrap; gap:5px; margin-top:8px;}
 .sym-chips .opt{padding:4px 10px; font-size:12px;}
+.prep-tips{margin:6px 0 0; padding-left:18px; font-size:12px; color:var(--text-2); line-height:1.55;}
 input.stress-note{width:100%; max-width:none; box-sizing:border-box;}
 .stress-row .meal-btn.on.s3{background:var(--caution-soft); border-color:var(--caution-line); color:var(--caution);}
 .stress-row .meal-btn.on.s4{background:var(--branch-soft); border-color:var(--branch-line); color:var(--branch-ink);}

@@ -2070,6 +2070,183 @@ function strengthSummaryHTML(exDef, hist){
     '<p class="hint" style="margin-top:10px">ตัวเลขทั้งหมดเป็น <b>ประมาณการ 1RM (Estimated 1RM)</b> จากน้ำหนัก × ครั้งที่บันทึกไว้ ไม่ใช่ 1RM ที่ยกได้จริง — Benchmark เป็นข้อมูลเปรียบเทียบกับกลุ่มอ้างอิงเท่านั้น ไม่ใช่เป้าที่ต้องไปให้ถึง</p>';
 }
 
+/* ============================================================
+   Progressive overload อัตโนมัติ: ค่าครั้งก่อนเป็นค่าตั้งต้นของวันนี้ และปรับขึ้นเองเมื่อครั้งก่อน "ยังยกเพิ่มได้"
+   ------------------------------------------------------------
+   ความรู้สึกหลังเล่น (e.feel): more = ยังยกเพิ่มได้ (เหลือแรง ≥3 ครั้ง) · ok = พอดี (เหลือ 1-2 ครั้ง) · hard = หนักไป/ทำไม่ครบ
+   ครั้งถัดไป
+   - more → เพิ่มน้ำหนักขั้นที่ปลอดภัย: ท่าส่วนล่าง ~5% ส่วนบน ~2.5% ปัดลงเป็นขั้นของอุปกรณ์ (อย่างน้อย 1 ขั้น ไม่เกิน 10 กก.)
+     ถ้าขั้นเล็กสุดของอุปกรณ์ยังกระโดดเกิน 10% (เช่น ดัมเบลเบา ๆ) เพิ่มจำนวนครั้งก่อน ครบช่วงบนทุกเซ็ตแล้วค่อยขึ้นน้ำหนัก
+     ท่าน้ำหนักตัว +1 ครั้ง/เซ็ต · ท่าจับเวลา +5 วินาที/เซ็ต
+   - ok / ไม่ได้ระบุ → คงค่าเดิม
+   - hard → ถ้าครั้งก่อนเพิ่งขึ้นน้ำหนัก กลับไปน้ำหนักเดิม ไม่งั้นคงไว้
+   ไม่เพิ่มเมื่อครั้งก่อนบันทึกอาการ (ควรระวัง/บาดเจ็บ) หรือบางเซ็ตทำไม่ถึงจำนวนครั้งขั้นต่ำของช่วง
+   ถ้าวันที่ขึ้นน้ำหนักกด "กลับไปน้ำหนักเดิม" ครั้งต่อไปที่ขึ้นจะขึ้นแค่ขั้นเล็กสุด
+   ค่าที่ตั้งให้ยังไม่ถูกบันทึกจนกว่าจะติ๊กว่าทำแล้ว เลือกความรู้สึก หรือแก้ตัวเลข
+   ============================================================ */
+var FEEL_OPTS = [
+  {k:'more', icon:'💪', label:'ยกเพิ่มได้อีก', tip:'เหลือแรงอีก 3 ครั้งขึ้นไป — ครั้งหน้าระบบเพิ่มให้'},
+  {k:'ok', icon:'👌', label:'พอดี', tip:'เหลือแรงอีก 1-2 ครั้ง — ครั้งหน้าคงไว้'},
+  {k:'hard', icon:'😓', label:'หนักไป / ทำไม่ครบ', tip:'ครั้งหน้าไม่เพิ่ม หรือกลับไปน้ำหนักเดิม'}
+];
+var LOWER_PATTERNS = ['squat','lunge','hinge','glute','legcurl','calf'];
+function r2(x){ return Math.round(x*100)/100; }
+function repRange(setsReps){
+  var m = /x\s*(\d+)(?:\s*-\s*(\d+))?/.exec(setsReps||'');
+  return m ? {lo:+m[1], hi:+(m[2]||m[1])} : {lo:8, hi:12};
+}
+function equipStep(equip, w){ return equip==='dumbbell' ? (w < 10 ? 1 : 2) : 2.5; }
+function cleanSets(sets){
+  return (sets||[]).filter(function(s){ return s && ((s.weight!=null && s.weight>0) || (s.reps!=null && s.reps>0)); })
+    .map(function(s){ return {weight: s.weight!=null && s.weight>0 ? Number(s.weight) : null, reps: s.reps!=null && s.reps>0 ? Number(s.reps) : null}; });
+}
+function hasSets(e){ return cleanSets((e||{}).sets).length > 0; }
+function topWeight(sets){ return sets.reduce(function(m, s){ return s.weight>m ? s.weight : m; }, 0); }
+function exKind(ex, sets){
+  if(ex.timeBased) return 'time';
+  return (ex.equip!=='bodyweight' && sets.some(function(s){ return s.weight>0; })) ? 'weight' : 'reps';
+}
+function fitSets(base, n){
+  var out = [];
+  for(var i=0; i<n; i++){ var s = base[Math.min(i, base.length-1)]; out.push({weight:s.weight, reps:s.reps}); }
+  return out;
+}
+/* ขั้นน้ำหนักที่จะเพิ่ม — null = ขั้นเล็กสุดของอุปกรณ์ยังกระโดดเกิน 10% ให้เพิ่มจำนวนครั้งแทน */
+function safeIncrement(ex, w, cautious){
+  if(!(w>0)) return null;
+  var step = equipStep(ex.equip, w);
+  if(step/w > 0.10) return null;
+  if(cautious) return step;
+  var pct = LOWER_PATTERNS.indexOf(ex.pattern)>-1 ? 0.05 : 0.025;
+  return Math.min(10, Math.max(step, Math.floor(w*pct/step)*step));
+}
+function exerciseOn(iso, exId){
+  var p = track.program || {}, sess = sessionDefFor(p, sessionKeyFor(p, iso));
+  return (sess ? sess.exercises : []).filter(function(x){ return x.id===exId; })[0] || null;
+}
+function prevExerciseLog(exId, iso){
+  var keys = Object.keys(track.logs).filter(function(d){ return d < iso; }).sort();
+  for(var i=keys.length-1; i>=0; i--){
+    var e = ((track.logs[keys[i]]||{}).exercises||{})[exId];
+    if(hasSets(e)) return {date:keys[i], e:e};
+  }
+  return null;
+}
+/* แผนจากเซ็ตฐาน + ความรู้สึก (ใช้ได้ทั้งคำนวณวันนี้จากครั้งก่อน และพรีวิว "ครั้งหน้า" จากวันนี้) */
+function planFrom(ex, base, feel, prog, symptom){
+  var rr = repRange(ex.setsReps), kind = exKind(ex, base), sets = fitSets(base, setCountFor(ex.setsReps));
+  var top = topWeight(base), out = {kind:kind, sets:sets, base:fitSets(base, setCountFor(ex.setsReps)), change:null, note:''};
+  var lvl = symptom && symptom.level;
+  if(feel==='more'){
+    if(lvl==='caution' || lvl==='injury' || lvl==='emergency'){
+      out.change = {kind:'hold'}; out.note = 'ครั้งก่อนบันทึกอาการ “'+symptom.text+'” — ยังไม่เพิ่ม รอให้หายก่อน'; return out;
+    }
+    if(kind!=='time' && base.some(function(s){ return s.reps!=null && s.reps < rr.lo; })){
+      out.change = {kind:'hold'}; out.note = 'ครั้งก่อนบางเซ็ตทำไม่ถึง '+rr.lo+' ครั้ง — คงไว้จนทำครบทุกเซ็ตก่อน'; return out;
+    }
+    if(kind==='weight'){
+      var cautious = !!(prog && prog.reverted), inc = safeIncrement(ex, top, cautious);
+      if(inc!=null){
+        sets.forEach(function(s){ if(s.weight>0) s.weight = r2(s.weight + inc); if(s.reps!=null) s.reps = Math.min(rr.hi, Math.max(rr.lo, s.reps)); });
+        out.change = {kind:'weight', from:top, to:r2(top + inc), inc:inc};
+        out.note = 'เหลือแรง → เพิ่ม +'+inc+' กก. ('+Math.round(inc/top*100)+'%)'+(cautious ? ' · ขึ้นแค่ขั้นเล็กสุด เพราะครั้งก่อนกลับไปน้ำหนักเดิม' : '');
+      } else if(base.every(function(s){ return (s.reps||0) >= rr.hi; })){
+        var step = equipStep(ex.equip, top);
+        sets.forEach(function(s){ if(s.weight>0) s.weight = r2(s.weight + step); s.reps = rr.lo; });
+        out.change = {kind:'weight', from:top, to:r2(top + step), inc:step};
+        out.note = 'ทำครบ '+rr.hi+' ครั้งทุกเซ็ตแล้ว → ขึ้นน้ำหนัก +'+step+' กก. และเริ่มใหม่ที่ '+rr.lo+' ครั้ง';
+      } else {
+        sets.forEach(function(s){ s.reps = Math.min(rr.hi, (s.reps||rr.lo) + 1); });
+        out.change = {kind:'reps'};
+        out.note = 'ขั้นน้ำหนักถัดไปกระโดดเกิน 10% → เพิ่มทีละ 1 ครั้ง/เซ็ตก่อน ครบ '+rr.hi+' ครั้งทุกเซ็ตแล้วจะขึ้นน้ำหนักให้';
+      }
+    } else if(kind==='reps'){
+      var cap = rr.hi + 5;
+      if(base.every(function(s){ return (s.reps||0) >= cap; })){ out.change = {kind:'hold'}; out.note = 'ทำได้ '+cap+' ครั้งขึ้นไปแล้ว — ลองเปลี่ยนเป็นท่าที่ยากขึ้นที่หน้า “แผนของฉัน”'; }
+      else { sets.forEach(function(s){ s.reps = Math.min(cap, (s.reps||rr.lo) + 1); }); out.change = {kind:'reps'}; out.note = 'ท่าน้ำหนักตัว: เพิ่ม 1 ครั้งต่อเซ็ต'; }
+    } else {
+      var tcap = rr.hi + 15;
+      if(base.every(function(s){ return (s.weight||0) >= tcap; })){ out.change = {kind:'hold'}; out.note = 'ค้างได้ '+tcap+' วินาทีขึ้นไปแล้ว — ลองเปลี่ยนเป็นท่าที่ยากขึ้น'; }
+      else { sets.forEach(function(s){ if(s.weight>0) s.weight = Math.min(tcap, s.weight + 5); }); out.change = {kind:'time'}; out.note = 'เพิ่มเวลา +5 วินาทีต่อเซ็ต'; }
+    }
+  } else if(feel==='hard'){
+    if(kind==='weight' && prog && prog.kind==='weight' && !prog.reverted && prog.from>0 && prog.from < top){
+      var d = top - prog.from;
+      sets.forEach(function(s){ if(s.weight>0) s.weight = r2(Math.max(0, s.weight - d)); });
+      out.change = {kind:'back', from:top, to:prog.from};
+      out.note = 'หนักไปหลังเพิ่งขึ้นน้ำหนัก → กลับไปที่ '+prog.from+' กก. ที่เคยทำได้';
+    } else {
+      out.change = {kind:'hold'}; out.note = 'หนักไป → คงไว้เท่าเดิม ถ้ายังหนักกด “แก้ไข” เพื่อลดลงได้';
+    }
+  } else {
+    out.note = feel==='ok' ? 'พอดี → ใช้ค่าเดิม' : '';
+  }
+  return out;
+}
+/* แผนของวันนี้จากครั้งล่าสุดที่เล่นท่านี้ — null ถ้ายังไม่เคยบันทึก */
+function progressionPlan(ex, iso){
+  var prev = prevExerciseLog(ex.id, iso);
+  if(!prev) return null;
+  var out = planFrom(ex, cleanSets(prev.e.sets), prev.e.feel, prev.e.prog, prev.e.symptom);
+  out.prevDate = prev.date; out.prevFeel = prev.e.feel || null;
+  if(!out.note) out.note = 'ใช้ค่าเดียวกับครั้งก่อน';
+  return out;
+}
+function progRecord(plan){
+  var c = plan && plan.change;
+  return (c && c.kind!=='hold') ? {kind:c.kind, from:c.from!=null ? c.from : null, to:c.to!=null ? c.to : null} : null;
+}
+function isUpChange(plan){ var c = plan && plan.change; return !!c && (c.kind==='weight' || c.kind==='reps' || c.kind==='time'); }
+function setsText(sets, kind){
+  var cs = cleanSets(sets);
+  if(!cs.length) return '—';
+  if(kind==='time') return cs.map(function(s){ return s.weight; }).join(' / ')+' วิ';
+  if(kind==='reps') return cs.map(function(s){ return s.reps!=null ? s.reps : '?'; }).join(' / ')+' ครั้ง';
+  var w0 = cs[0].weight, same = cs.every(function(s){ return s.weight===w0; });
+  return same ? w0+' กก. × '+cs.map(function(s){ return s.reps!=null ? s.reps : '?'; }).join(' / ')
+    : cs.map(function(s){ return (s.weight||0)+'×'+(s.reps!=null ? s.reps : '?'); }).join(', ')+' (กก.×ครั้ง)';
+}
+/* บรรทัด "วันนี้" + ปุ่มแก้ไข/กลับไปค่าเดิม และตัวเลือกความรู้สึกหลังเล่นพร้อมพรีวิวครั้งหน้า */
+function loadLineHTML(ex, iso, e, plan){
+  var logged = hasSets(e), kind = logged ? exKind(ex, cleanSets(e.sets)) : (plan ? plan.kind : null);
+  var open = !!track.openSets[iso+':'+ex.id];
+  var editBtn = '<button type="button" class="ex-open" data-act="ex-toggle" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">'+
+    (open ? 'ซ่อนช่องแก้ไข ▴' : (logged || plan ? 'แก้ไขน้ำหนัก/ครั้ง ▾' : (ex.equip==='bodyweight' && !ex.timeBased ? 'บันทึกจำนวนครั้งต่อเซ็ต ▾' : 'บันทึกน้ำหนัก/ครั้งต่อเซ็ต ▾')))+'</button>';
+  if(!logged && !plan) return '<div class="load-line"><span class="hint" style="display:inline">ครั้งแรก — กรอกค่าที่ใช้จริงแล้วเลือกความรู้สึกด้านล่าง ครั้งหน้าระบบจะตั้งค่าให้เอง</span> '+editBtn+'</div>';
+  var prog = e.prog, txt, badge = '', btn = '';
+  if(logged){
+    txt = 'บันทึกแล้ว: <b>'+esc(setsText(e.sets, kind))+'</b>';
+    if(prog && prog.reverted && plan) btn = '<button type="button" class="btn sm ghost" data-act="prog-reapply" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">ใช้ค่าที่ระบบเพิ่มให้ ('+esc(setsText(plan.sets, plan.kind))+')</button>';
+    else if(prog && plan && isUpChange(plan)) btn = '<button type="button" class="btn sm" data-act="prog-revert" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">ไม่ไหว — กลับไปค่าเดิม ('+esc(setsText(plan.base, plan.kind))+')</button>';
+    if(prog && prog.reverted) badge = '<span class="load-badge back">กลับไปค่าเดิมแล้ว</span>';
+    else if(prog && plan && isUpChange(plan)) badge = '<span class="load-badge up">↑ เพิ่มจากครั้งก่อน</span>';
+  } else {
+    txt = 'วันนี้: <b>'+esc(setsText(plan.sets, plan.kind))+'</b>';
+    var c = plan.change;
+    badge = isUpChange(plan) ? '<span class="load-badge up">↑ '+(c.kind==='weight' ? '+'+c.inc+' กก.' : (c.kind==='time' ? '+5 วิ' : '+1 ครั้ง'))+'</span>'
+      : (c && c.kind==='back' ? '<span class="load-badge back">↓ กลับ '+c.to+' กก.</span>' : '<span class="load-badge">= เท่าครั้งก่อน</span>');
+    if(isUpChange(plan)) btn = '<button type="button" class="btn sm" data-act="prog-revert" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">ไม่ไหว — ใช้ค่าเดิม ('+esc(setsText(plan.base, plan.kind))+')</button>';
+  }
+  var note = plan && !logged ? '<div class="load-note">ตั้งให้จากครั้งก่อน ('+esc(shortDateTH(plan.prevDate))+')'+(plan.note ? ' · '+esc(plan.note) : '')+' — ติ๊กว่าทำแล้วระบบบันทึกค่านี้ให้</div>' : '';
+  return '<div class="load-line">'+txt+' '+badge+'</div>'+note+
+    '<div class="load-actions">'+editBtn+btn+'</div>';
+}
+function feelHTML(ex, iso, e, plan){
+  var cur = e.feel || null;
+  var btns = FEEL_OPTS.map(function(o){
+    return '<button type="button" class="feel-btn f-'+o.k+(cur===o.k ? ' on' : '')+'" data-act="feel" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" data-k="'+o.k+'" title="'+esc(o.tip)+'" aria-pressed="'+(cur===o.k)+'">'+o.icon+' '+esc(o.label)+'</button>';
+  }).join('');
+  var next = '';
+  var base = hasSets(e) ? cleanSets(e.sets) : (plan ? plan.sets : null);
+  if(cur && base && base.length){
+    var nx = planFrom(ex, base, cur, hasSets(e) ? e.prog : progRecord(plan), e.symptom);
+    next = '<div class="next-line">ครั้งหน้า: <b>'+esc(setsText(nx.sets, nx.kind))+'</b>'+(nx.note ? ' — '+esc(nx.note) : '')+'</div>';
+  } else if(!cur){
+    next = '<div class="next-line hint">เล่นเสร็จแล้วเลือกว่ายังมีแรงเหลือไหม — ระบบใช้ปรับน้ำหนักครั้งหน้าให้อย่างปลอดภัย</div>';
+  }
+  return '<div class="feel-row"><span class="feel-label">แรงเหลือหลังเล่น:</span>'+btns+'</div>'+next;
+}
+
 /* 4-8 ครั้งจนหมดแรง ≈ 79-88% ของ 1RM (Epley) — แนะนำจาก e1RM ของครั้งก่อนถ้ามี */
 function intenseNoteHTML(ex, prev){
   var lo = prev && prev.e1rm ? warmupKg(prev.e1rm, 0.79, ex.equip) : null;
@@ -2079,12 +2256,12 @@ function intenseNoteHTML(ex, prev){
     : 'เลือกน้ำหนักที่ยกได้แค่ 4-8 ครั้งแล้วหมดแรง ';
   return '<div class="int-warn">⚠️ '+esc(load)+'— '+esc(INTENSE_WARNING)+'</div>';
 }
-function warmupHTML(ex, iso, e, steps, prev){
+function warmupHTML(ex, iso, e, steps, prev, planTop){
   if(!steps.length) return '';
   var todayMax = (e.sets||[]).reduce(function(m,s){ var w = s && s.weight!=null ? Number(s.weight) : 0; return w>m ? w : m; }, 0);
   // ท่าเข้มข้นวอร์มอัพเทียบกับน้ำหนักเข้มข้นที่จะยก (~83.5% ของ e1RM กลางช่วง 79-88%) ไม่ใช่น้ำหนักแบบทั่วไปของครั้งก่อน
-  var intenseRef = !todayMax && isIntense(ex) && prev && prev.e1rm ? warmupKg(prev.e1rm, 0.835, ex.equip) : null;
-  var refKg = todayMax || intenseRef || (prev && prev.weight) || null;
+  var intenseRef = !todayMax && !planTop && isIntense(ex) && prev && prev.e1rm ? warmupKg(prev.e1rm, 0.835, ex.equip) : null;
+  var refKg = todayMax || planTop || intenseRef || (prev && prev.weight) || null;
   var flags = e.warmup || [];
   var boxes = steps.map(function(st, i){
     var kg = warmupKg(refKg, st.pct, ex.equip);
@@ -2094,7 +2271,7 @@ function warmupHTML(ex, iso, e, steps, prev){
       'W'+(i+1)+' · '+esc(what)+' × '+esc(st.reps)+'</label>';
   }).join('');
   var basis = steps[0].pct==null ? ''
-    : (refKg ? 'คำนวณจากน้ำหนักเซ็ตจริง '+refKg+' กก.'+(todayMax?' (วันนี้)':(intenseRef?' (น้ำหนักเข้มข้นที่แนะนำ)':' (ครั้งก่อน)')) : 'ยังไม่มีน้ำหนักอ้างอิง — ใช้ % ของน้ำหนักเซ็ตจริงที่จะยก');
+    : (refKg ? 'คำนวณจากน้ำหนักเซ็ตจริง '+refKg+' กก.'+(todayMax?' (วันนี้)':(planTop?' (ที่ตั้งไว้วันนี้)':(intenseRef?' (น้ำหนักเข้มข้นที่แนะนำ)':' (ครั้งก่อน)'))) : 'ยังไม่มีน้ำหนักอ้างอิง — ใช้ % ของน้ำหนักเซ็ตจริงที่จะยก');
   return '<div class="wu-list"><span class="wu-label">Warm-up (ไม่บังคับ):</span>'+boxes+'</div>'+
     (basis ? '<div class="wu-basis">'+esc(basis)+'</div>' : '');
 }
@@ -2214,15 +2391,17 @@ function sectionWorkout(iso){
     var open = !!track.openSets[iso+':'+ex.id];
     var prev = lastBestBefore(ex.id, iso);
     var isBW = ex.equip==='bodyweight' && !ex.timeBased; // bodyweight (ไม่นับ core ที่วัดเวลา) — ไม่ต้องมีช่องน้ำหนัก
-    var prevTxt = prev
+    var plan = progressionPlan(ex, iso), usePlan = !!plan && !hasSets(e);
+    var prevTxt = (!prev && plan) ? 'ครั้งก่อน '+shortDateTH(plan.prevDate)+' · '+setsText(plan.base, plan.kind) // ท่าน้ำหนักตัวไม่มี e1RM ให้ lastBestBefore
+      : prev
       ? ('ครั้งก่อน '+(prev.date===iso?'':shortDateTH(prev.date)+' · ')+
           (isBW
             ? (prev.reps!=null ? prev.reps+' ครั้ง' : '—')
             : prev.weight+(ex.timeBased?' วิ':' กก.')+(prev.reps!=null&&!ex.timeBased?' × '+prev.reps+' ครั้ง':'')))
       : 'ยังไม่เคยบันทึกท่านี้';
-    var sets = e.sets || [];
+    var sets = usePlan ? plan.sets : (e.sets || []); // ยังไม่ได้บันทึกวันนี้ → ใส่ค่าที่ตั้งให้จากครั้งก่อนไว้ในช่องเลย
     var n = setCountFor(ex.setsReps);
-    var setRows = '';
+    var setRows = usePlan ? '<div class="hint" style="margin:0 0 6px">ค่าที่ใส่ไว้มาจากครั้งก่อน/ที่ระบบปรับให้ — แก้เฉพาะช่องที่ต่าง ระบบบันทึกทุกเซ็ตให้</div>' : '';
     for(var i=0;i<n;i++){
       var sv = sets[i]||{};
       setRows += '<div class="set-row"><span class="sr-label">เซ็ต '+(i+1)+'</span>'+
@@ -2236,10 +2415,11 @@ function sectionWorkout(iso){
         '<div class="s">'+esc(ex.setsReps)+(intense?' (จนหมดแรง)':'')+' · '+esc(PATTERN_SHORT[ex.pattern]||ex.pattern)+' · '+esc(prevTxt)+'</div>'+
         restLine+
         (intense ? intenseNoteHTML(ex, prev) : '')+
-        warmupHTML(ex, iso, e, wuSteps[ex.id]||[], prev)+
-        symptomHTML(ex, iso, e)+
-        '<button type="button" class="ex-open" data-act="ex-toggle" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">'+(open?'ซ่อนช่องบันทึกเซ็ต ▴':(isBW?'บันทึกจำนวนครั้งต่อเซ็ต ▾':'บันทึกน้ำหนัก/ครั้งต่อเซ็ต ▾'))+'</button>'+
+        warmupHTML(ex, iso, e, wuSteps[ex.id]||[], prev, usePlan && plan.kind==='weight' ? topWeight(plan.sets) : 0)+
+        loadLineHTML(ex, iso, e, plan)+
         (open? '<div class="setbox">'+setRows+'</div>' : '')+
+        feelHTML(ex, iso, e, plan)+
+        symptomHTML(ex, iso, e)+
         perfBlockFor(ex, iso, e, isBW)+
       '</div></div>';
   }).join('');
@@ -2547,6 +2727,14 @@ function dayExtrasHTML(iso){
   if(st){
     out += '<div class="sec-card"><div class="sec-head"><h2>ความเครียด / อารมณ์</h2><span class="meta">บันทึกไว้เป็นข้อมูล ไม่นับความครบ</span></div><div class="hist-items">'+
       '<div class="hist-item"><span>'+esc(st.note ? 'สาเหตุ: '+st.note : 'ไม่ได้ระบุสาเหตุ')+'</span><span>'+esc(stressLabel(st.level))+'</span></div></div></div>';
+  }
+  var feels = Object.keys(lg.exercises||{}).filter(function(id){ return lg.exercises[id] && lg.exercises[id].feel; });
+  if(feels.length){
+    out += '<div class="sec-card"><div class="sec-head"><h2>น้ำหนักที่ยก และแรงเหลือหลังเล่น</h2></div><div class="hist-items">'+feels.map(function(id){
+      var x = lg.exercises[id], o = FEEL_OPTS.filter(function(f){ return f.k===x.feel; })[0];
+      var exd = exerciseOn(iso, id), kind = exd ? exKind(exd, cleanSets(x.sets)) : 'weight';
+      return '<div class="hist-item"><span>'+esc(exerciseName(iso, id))+' · '+esc(setsText(x.sets, kind))+'</span><span>'+(o ? o.icon+' '+esc(o.label) : '')+'</span></div>';
+    }).join('')+'</div></div>';
   }
   var syms = Object.keys(lg.exercises||{}).map(function(id){ return lg.exercises[id].symptom; }).filter(Boolean);
   if(syms.length){
@@ -4188,10 +4376,20 @@ function patchExercise(iso, exId, patch){
   var exs = {};
   Object.keys(cur.exercises||{}).forEach(function(k){ exs[k] = cur.exercises[k]; });
   var e = exs[exId] || {};
-  var next = {sets: e.sets||[], done: !!e.done, warmup: e.warmup||[], symptom: e.symptom||null};
+  var next = {sets: e.sets||[], done: !!e.done, warmup: e.warmup||[], symptom: e.symptom||null, feel: e.feel||null, prog: e.prog||null};
   Object.keys(patch).forEach(function(k){ next[k] = patch[k]; });
   exs[exId] = next;
   saveDay(iso, {exercises: exs});
+}
+/* วันนี้ยังไม่ได้บันทึกเซ็ตของท่านี้ → ใช้ค่าที่ระบบตั้งให้จากครั้งก่อน พร้อมจดว่าปรับจากครั้งก่อนอย่างไร
+   (ใช้กับปุ่ม "กลับไปค่าเดิม" และความรู้สึก "หนักไป" ของครั้งถัดไป) */
+function withPlan(iso, exId, patch){
+  var e = ((logFor(iso)||{}).exercises||{})[exId] || {}, ex = exerciseOn(iso, exId);
+  if(!patch.sets && !hasSets(e) && ex){
+    var plan = progressionPlan(ex, iso);
+    if(plan){ patch.sets = plan.sets; patch.prog = progRecord(plan); }
+  }
+  return patch;
 }
 function patchNutrition(iso, patch){
   var cur = logFor(iso) || {};
@@ -4391,6 +4589,20 @@ document.addEventListener("click", function(ev){
     saveSymptom(iso, sex, nextTxt, exerciseName(iso, sex));
     return;
   }
+  if(act==='feel'){
+    var fx = el.getAttribute('data-ex'), fk = el.getAttribute('data-k'), fe = ((logFor(iso)||{}).exercises||{})[fx] || {};
+    patchExercise(iso, fx, withPlan(iso, fx, {feel: fe.feel===fk ? null : fk}));
+    return;
+  }
+  if(act==='prog-revert' || act==='prog-reapply'){
+    var rx = el.getAttribute('data-ex'), rex = exerciseOn(iso, rx), rpl = rex ? progressionPlan(rex, iso) : null;
+    if(!rpl) return;
+    var rc = rpl.change || {};
+    patchExercise(iso, rx, act==='prog-revert'
+      ? {sets: rpl.base, prog: {kind: rc.kind||null, from: rc.from!=null ? rc.from : null, to: rc.to!=null ? rc.to : null, reverted: true}}
+      : {sets: rpl.sets, prog: progRecord(rpl)});
+    return;
+  }
   if(act==='stress-lvl'){
     var sv = parseInt(el.getAttribute('data-val'), 10), sc = stressOf(iso);
     patchStress(iso, {level: sc && sc.level===sv ? null : sv});
@@ -4566,8 +4778,20 @@ document.addEventListener("change", function(ev){
   if(!el) return;
   var act = el.getAttribute('data-act');
   var iso = el.getAttribute('data-date');
-  if(act==='ex-done'){ patchExercise(iso, el.getAttribute('data-ex'), {done: el.checked}); return; }
-  if(act==='set'){ patchExercise(iso, el.getAttribute('data-ex'), {sets: setsFromDom(el.getAttribute('data-ex'), iso)}); return; }
+  if(act==='ex-done'){
+    var dx = el.getAttribute('data-ex');
+    patchExercise(iso, dx, el.checked ? withPlan(iso, dx, {done:true}) : {done:false}); // ติ๊กแล้ว = ทำตามค่าที่ตั้งให้
+    return;
+  }
+  if(act==='set'){
+    var sx = el.getAttribute('data-ex'), sp = {sets: setsFromDom(sx, iso)};
+    if(!hasSets(((logFor(iso)||{}).exercises||{})[sx])){
+      var sex = exerciseOn(iso, sx), spl = sex ? progressionPlan(sex, iso) : null;
+      if(spl) sp.prog = progRecord(spl);
+    }
+    patchExercise(iso, sx, sp);
+    return;
+  }
   if(act==='symptom'){ var syx = el.getAttribute('data-ex'); saveSymptom(iso, syx, el.value, exerciseName(iso, syx)); return; }
   if(act==='food-pick'){ updateFoodPreview(iso, el.getAttribute('data-cat')); return; }
   if(act==='warmup'){
@@ -4579,7 +4803,21 @@ document.addEventListener("change", function(ev){
     patchExercise(iso, wex, {warmup: wflags});
     return;
   }
-  if(act==='sess-complete'){ saveDay(iso, {completed: el.checked}); return; }
+  if(act==='sess-complete'){
+    var scPatch = {completed: el.checked};
+    if(el.checked){ // ทำครบทั้งเซสชัน = ท่าที่ยังไม่ได้กรอกใช้ค่าที่ระบบตั้งให้
+      var scLog = logFor(iso) || {}, scExs = {}, scP = track.program || {}, scSess = sessionDefFor(scP, sessionKeyFor(scP, iso));
+      Object.keys(scLog.exercises||{}).forEach(function(k){ scExs[k] = scLog.exercises[k]; });
+      (scSess ? scSess.exercises : []).forEach(function(ex){
+        var ce = scExs[ex.id] || {}, cpl = hasSets(ce) ? null : progressionPlan(ex, iso);
+        if(!cpl) return;
+        scExs[ex.id] = {sets:cpl.sets, done:!!ce.done, warmup:ce.warmup||[], symptom:ce.symptom||null, feel:ce.feel||null, prog:progRecord(cpl)};
+      });
+      scPatch.exercises = scExs;
+    }
+    saveDay(iso, scPatch);
+    return;
+  }
   if(act==='nut'){ var p={}; p[el.getAttribute('data-field')] = numOrNull(el.value); patchNutrition(iso, p); return; }
   if(act==='sleep-h'){
     var hr = numInRange(el.value, 0, 24); // N-02: ปฏิเสธค่านอก 0-24 ชม. ไม่บันทึก ไม่ clamp เงียบๆ

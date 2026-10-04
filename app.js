@@ -775,24 +775,99 @@ function effectiveSplit(a){
   if(state.plan.splitOverride && (!f[state.plan.splitOverride] || !f[state.plan.splitOverride].eligible)) state.plan.splitOverride = null;
   return autoSplit(a);
 }
-function assignSessionKeys(seq, days){
-  var sorted = DAYS.filter(function(d){ return (days||[]).indexOf(d)>-1; });
-  return sorted.map(function(d,i){ return {day:d, session:seq[i%seq.length]}; });
+/* ---------- จัดเซสชันลงวัน: กล้ามเนื้อกลุ่มเดียวกันต้องไม่โดนในวันติดกัน ----------
+   กลุ่มหลักของแต่ละท่า (core/oblique ฟื้นตัวเร็ว ไม่นับ) — 2 เซสชันที่มีกลุ่มหลักร่วมกัน "ชนกัน" ห้ามอยู่วันติดกัน
+   (ต้องพัก ~48 ชม.) ส่วนกลุ่มรอง (เช่น ต้นแขนหลังตอนดันอก) ใช้แค่จัดลำดับให้ซ้อนกันน้อยที่สุด
+   วันติดกันนับข้ามสัปดาห์ด้วย (อาทิตย์ → จันทร์ เพราะตารางวนซ้ำทุกสัปดาห์) */
+var PATTERN_GROUP = {hpush:'chest', incline:'chest', chestfly:'chest', vpush:'shoulders', latraise:'shoulders', reardelt:'reardelt',
+  hpull:'back', vpull:'back', biceps:'biceps', triceps:'triceps',
+  squat:'legs', lunge:'legs', hinge:'legs', glute:'legs', legcurl:'legs', calf:'legs'};
+var PATTERN_GROUP2 = {hpush:['triceps','shoulders'], incline:['shoulders','triceps'], vpush:['triceps'], hpull:['biceps','reardelt'], vpull:['biceps']};
+var GROUP_LABEL = {chest:'อก', shoulders:'ไหล่', reardelt:'ไหล่หลัง', back:'หลัง', biceps:'ต้นแขนหน้า', triceps:'ต้นแขนหลัง', legs:'ขา'};
+function sessionGroups(se, withSecondary){
+  var out = [];
+  sessionMuscles(se).forEach(function(p){
+    [PATTERN_GROUP[p]].concat(withSecondary ? (PATTERN_GROUP2[p]||[]) : []).forEach(function(g){ if(g && out.indexOf(g)===-1) out.push(g); });
+  });
+  return out;
 }
-function assignSessions(splitKey, days){ return assignSessionKeys(sessionKeys(SPLIT_DEFS[splitKey].sessions), days); }
+function sharedGroups(a, b){ return a.filter(function(x){ return b.indexOf(x)>-1; }); }
+function weekOrder(days){ return DAYS.filter(function(d){ return (days||[]).indexOf(d)>-1; }); }
+/* คู่วันฝึกที่ติดกัน (ตำแหน่งในรายการเรียงตามสัปดาห์) รวมอาทิตย์ → จันทร์ */
+function adjacentPairs(sorted){
+  var idx = sorted.map(function(d){ return DAYS.indexOf(d); }), out = [];
+  idx.forEach(function(x, k){ var j = idx.indexOf((x+1)%7); if(j>-1 && j!==k) out.push([k, j]); });
+  return out;
+}
+var _schedCache = {};
+/* หาการจัดเซสชันที่ดีที่สุด: ชนกันน้อยสุด → กลุ่มรองซ้อนน้อยสุด → ใกล้ลำดับ A,B,C เดิมที่สุด
+   แต่ละเซสชันถูกใช้เท่า ๆ กัน (ต่างกันไม่เกิน 1 ครั้ง) ถ้าวันน้อยกว่าจำนวนเซสชันใช้เซสชันแรก ๆ ตามลำดับ */
+function bestSchedule(sessions, days){
+  var sorted = weekOrder(days), n = sorted.length;
+  var cand = (sessions||[]).slice(0, n < (sessions||[]).length ? n : (sessions||[]).length), m = cand.length;
+  if(!n || !m) return {list:[], hard:0, soft:0, clash:null};
+  var P = cand.map(function(s){ return sessionGroups(s, false); }), A = cand.map(function(s){ return sessionGroups(s, true); });
+  var ck = cand.map(function(s, i){ return s.key+':'+P[i].join(',')+'/'+A[i].join(','); }).join('|')+'#'+sorted.join(',');
+  if(_schedCache[ck]) return _schedCache[ck];
+  var back = sorted.map(function(){ return []; });
+  adjacentPairs(sorted).forEach(function(pr){ back[Math.max(pr[0], pr[1])].push(Math.min(pr[0], pr[1])); });
+  var lo = Math.floor(n/m), hi = Math.ceil(n/m), cnt = cand.map(function(){ return 0; }), cur = [], best = null;
+  function worse(h, s, d){ return best && (h > best.hard || (h===best.hard && (s > best.soft || (s===best.soft && d >= best.diff)))); }
+  (function rec(pos, h, s, d){
+    if(worse(h, s, d)) return;
+    if(pos===n){
+      if(cnt.every(function(c){ return c >= lo; })) best = {hard:h, soft:s, diff:d, pick:cur.slice()};
+      return;
+    }
+    for(var i=0; i<m; i++){
+      if(cnt[i] >= hi) continue;
+      var dh = 0, ds = 0;
+      back[pos].forEach(function(q){ dh += sharedGroups(P[cur[q]], P[i]).length ? 1 : 0; ds += sharedGroups(A[cur[q]], A[i]).length; });
+      cur[pos] = i; cnt[i]++;
+      rec(pos+1, h+dh, s+ds, d+(i===pos%m ? 0 : 1));
+      cnt[i]--;
+    }
+  })(0, 0, 0, 0);
+  var list = sorted.map(function(d, k){ return {day:d, session:cand[best.pick[k]].key}; }), clash = null;
+  adjacentPairs(sorted).some(function(pr){ // pr = [วันก่อน, วันถัดไป]
+    var g = sharedGroups(P[best.pick[pr[0]]], P[best.pick[pr[1]]]);
+    if(g.length) clash = {from:sorted[pr[0]], to:sorted[pr[1]], groups:g};
+    return !!clash;
+  });
+  return (_schedCache[ck] = {list:list, hard:best.hard, soft:best.soft, clash:clash});
+}
+function assignSessions(splitKey, days){ return bestSchedule(SPLIT_DEFS[splitKey].sessions, days).list; }
+function clashText(c){
+  return c.groups.map(function(g){ return GROUP_LABEL[g]||g; }).join('/')+'ถูกฝึกในวันติดกัน ('+c.from+' → '+c.to+')';
+}
+/* ชุดวันฝึกที่มากที่สุดจากวันว่างที่ไม่มีวันติดกันชนกัน — เท่ากันให้เลือกแบบที่ซ้อนกลุ่มรองน้อย และเว้นระยะห่างมากกว่า */
+var _freeCache = {};
+function freeTrainDays(sessions, avail){
+  var days = weekOrder(avail), ck = (sessions||[]).map(function(s){ return s.key; }).join('|')+'#'+days.join(',');
+  if(_freeCache[ck]) return _freeCache[ck];
+  var best = null;
+  for(var mask=1; mask < (1<<days.length); mask++){
+    var pick = days.filter(function(d, i){ return mask & (1<<i); });
+    var r = bestSchedule(sessions, pick);
+    if(r.hard) continue;
+    var sc = [pick.length, -r.soft, -adjacentPairs(pick).length];
+    if(!best || sc[0]>best.sc[0] || (sc[0]===best.sc[0] && (sc[1]>best.sc[1] || (sc[1]===best.sc[1] && sc[2]>best.sc[2])))) best = {sc:sc, days:pick};
+  }
+  return (_freeCache[ck] = best ? best.days : []);
+}
 /* วันว่าง (Q2) = วันที่ "เลือกได้" เท่านั้น วันฝึก/วัน cardio จริงเลือกแยกในหน้าตรวจแผน */
 function minTrainDays(splitKey, a){
-  var avail = (a.Q2||[]).length;
-  if(splitKey==='fullbody') return Math.min(2, avail);
-  return SPLIT_DEFS[splitKey].minDays;
+  var base = splitKey==='fullbody' ? Math.min(2, (a.Q2||[]).length) : SPLIT_DEFS[splitKey].minDays;
+  return Math.min(base, freeTrainDays(SPLIT_DEFS[splitKey].sessions, a.Q2).length);
 }
 function inAvailable(days, a){
   var avail = a.Q2||[];
   return DAYS.filter(function(d){ return avail.indexOf(d)>-1 && (days||[]).indexOf(d)>-1; });
 }
+/* ยังไม่ได้เลือกวันเอง = ใช้ชุดวันที่มากที่สุดที่ไม่มีกล้ามเนื้อกลุ่มเดียวกันโดนในวันติดกัน */
 function planTrainDays(a){
   var td = state.plan.trainDays;
-  return td ? inAvailable(td, a) : inAvailable(a.Q2, a);
+  return td ? inAvailable(td, a) : inAvailable(freeTrainDays(SPLIT_DEFS[effectiveSplit(a)].sessions, a.Q2), a);
 }
 function planCardioDays(a){ return inAvailable(state.plan.cardioDays, a); }
 function weekdayAdjacencyWarning(days){
@@ -2471,7 +2546,7 @@ function renderToday(){
       '<button type="button" class="btn" data-act="nav" data-view="progress">ความคืบหน้า</button>'+
     '</div></div>';
 
-  html += oldScheduleBanner(p) + planUpdateBanner(p) + fatAlertHTML(p) + pgAlertHTML(p);
+  html += oldScheduleBanner(p) + scheduleClashBanner(p) + planUpdateBanner(p) + fatAlertHTML(p) + pgAlertHTML(p);
   html += '<div class="today-grid"><div class="stack">'+dayEditor(iso)+'</div>'+
     '<aside class="rail">'+
       '<div class="prog-card"><div class="prog-top"><h3>ความคืบหน้าวันนี้</h3><span class="n mono">'+counts.done+'/'+counts.total+'</span></div>'+
@@ -3285,11 +3360,16 @@ function saveSchedDraft(){
     track.saveStatus = 'ยังบันทึกไม่ได้ — '+(p.splitLabel||'')+' ต้องมีวันฝึกอย่างน้อย '+need+' วัน/สัปดาห์';
     render(); return;
   }
+  var sch = bestSchedule(p.sessions||[], dr.days);
+  if(sch.hard){
+    track.saveStatus = 'ยังบันทึกไม่ได้ — '+clashText(sch.clash)+' กล้ามเนื้อต้องพัก ~48 ชม. เอาวันใดวันหนึ่งออกก่อน';
+    render(); return;
+  }
   var next = {};
   Object.keys(p).forEach(function(k){ next[k] = p[k]; });
   next.days = dr.days.slice();
   next.dayToSession = {};
-  assignSessionKeys(sessionKeys(p.sessions||[]), next.days).forEach(function(x){ next.dayToSession[x.day] = x.session; });
+  sch.list.forEach(function(x){ next.dayToSession[x.day] = x.session; });
   next.cardioDays = dr.cardioDays.slice();
   next.cardioMinByDay = minsForDays(dr.cardioMinByDay, next.cardioDays);
   next.availableDays = avail;
@@ -3313,6 +3393,24 @@ function schedEditorPanelHTML(){
     '<button type="button" class="btn ghost" data-act="sched-cancel">ยกเลิก</button>'+
     '<span class="save-status">'+esc(track.saveStatus||'')+'</span></div></div>';
 }
+/* ตารางที่ใช้อยู่จริง (ตาม dayToSession) มีวันติดกันที่ฝึกกล้ามเนื้อกลุ่มเดียวกันหรือไม่ — แผนเก่าก่อนมีระบบนี้อาจมี */
+function programClash(p){
+  var days = weekOrder(p.days), out = null;
+  adjacentPairs(days).some(function(pr){
+    var a = sessionDefFor(p, p.dayToSession[days[pr[0]]]), b = sessionDefFor(p, p.dayToSession[days[pr[1]]]);
+    var g = (a && b) ? sharedGroups(sessionGroups(a, false), sessionGroups(b, false)) : [];
+    if(g.length) out = {from:days[pr[0]], to:days[pr[1]], groups:g};
+    return !!out;
+  });
+  return out;
+}
+function scheduleClashBanner(p){
+  if(!p.availableDays || track.schedDraft) return ''; // แผนเก่ามาก ๆ มี oldScheduleBanner ให้เลือกวันอยู่แล้ว
+  var c = programClash(p);
+  if(!c) return '';
+  return '<div class="banner warn"><div class="ic">⚠️</div><div>ตารางตอนนี้ทำให้<b>'+esc(clashText(c))+'</b> — กล้ามเนื้อควรพัก ~48 ชม. ก่อนฝึกซ้ำ '+
+    '<button type="button" class="linkbtn" data-act="sched-edit-go">ปรับวันฝึก →</button></div></div>';
+}
 function oldScheduleBanner(p){
   if(p.availableDays || track.schedDraft) return '';
   return '<div class="banner warn"><div class="ic">⚠️</div><div>แผนนี้สร้างก่อนมีระบบเลือกวัน — ตอนนี้ <b>ทุกวันที่ว่างยังถูกนับเป็นวันฝึก</b> '+
@@ -3331,7 +3429,7 @@ function renderPlan(){
       '<button type="button" class="btn" data-act="edit-plan">แก้ไขแผน / ทำแบบสอบถามใหม่</button>'+
       '<button type="button" class="btn" data-act="edit-start">ตั้งวันเริ่มใหม่</button>'+
     '</div></div>';
-  html += oldScheduleBanner(p) + planUpdateBanner(p) + schedEditorPanelHTML();
+  html += oldScheduleBanner(p) + scheduleClashBanner(p) + planUpdateBanner(p) + schedEditorPanelHTML();
   if(!track.schedDraft && track.saveStatus==='บันทึกวันฝึกแล้ว ✓') html += '<div class="banner info"><div class="ic">✓</div><div>บันทึกวันฝึกแล้ว</div></div>';
 
   if(track.editing){
@@ -3727,11 +3825,12 @@ function sessionMuscles(se){
 function scheduleEditorHTML(ctx, splitKey, avail, train, cardio, minByDay, sessMinutes, sessions){
   var def = SPLIT_DEFS[splitKey];
   sessions = sessions || def.sessions;
-  var d2s = {};
-  assignSessionKeys(sessionKeys(sessions), train).forEach(function(x){ d2s[x.day]=x.session; });
+  var d2s = {}, sch = bestSchedule(sessions, train);
+  sch.list.forEach(function(x){ d2s[x.day]=x.session; });
   var minTrain = minTrainDays(splitKey, {Q2:avail});
   var cards = DAYS.map(function(d,i){
     var isAvail = avail.indexOf(d)>-1, isTrain = train.indexOf(d)>-1, isCardio = cardio.indexOf(d)>-1;
+    var blocked = isAvail && !isTrain && !sch.hard && bestSchedule(sessions, train.concat([d])).hard > 0;
     var sKey = isTrain ? d2s[d] : null;
     var seDef = sKey ? sessions.filter(function(s){return s.key===sKey;})[0] : null;
     var chips = seDef ? sessionMuscles(seDef).map(function(p){ return '<span class="chip">'+esc(PATTERN_SHORT[p]||p)+'</span>'; }).join('') : '';
@@ -3739,11 +3838,13 @@ function scheduleEditorHTML(ctx, splitKey, avail, train, cardio, minByDay, sessM
     var name = [sKey, isCardio?'Cardio':null].filter(Boolean).join(' + ') || (isAvail ? 'พัก' : 'ไม่ว่าง');
     var body = isAvail
       ? '<div class="sched-btns">'+
-          '<button type="button" class="opt'+(isTrain?' sel':'')+'" data-act="train-day" data-ctx="'+ctx+'" data-day="'+esc(d)+'" aria-pressed="'+isTrain+'">ฝึก</button>'+
+          '<button type="button" class="opt'+(isTrain?' sel':'')+(blocked?' blocked':'')+'" data-act="train-day" data-ctx="'+ctx+'" data-day="'+esc(d)+'" aria-pressed="'+isTrain+'"'+
+            (blocked?' title="ติดกับวันฝึกที่ใช้กล้ามเนื้อกลุ่มเดียวกัน"':'')+'>ฝึก</button>'+
           '<button type="button" class="opt'+(isCardio?' sel':'')+'" data-act="cardio-day" data-ctx="'+ctx+'" data-day="'+esc(d)+'" aria-pressed="'+isCardio+'">Cardio</button>'+
         '</div>'+
         (isCardio ? '<div class="sched-row"><label>Cardio วันนี้</label><input type="number" inputmode="numeric" min="5" max="300" data-act="cardio-day-min" data-ctx="'+ctx+'" data-day="'+esc(d)+'" data-fkey="cmin-'+ctx+'-'+esc(d)+'" value="'+mins+'"> นาที</div>' : '')
       : '<div class="wk-sub">ไม่ได้เลือกเป็นวันว่างในแบบสอบถาม</div>';
+    if(blocked) body += '<div class="wk-sub sched-block">ฝึกไม่ได้ — ติดกับวันฝึกกล้ามเนื้อกลุ่มเดียวกัน (พักได้ หรือทำ cardio)</div>';
     return '<div class="wk-card'+(isTrain||isCardio?'':' rest')+(isAvail?'':' unavail')+'"><div class="wk-top"><span class="wk-day mono">'+esc(DAYS_SHORT[i])+'</span>'+
       (isTrain&&sessMinutes?'<span class="chip">'+esc(sessMinutes)+'</span>':'')+'</div>'+
       '<div class="wk-name">'+esc(name)+'</div>'+
@@ -3752,7 +3853,13 @@ function scheduleEditorHTML(ctx, splitKey, avail, train, cardio, minByDay, sessM
   var note = train.length >= minTrain
     ? '<div class="split-auto-line">เลือกวันฝึกไว้ '+train.length+' วัน (ขั้นต่ำของ '+esc(def.label)+' คือ '+minTrain+' วัน) · Cardio '+cardio.length+' วัน — เลือกได้เฉพาะวันที่ว่าง ไม่ต้องใช้ครบทุกวัน cardio อยู่วันเดียวกับวันฝึกหรือคนละวันก็ได้ และตั้งนาทีแยกแต่ละวันได้</div>'
     : '<div class="banner warn"><div class="ic">⚠️</div><div>'+esc(def.label)+' ต้องมีวันฝึกอย่างน้อย <b>'+minTrain+' วัน/สัปดาห์</b> ตอนนี้เลือกไว้ '+train.length+' วัน — กด “ฝึก” เพิ่มในวันที่ว่าง</div></div>';
-  return '<div class="wk-grid" style="margin-top:12px">'+cards+'</div>'+note;
+  var rule = '<div class="split-auto-line">'+(splitKey==='fullbody'
+      ? 'Full Body ฝึกทั้งตัวทุกครั้ง จึงต้อง<b>เว้นอย่างน้อย 1 วันระหว่างวันฝึก</b> (นับอาทิตย์ → จันทร์ด้วย) ให้กล้ามเนื้อได้พัก ~48 ชม.'
+      : 'ระบบจัดเซสชันลงวันให้อัตโนมัติ ไม่ให้กล้ามเนื้อกลุ่มเดียวกันโดนในวันติดกัน (นับอาทิตย์ → จันทร์ด้วย) — วันที่จัดไม่ได้จะขึ้นว่าฝึกไม่ได้')+'</div>';
+  var warn = sch.hard
+    ? '<div class="banner danger"><div class="ic">⚠️</div><div><b>วันฝึกที่เลือกทำให้'+esc(clashText(sch.clash))+'</b> — กล้ามเนื้อต้องพัก ~48 ชม. เอาวันใดวันหนึ่งออก แล้วจึงบันทึก/เริ่มโปรแกรมได้</div></div>'
+    : (track.schedMsg ? '<div class="banner warn"><div class="ic">⚠️</div><div>'+esc(track.schedMsg)+'</div></div>' : '');
+  return warn+'<div class="wk-grid" style="margin-top:12px">'+cards+'</div>'+rule+note;
 }
 
 function resultsHTML(){
@@ -4067,7 +4174,7 @@ function numInRange(v, lo, hi){
   return {value:n, valid:true};
 }
 
-function goto(view){ state.nav = view; track.openDate=null; track.saveStatus=''; track.schedDraft=null; acctOpen=false; persist(); render(true); }
+function goto(view){ state.nav = view; track.openDate=null; track.saveStatus=''; track.schedDraft=null; track.schedMsg=''; acctOpen=false; persist(); render(true); }
 
 document.addEventListener("click", function(ev){
   var el = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
@@ -4319,6 +4426,12 @@ document.addEventListener("click", function(ev){
         render();
         return;
       }
+      var gSch = bestSchedule(SPLIT_DEFS[gSplit].sessions, planTrainDays(state.answers));
+      if(gSch.hard){
+        track.saveStatus = 'ยังสร้างตารางไม่ได้ — '+clashText(gSch.clash)+' กล้ามเนื้อต้องพัก ~48 ชม. ปรับวันฝึกก่อน';
+        render();
+        return;
+      }
       snap = buildPlanSnapshot(state.answers);
       snap.startDate = val;
       snap.planId = Date.now().toString(36);
@@ -4345,19 +4458,35 @@ document.addEventListener("click", function(ev){
     state = freshState(); state.nav = keepNav; state.editPlan = !!track.program;
     persist(); render(true); return;
   }
-  if(act==='split'){ if(el.disabled) return; state.plan.splitOverride = el.getAttribute('data-split'); state.plan.manualPick={}; persist(); render(); return; }
-  if(act==='split-auto'){ state.plan.splitOverride=null; state.plan.manualPick={}; persist(); render(); return; }
+  if(act==='split' || act==='split-auto'){
+    if(el.disabled) return;
+    state.plan.splitOverride = act==='split' ? el.getAttribute('data-split') : null; state.plan.manualPick={};
+    // วันที่เลือกไว้กับแบบเดิมอาจชนกันในแบบใหม่ (เช่น เปลี่ยนเป็น Full Body ที่ต้องเว้นวัน) → กลับไปใช้ชุดวันอัตโนมัติ
+    var nSplit = effectiveSplit(state.answers), nDays = state.plan.trainDays ? inAvailable(state.plan.trainDays, state.answers) : null;
+    if(nDays && (bestSchedule(SPLIT_DEFS[nSplit].sessions, nDays).hard || nDays.length < minTrainDays(nSplit, state.answers))) state.plan.trainDays = null;
+    track.schedMsg = '';
+    persist(); render(); return;
+  }
   if(act==='train-day' || act==='cardio-day'){
     var sctx = el.getAttribute('data-ctx'), sl = schedLists(sctx);
     var list = (act==='train-day' ? sl.train : sl.cardio).slice();
     var dday = el.getAttribute('data-day'), at = list.indexOf(dday);
+    track.schedMsg = '';
+    if(act==='train-day' && at===-1){
+      var tsess = sctx==='prog' ? (track.program.sessions||[]) : SPLIT_DEFS[effectiveSplit(state.answers)].sessions;
+      var tcur = bestSchedule(tsess, list), tnext = bestSchedule(tsess, list.concat([dday]));
+      if(!tcur.hard && tnext.hard){
+        track.schedMsg = 'เลือก'+dday+'เป็นวันฝึกไม่ได้ — จะทำให้'+clashText(tnext.clash)+' กล้ามเนื้อต้องพัก ~48 ชม. (วันนี้ใช้เป็นวันพักหรือวัน cardio ได้)';
+        render(); return;
+      }
+    }
     if(at>-1) list.splice(at,1); else list.push(dday);
     if(act==='train-day') setSchedLists(sctx, list, sl.cardio); else setSchedLists(sctx, sl.train, list);
     return;
   }
-  if(act==='sched-edit'){ openSchedDraft(); render(); return; }
-  if(act==='sched-edit-go'){ openSchedDraft(); state.nav='plan'; persist(); render(true); return; }
-  if(act==='sched-cancel'){ track.schedDraft=null; track.saveStatus=''; render(); return; }
+  if(act==='sched-edit'){ track.schedMsg=''; openSchedDraft(); render(); return; }
+  if(act==='sched-edit-go'){ track.schedMsg=''; openSchedDraft(); state.nav='plan'; persist(); render(true); return; }
+  if(act==='sched-cancel'){ track.schedDraft=null; track.schedMsg=''; track.saveStatus=''; render(); return; }
   if(act==='sched-save'){ saveSchedDraft(); return; }
   if(act==='intensity'){
     var ipat = el.getAttribute('data-pattern');

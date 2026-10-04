@@ -40,6 +40,7 @@
 
   --food:#0f766e;
   --sleep:#6d28d9;
+  --stress:#be185d;
 
   --branch:#a15c07;
   --branch-ink:#7c4a06;
@@ -84,6 +85,7 @@
 
     --food:#2dd4bf;
     --sleep:#a78bfa;
+    --stress:#f472b6;
 
     --branch:#e0ac5c;
     --branch-ink:#e3bd82;
@@ -370,6 +372,10 @@ input:focus{border-color:var(--accent); outline:none;}
 .food-row select{max-width:none;}
 .sym-chips{display:flex; flex-wrap:wrap; gap:5px; margin-top:8px;}
 .sym-chips .opt{padding:4px 10px; font-size:12px;}
+input.stress-note{width:100%; max-width:none; box-sizing:border-box;}
+.stress-row .meal-btn.on.s3{background:var(--caution-soft); border-color:var(--caution-line); color:var(--caution);}
+.stress-row .meal-btn.on.s4{background:var(--branch-soft); border-color:var(--branch-line); color:var(--branch-ink);}
+.stress-row .meal-btn.on.s5{background:var(--warn-soft); border-color:var(--warn-line); color:var(--warn);}
 .sym-advice{font-size:12px; margin-top:8px; color:var(--text-2); line-height:1.5;}
 .food-row{display:flex; gap:6px; flex-wrap:wrap; align-items:center;}
 .food-row select{flex:1 1 180px; min-width:0;}
@@ -536,6 +542,8 @@ svg.pg-chart .ch-t{font-size:12px;}
 .pg-actions .btn{height:auto; min-height:32px; padding:6px 12px; white-space:normal; text-align:left; line-height:1.4;}
 .pg-confirm{font-size:12.5px; color:var(--text); margin-top:8px; padding:10px 12px; border-radius:var(--r-md); background:var(--surface); border:1px solid var(--border);}
 .pg-rec{font-size:13px; line-height:1.6; color:var(--text); margin-bottom:10px;}
+.pg-factors{margin-top:12px; padding:10px 12px; border:1px dashed var(--border-strong); border-radius:var(--r-md);}
+.pg-factors .pg-issues{margin-top:4px;}
 .pg-dq{font-size:12px; color:var(--branch-ink); margin:10px 0 0;}
 table.pg-tab td{font-family:inherit; vertical-align:top;}
 table.pg-tab td:first-child{white-space:nowrap; color:var(--text-3);}

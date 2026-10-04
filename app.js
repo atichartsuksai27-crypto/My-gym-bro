@@ -1147,7 +1147,7 @@ function pgHasLiftData(p, iso){
 function pgAdherence(p, from, to){
   var t = targetsOf(p);
   var r = {days:0, sess:0, sessDone:0, sessNoData:0, cardio:0, cardioDone:0, cardioMin:0,
-           kcal:[], kcalOkDays:0, macroMismatch:0, lowKcal:0, prot:[], sleep:[], injuries:0};
+           kcal:[], kcalOkDays:0, macroMismatch:0, lowKcal:0, prot:[], sleep:[], injuries:0, stress:[], stressLog:[], stressHigh:[]};
   for(var iso=from; iso<=to; iso=nextISO(iso)){
     r.days++;
     var lg = logFor(iso) || {};
@@ -1172,6 +1172,12 @@ function pgAdherence(p, from, to){
     var sl = lg.sleep || {};
     if(sl.hours!=null && isFinite(sl.hours) && sl.hours>=0 && sl.hours<=24) r.sleep.push(sl.hours);
     r.injuries += seriousSymptoms(iso).length;
+    var st = stressOf(iso);
+    if(st){
+      r.stress.push(st.level);
+      r.stressLog.push({date:iso, level:st.level, note:st.note||''});
+      if(st.level >= 4) r.stressHigh.push({date:iso, level:st.level, note:st.note||''});
+    }
   }
   var avgIn = mean(r.kcal);
   r.sessPct = r.sess ? r.sessDone/r.sess : null;
@@ -1318,6 +1324,26 @@ function pgDataIssues(p, ev){
   if(adh.sessNoData) out.push({lvl:'info', text:'ติ๊กว่าเล่นครบ '+adh.sessNoData+' วันแต่ไม่ได้บันทึกน้ำหนัก/ครั้งต่อเซ็ต — ระบบประเมินความแข็งแรงจากวันนั้นไม่ได้'});
   return out;
 }
+/* สรุปความเครียดในช่วงประเมิน — นับเป็นปัจจัยเมื่อบันทึก ≥3 วัน และ เฉลี่ย ≥3.5/5 หรือเครียดมาก (4-5)
+   ≥30% ของวันที่บันทึก (อย่างน้อย 3 วัน) หรือ 7 วันล่าสุดสูงขึ้นจากก่อนหน้า ≥1 ระดับ */
+function pgStressSummary(ev){
+  var adh = ev.adh, log = adh.stressLog;
+  if(!log.length) return null;
+  var avgS = mean(adh.stress), high = adh.stressHigh.length, cut = fmtDateISO(addDays(parseISO(ev.asOf), -7));
+  var recent = log.filter(function(x){ return x.date >= cut; }).map(function(x){ return x.level; });
+  var before = log.filter(function(x){ return x.date < cut; }).map(function(x){ return x.level; });
+  var rising = recent.length>=3 && before.length>=3 && mean(recent) - mean(before) >= 1 && mean(recent) >= 3;
+  var heavy = avgS >= 3.5 || high >= Math.max(3, Math.ceil(log.length*0.3));
+  var flag = log.length >= 3 && (heavy || rising);
+  var notes = adh.stressHigh.filter(function(x){ return x.note; }).slice(-3).map(function(x){
+    return '“'+(x.note.length > 40 ? x.note.slice(0, 40)+'…' : x.note)+'”';
+  });
+  var text = (flag ? (heavy ? 'ความเครียดสูง: ' : 'ความเครียดเพิ่มขึ้น: ') : 'ความเครียด: ')+
+    'เฉลี่ย '+fmt1(avgS)+'/5 · เครียดมาก (4-5) '+high+' จาก '+log.length+' วันที่บันทึก'+
+    (rising ? ' · 7 วันล่าสุดสูงขึ้นจาก '+fmt1(mean(before))+' เป็น '+fmt1(mean(recent)) : '')+
+    (notes.length ? ' (สาเหตุที่บันทึก: '+notes.join(', ')+')' : '');
+  return {flag:flag, avg:avgS, high:high, n:log.length, rising:rising, text:text};
+}
 /* ปัจจัยที่อาจทำให้ผลไม่ตรงกรอบ (ใช้อธิบายประกอบ ไม่ใช่ตัวตัดสินระดับ) */
 function pgCauses(p, ev){
   var t = targetsOf(p), adh = ev.adh, out = [];
@@ -1325,6 +1351,8 @@ function pgCauses(p, ev){
   if(sl!=null && t.sleepH!=null && sl < t.sleepH - 0.5) out.push('นอนเฉลี่ย '+fmt1(sl)+' ชม. (เป้า '+fmt1(t.sleepH)+') — นอนน้อยทำให้ฟื้นตัวช้าและน้ำหนักแกว่ง');
   if(pr!=null && t.proteinG && pr < t.proteinG*0.9) out.push('โปรตีนเฉลี่ย '+Math.round(pr)+' g ('+Math.round(pr/t.proteinG*100)+'% ของเป้า) — ไม่พอต่อการรักษา/สร้างกล้ามเนื้อ');
   if(adh.injuries) out.push('มีอาการเข้าข่ายบาดเจ็บที่บันทึกไว้ '+adh.injuries+' ครั้งในช่วงนี้');
+  var ss = pgStressSummary(ev);
+  if(ss && ss.flag) out.push(ss.text+' — ความเครียดสะสมทำให้นอนแย่ ฟื้นตัวช้า อยากอาหารมากขึ้น และน้ำหนักแกว่งจากการคั่งน้ำ');
   if(p.goal==='ลดไขมัน' && ev.strength.level!=='ok' && ev.strength.level!=='na') out.push('อยู่ในช่วงกินขาด ความแข็งแรงเพิ่มช้าลงได้ แต่ไม่ควรลดลงต่อเนื่อง');
   return out;
 }
@@ -1401,6 +1429,8 @@ function pgRecommend(p, ev){
     if(p.goal==='ลดไขมัน') out.text.push('ถ้าแรงตกต่อเนื่องระหว่างลดไขมัน ลดการกินขาดลง 100-200 kcal/วัน');
   }
   ev.causes.forEach(function(c){ out.text.push('แก้ปัจจัยนี้ก่อน: '+c); });
+  var ss = pgStressSummary(ev);
+  if(ss && ss.flag) out.text.push('จัดการความเครียดควบคู่ไปด้วย: นอนให้ถึงเป้า เดินเบา ๆ หรือยืดเหยียด 10-20 นาที วันที่เครียดมากให้ฝึกตามแผนโดยไม่เพิ่มน้ำหนัก — ถ้าเครียดมากต่อเนื่องหลายสัปดาห์ควรคุยกับผู้เชี่ยวชาญ (สายด่วนสุขภาพจิต 1323)');
   return out;
 }
 function pgSave(patch){
@@ -1452,6 +1482,7 @@ function saveDay(iso, patch){
     nutrition: cur.nutrition || {},
     sleep: cur.sleep || {},
     cardio: cur.cardio || {},
+    stress: cur.stress || {},
     updatedAt: new Date().toISOString()
   };
   Object.keys(patch).forEach(function(k){ body[k] = patch[k]; });
@@ -2296,6 +2327,44 @@ function sectionSleep(iso){
     '</div></div>';
 }
 
+/* ---------- ความเครียด/อารมณ์รายวัน ----------
+   บันทึกเป็นข้อมูล ไม่นับความครบ/สีแดง — ใช้เป็นปัจจัยประกอบการเฝ้าระวังในกรอบแผน Progression & Goal */
+var STRESS_LEVELS = [
+  {v:1, label:'ไม่เครียด', icon:'😌'}, {v:2, label:'เล็กน้อย', icon:'🙂'}, {v:3, label:'ปานกลาง', icon:'😐'},
+  {v:4, label:'มาก', icon:'😣'}, {v:5, label:'มากที่สุด', icon:'😫'}
+];
+var STRESS_CHIPS = ['งาน','การเรียน','ครอบครัว','การเงิน','ความสัมพันธ์','สุขภาพ','นอนไม่พอ','เดินทาง'];
+function stressOf(iso){ var s = (logFor(iso)||{}).stress; return (s && s.level>=1 && s.level<=5) ? s : null; }
+function stressLabel(level){ var x = STRESS_LEVELS[level-1]; return x ? x.icon+' '+level+'/5 '+x.label : ''; }
+function patchStress(iso, patch){
+  var cur = (logFor(iso)||{}).stress || {}, s = {};
+  Object.keys(cur).forEach(function(k){ s[k] = cur[k]; });
+  Object.keys(patch).forEach(function(k){ s[k] = patch[k]; });
+  saveDay(iso, {stress:s});
+}
+function sectionStress(iso){
+  var s = (logFor(iso)||{}).stress || {}, lvl = s.level || null;
+  var btns = STRESS_LEVELS.map(function(x){
+    return '<button type="button" class="meal-btn s'+x.v+(lvl===x.v ? ' on' : '')+'" data-act="stress-lvl" data-date="'+iso+'" data-val="'+x.v+'" aria-pressed="'+(lvl===x.v)+'">'+x.icon+' '+x.v+' · '+x.label+'</button>';
+  }).join('');
+  var chips = STRESS_CHIPS.map(function(c){
+    return '<button type="button" class="opt" data-act="stress-chip" data-date="'+iso+'" data-val="'+esc(c)+'">'+esc(c)+'</button>';
+  }).join('');
+  var tip = lvl>=4 ? '<div class="sym-advice">'+(lvl===5
+      ? 'วันนี้เครียดมาก — ไม่ต้องฝืนฝึกหนักกว่าแผน พักหายใจลึก ๆ เดินเบา ๆ และนอนให้พอ ถ้าเครียดมากต่อเนื่องหรือรับมือไม่ไหว ควรคุยกับคนที่ไว้ใจหรือผู้เชี่ยวชาญ (สายด่วนสุขภาพจิต 1323)'
+      : 'เครียดมาก — ลองพักหายใจลึก ๆ เดินเบา ๆ 10-20 นาที และนอนให้ถึงเป้า ช่วยให้ร่างกายฟื้นตัวได้ดีขึ้น')+'</div>' : '';
+  return '<div class="sec-card">'+
+    '<div class="sec-head"><span class="sq" style="background:var(--stress)"></span><h2>ความเครียด / อารมณ์</h2>'+
+    '<span class="meta">บันทึกเป็นข้อมูล ไม่นับในเช็คลิสต์</span>'+(lvl ? '<span class="cnt">'+lvl+'/5</span>' : '')+'</div>'+
+    '<div class="chk-list"><div class="chk wrap">'+
+      '<div class="cb"><div class="t">ระดับความเครียดวันนี้</div><div class="s">ความเครียดสะสมมีผลต่อการนอน การฟื้นตัว ความอยากอาหาร และน้ำหนักตัว — ระบบใช้ประกอบการเฝ้าระวังในหน้าความคืบหน้า (กดระดับเดิมซ้ำเพื่อล้าง)</div>'+
+        '<div class="meal-row stress-row" style="margin-top:8px">'+btns+'</div></div>'+
+      '<div class="chk-full">'+
+        '<input type="text" class="stress-note" maxlength="200" placeholder="สาเหตุของความเครียด เช่น งานเร่ง ประชุมทั้งวัน เรื่องที่บ้าน" data-act="stress-note" data-date="'+iso+'" data-fkey="stress-'+iso+'" value="'+esc(s.note||'')+'">'+
+        '<div class="sym-chips">'+chips+(s.note ? '<button type="button" class="opt" data-act="stress-clear" data-date="'+iso+'">ล้างสาเหตุ</button>' : '')+'</div>'+tip+
+      '</div></div></div></div>';
+}
+
 function sectionBody(iso){
   var p = track.program, t = targetsOf(p);
   var kg = weightFor(iso);
@@ -2334,7 +2403,7 @@ function sectionCardio(iso){
 }
 
 function dayEditor(iso){
-  return sectionWorkout(iso) + sectionCardio(iso) + sectionFood(iso) + sectionSleep(iso) + sectionBody(iso);
+  return sectionWorkout(iso) + sectionCardio(iso) + sectionFood(iso) + sectionSleep(iso) + sectionStress(iso) + sectionBody(iso);
 }
 function dayDetailHTML(iso){
   var rep = dayReport(track.program, iso);
@@ -2357,7 +2426,11 @@ function dayDetailHTML(iso){
 }
 /* อาการหลังออกกำลังกาย + รายการอาหาร ของวันนั้น (อ่านจาก log โดยตรง ใช้ได้ทั้งวันที่ล็อกแล้ว) */
 function dayExtrasHTML(iso){
-  var lg = logFor(iso) || {}, out = '';
+  var lg = logFor(iso) || {}, out = '', st = stressOf(iso);
+  if(st){
+    out += '<div class="sec-card"><div class="sec-head"><h2>ความเครียด / อารมณ์</h2><span class="meta">บันทึกไว้เป็นข้อมูล ไม่นับความครบ</span></div><div class="hist-items">'+
+      '<div class="hist-item"><span>'+esc(st.note ? 'สาเหตุ: '+st.note : 'ไม่ได้ระบุสาเหตุ')+'</span><span>'+esc(stressLabel(st.level))+'</span></div></div></div>';
+  }
   var syms = Object.keys(lg.exercises||{}).map(function(id){ return lg.exercises[id].symptom; }).filter(Boolean);
   if(syms.length){
     out += '<div class="sec-card"><div class="sec-head"><h2>อาการหลังออกกำลังกาย</h2></div><div class="hist-items">'+syms.map(function(s){
@@ -2911,6 +2984,8 @@ function pgDetailsHTML(p, ev){
   var pr = mean(adh.prot), sl = mean(adh.sleep);
   if(pr!=null) rows.push(['โปรตีนเฉลี่ย', Math.round(pr)+' g (เป้า '+t.proteinG+' g)']);
   if(sl!=null) rows.push(['นอนเฉลี่ย', fmt1(sl)+' ชม. (เป้า '+fmtHours(t.sleepH)+')']);
+  var ss = pgStressSummary(ev);
+  rows.push(['ความเครียด', ss ? ss.text.replace(/^ความเครียด(สูง|เพิ่มขึ้น)?: /, '') : 'ยังไม่ได้บันทึก — บันทึกได้ที่หน้า “วันนี้” (ไม่บังคับ แต่ช่วยให้ระบบหาสาเหตุได้แม่นขึ้น)']);
   rows.push(['ชั่งน้ำหนัก', ev.wpts.length+' ครั้ง'+(ev.reg ? ' · แนวโน้ม '+pgRate(ev.reg.b*7)+' ± '+(ev.reg.se*7).toFixed(2)+' กก./สัปดาห์' : '')]);
   if(en.implied!=null) rows.push(['พลังงาน', 'ระบบคาด '+fmtKcal(Math.round(en.expected))+' (TDEE '+fmtKcal(t.tdee)+' + ออกกำลังกาย ~'+Math.round(en.exAct)+') · คำนวณจากข้อมูลจริง '+fmtKcal(Math.round(en.implied))+' ± '+Math.round(en.unc)+' kcal/วัน']);
   var html = '<table class="logtab pg-tab"><tbody>'+rows.map(function(r){ return '<tr><td>'+esc(r[0])+'</td><td>'+esc(r[1])+'</td></tr>'; }).join('')+'</tbody></table>';
@@ -2921,7 +2996,7 @@ function pgDetailsHTML(p, ev){
     return shortDateTH(a.date)+': แคลอรี่ '+fmtKcal(a.fromKcal)+' → '+fmtKcal(a.toKcal)+' kcal (TDEE '+fmtKcal(a.fromTdee)+' → '+fmtKcal(a.toTdee)+')';
   }));
   html += '<p class="hint" style="margin-top:10px">วิธีประเมิน: หาแนวโน้มน้ำหนักจากการชั่งย้อนหลัง '+PG_WINDOW+' วัน (เส้นตรงที่ fit ดีที่สุด + ค่าความคลาดเคลื่อน) แล้วเทียบกรอบ · ความแข็งแรงดู e1RM ย้อนหลัง '+PG_STR_WINDOW+' วัน · '+
-    'พลังงานที่ใช้จริง = กินเฉลี่ย − น้ำหนักที่เปลี่ยน × 7,700 kcal · ผลที่หลุดกรอบนับว่าผิดปกติเฉพาะตอนเข้าฝึก ≥ 75% และกินตามเป้า (กรอก ≥ 70% ของวัน เฉลี่ยอยู่ใน ±10%) · 3 สัปดาห์แรกของรอบ ยังไม่ตัดสินว่าผิดปกติกรณีน้ำหนักเปลี่ยนเร็วกว่ากรอบ และกรณีข้อมูลพลังงานไม่สอดคล้อง เพราะน้ำและไกลโคเจนทำให้น้ำหนักแกว่งแรง</p>';
+    'พลังงานที่ใช้จริง = กินเฉลี่ย − น้ำหนักที่เปลี่ยน × 7,700 kcal · การนอน โปรตีน ความเครียด และอาการบาดเจ็บ ใช้เป็นปัจจัยอธิบายผล ไม่ใช่ตัวตัดสินระดับ · ผลที่หลุดกรอบนับว่าผิดปกติเฉพาะตอนเข้าฝึก ≥ 75% และกินตามเป้า (กรอก ≥ 70% ของวัน เฉลี่ยอยู่ใน ±10%) · 3 สัปดาห์แรกของรอบ ยังไม่ตัดสินว่าผิดปกติกรณีน้ำหนักเปลี่ยนเร็วกว่ากรอบ และกรณีข้อมูลพลังงานไม่สอดคล้อง เพราะน้ำและไกลโคเจนทำให้น้ำหนักแกว่งแรง</p>';
   return html;
 }
 function pgEvalCardHTML(p, ev){
@@ -2937,6 +3012,8 @@ function pgEvalCardHTML(p, ev){
   html += '<div class="pg-signals">'+ev.signals.map(function(s){
     return '<div class="pg-sig pg-'+s.level+'"><span class="pg-ic">'+PG_LEVELS[s.level].icon+'</span><div><div class="pg-st">'+esc(s.title)+'</div><div class="pg-sd">'+esc(s.text)+'</div></div></div>';
   }).join('')+'</div>';
+  if((ev.level==='na' || ev.level==='ok' || ev.level==='watch') && ev.causes.length)
+    html += '<div class="pg-factors"><div class="pg-st">ปัจจัยที่ควรเฝ้าดู (อาจกระทบพัฒนาการ)</div>'+pgListHTML(ev.causes)+'</div>';
   if(ev.level==='anomaly') html += pgCheckHTML(p, ev);
   else if(ev.level==='adjust') html += pgAdjustHTML(p, ev);
   else if(ev.issues.some(function(x){ return x.lvl==='warn'; })) html += '<p class="pg-dq">⚠️ คุณภาพข้อมูล: พบ '+ev.issues.length+' จุดที่ควรบันทึกให้ครบ/แม่นขึ้น เพื่อให้ระบบประเมินได้ถูกต้อง (ดูในรายละเอียด)</p>';
@@ -2982,6 +3059,8 @@ function historyHTML(p){
     }).join('');
     if(rep.warmup && rep.warmup.total) groups += '<span class="chip" title="บันทึกไว้เป็นข้อมูล ไม่นับความครบ">Warm-up '+rep.warmup.done+'/'+rep.warmup.total+'</span>';
     if(seriousSymptoms(iso).length) groups += '<span class="chip miss">⚠️ มีอาการบาดเจ็บ</span>';
+    var stH = stressOf(iso);
+    if(stH) groups += '<span class="chip'+(stH.level>=4 ? ' warn' : '')+'" title="บันทึกไว้เป็นข้อมูล ไม่นับความครบ">เครียด '+stH.level+'/5</span>';
     rows += '<button type="button" class="hist-row'+(past && !rep.complete?' miss':'')+(open?' open':'')+'" data-act="hist-open" data-date="'+iso+'" aria-expanded="'+open+'">'+
       '<div class="hist-top"><span class="hist-date">'+esc(longDateTH(iso))+'</span><span>· '+dayLabelHTML(p, iso, 'พัก')+'</span>'+status+'</div>'+
       '<div class="hist-groups">'+groups+'</div></button>';
@@ -4161,6 +4240,16 @@ document.addEventListener("click", function(ev){
     saveSymptom(iso, sex, nextTxt, exerciseName(iso, sex));
     return;
   }
+  if(act==='stress-lvl'){
+    var sv = parseInt(el.getAttribute('data-val'), 10), sc = stressOf(iso);
+    patchStress(iso, {level: sc && sc.level===sv ? null : sv});
+    return;
+  }
+  if(act==='stress-chip' || act==='stress-clear'){
+    var sn = (((logFor(iso)||{}).stress)||{}).note || '';
+    patchStress(iso, {note: act==='stress-clear' ? '' : ((sn ? sn+', ' : '')+el.getAttribute('data-val')).slice(0, 200)});
+    return;
+  }
   if(act==='food-toggle'){ var fk = iso+':'+el.getAttribute('data-cat'); track.openFood[fk] = !track.openFood[fk]; render(); return; }
   if(act==='food-add'){ addFood(iso, el.getAttribute('data-cat')); return; }
   if(act==='food-del'){ removeFood(iso, parseInt(el.getAttribute('data-idx'),10)); return; }
@@ -4327,6 +4416,7 @@ document.addEventListener("change", function(ev){
     return;
   }
   if(act==='sleep-hyg'){ patchSleep(iso, {hygiene: el.checked}); return; }
+  if(act==='stress-note'){ patchStress(iso, {note: String(el.value||'').trim().slice(0, 200)}); return; }
   if(act==='pg-check'){ track.pgChecks[el.getAttribute('data-k')] = el.checked; render(); return; }
   if(act==='cardio-min'){
     var cm = numInRange(el.value, 0, 600);

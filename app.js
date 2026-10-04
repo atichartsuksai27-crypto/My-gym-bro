@@ -869,7 +869,8 @@ var track = {
   openDate:null, openSets:{}, saveStatus:'', openSwap:null,
   schedTab:'week', editing:false, progressEx:null, openBench:{}, sleepHoursError:{},
   demoExercise:null, // โมดัลภาพเคลื่อนไหวท่าในหน้าตรวจแผน (null = ปิด)
-  histOpen:null, histDays:14, finalizedThrough:null, schedDraft:null, fatOpen:false
+  histOpen:null, histDays:14, finalizedThrough:null, schedDraft:null, fatOpen:false,
+  openSym:{}, openFood:{}, foodErr:{}
 };
 function persistProgram(){
   var ok = lsSet("gymbro_program", track.program);
@@ -1593,6 +1594,74 @@ function warmupHTML(ex, iso, e, steps, prev){
     (basis ? '<div class="wu-basis">'+esc(basis)+'</div>' : '');
 }
 
+/* ---------- อาการหลังออกกำลังกาย: คัดกรองจากคำที่ผู้ใช้พิมพ์ (ไม่ใช่การวินิจฉัย) ----------
+   ระดับเรียงจากหนักไปเบา ระดับที่หนักสุดที่เจอคือผลลัพธ์ · คำที่มี "ไม่" นำหน้า (เช่น "ไม่บวม") ไม่นับ */
+var SYMPTOM_RULES = [
+  {level:'emergency', words:['เจ็บหน้าอก','แน่นหน้าอก','หายใจไม่ออก','หายใจลำบาก','หน้ามืด','เป็นลม','วูบ','ใจสั่น','หัวใจเต้นผิดจังหวะ',
+    'ปัสสาวะสีเข้ม','ปัสสาวะสีน้ำตาล','ฉี่สีเข้ม','ฉี่สีโค้ก','ชาครึ่งซีก','พูดไม่ชัด','chest pain','faint']},
+  {level:'injury', words:['เจ็บแปลบ','ปวดแปลบ','เจ็บจี๊ด','ปวดจี๊ด','เสียงดัง','ได้ยินเสียง','ป๊อก','กร๊อบ','บวม','ช้ำ','ชา','เหน็บ',
+    'ร้าวลง','ปวดร้าว','ขยับไม่ได้','ยกไม่ขึ้น','ลงน้ำหนักไม่ได้','เดินไม่ได้','หลุด','เคล็ด','พลิก','ฉีก','อ่อนแรง',
+    'sharp pain','swelling','numb']},
+  {level:'caution', words:['ปวดข้อ','เจ็บข้อ','ปวดเข่า','เจ็บเข่า','ปวดไหล่','เจ็บไหล่','ปวดหลัง','เจ็บหลัง','ปวดเอว','ปวดข้อมือ','เจ็บข้อมือ',
+    'ปวดศอก','เจ็บศอก','ปวดสะโพก','ปวดคอ','ข้อฝืด','ข้อติด','ตะคริว','เจ็บ','pain']},
+  {level:'normal', words:['ปวดเมื่อย','เมื่อย','ตึง','ล้า','เหนื่อย','ระบม','ปกติ','ไม่มีอาการ','ไม่เจ็บ','ไม่ปวด','สบายดี','sore']}
+];
+var SYMPTOM_INFO = {
+  emergency:{label:'อันตราย', cls:'danger', icon:'🚨', advice:'หยุดออกกำลังกายทันที นั่งพัก ถ้าอาการไม่ดีขึ้นหรือรุนแรงให้ไปพบแพทย์หรือโทร 1669'},
+  injury:{label:'เข้าข่ายบาดเจ็บ', cls:'danger', icon:'⚠️', advice:'หยุดเล่นท่านี้ พักส่วนที่เจ็บ ประคบเย็น 15-20 นาที ถ้าบวม/ปวดมากหรือไม่ดีขึ้นใน 2-3 วันควรพบแพทย์ และแจ้งอาการในแบบสอบถาม (หมวดอาการบาดเจ็บ) ให้ระบบล็อกท่าที่เสี่ยง'},
+  caution:{label:'ควรระวัง', cls:'warn', icon:'⚠️', advice:'อาจเป็นสัญญาณเริ่มบาดเจ็บ — ครั้งหน้าลดน้ำหนัก เช็คฟอร์ม ถ้าปวดข้อต่อซ้ำหรือนานเกิน 2-3 วันควรปรึกษาผู้เชี่ยวชาญ'},
+  normal:{label:'ปกติหลังฝึก', cls:'ok', icon:'✓', advice:'อาการล้า/ตึง/ระบมของกล้ามเนื้อเป็นเรื่องปกติหลังฝึก มักหายใน 1-3 วัน'},
+  unknown:{label:'บันทึกแล้ว', cls:'', icon:'📝', advice:'ระบบแยกระดับจากคำที่พิมพ์ไม่ได้ — ถ้าอาการแย่ลงหรือไม่หายใน 2-3 วันควรปรึกษาแพทย์'}
+};
+var SYMPTOM_CHIPS = ['ปวดเมื่อยปกติ','ตึงกล้ามเนื้อ','ปวดข้อ','เจ็บแปลบ','มีเสียงดังในข้อ','บวม','ชา/เหน็บ'];
+function analyzeSymptom(text){
+  var t = String(text||'').toLowerCase();
+  for(var r=0; r<SYMPTOM_RULES.length; r++){
+    var hit = SYMPTOM_RULES[r].words.filter(function(w){
+      var i = t.indexOf(w);
+      while(i>-1){
+        if(t.slice(Math.max(0, i-4), i).indexOf('ไม่')===-1) return true;
+        i = t.indexOf(w, i+1);
+      }
+      return false;
+    });
+    if(hit.length) return {level:SYMPTOM_RULES[r].level, words:hit};
+  }
+  return {level:'unknown', words:[]};
+}
+function symptomHTML(ex, iso, e){
+  var s = e.symptom, open = !!track.openSym[iso+':'+ex.id];
+  var info = s ? SYMPTOM_INFO[s.level] || SYMPTOM_INFO.unknown : null;
+  var summary = s ? '<div class="sym-sum sym-'+(info.cls||'none')+'">'+info.icon+' อาการหลังเล่น: '+esc(s.text)+' — <b>'+info.label+'</b></div>' : '';
+  var btn = '<button type="button" class="ex-open" data-act="sym-toggle" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">'+(open?'ซ่อนช่องอาการ ▴':(s?'แก้ไขอาการหลังเล่น ▾':'บันทึกอาการหลังเล่น ▾'))+'</button>';
+  if(!open) return summary + btn;
+  return summary + btn + '<div class="setbox">'+
+    '<input type="text" class="sym-input" maxlength="200" placeholder="เช่น ปวดเข่าด้านในตอนย่อ, ไหล่มีเสียงดังกึก" data-act="symptom" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" data-fkey="sym-'+iso+'-'+ex.id+'" value="'+esc(s?s.text:'')+'">'+
+    '<div class="sym-chips">'+SYMPTOM_CHIPS.map(function(c){
+      return '<button type="button" class="opt" data-act="sym-chip" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" data-val="'+esc(c)+'">'+esc(c)+'</button>';
+    }).join('')+(s?'<button type="button" class="opt" data-act="sym-clear" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">ล้าง</button>':'')+'</div>'+
+    (info ? '<div class="sym-advice">'+esc(info.advice)+'</div>' : '')+
+    '<div class="hint">ระบบคัดกรองจากคำที่พิมพ์เท่านั้น ไม่ใช่การวินิจฉัยทางการแพทย์</div></div>';
+}
+function exerciseName(iso, exId){
+  var p = track.program || {};
+  var sess = sessionDefFor(p, sessionKeyFor(p, iso));
+  var ex = (sess ? sess.exercises : []).filter(function(x){ return x.id===exId; })[0] || EXERCISES.filter(function(x){ return x.id===exId; })[0];
+  return ex ? ex.th : exId;
+}
+function saveSymptom(iso, exId, text, name){
+  text = String(text||'').trim().slice(0, 200);
+  patchExercise(iso, exId, {symptom: text ? {text:text, level:analyzeSymptom(text).level, name:name} : null});
+}
+function seriousSymptoms(iso){
+  var exs = (logFor(iso)||{}).exercises || {}, out = [];
+  Object.keys(exs).forEach(function(id){
+    var s = exs[id] && exs[id].symptom;
+    if(s && (s.level==='injury' || s.level==='emergency')) out.push(s);
+  });
+  return out;
+}
+
 function sectionWorkout(iso){
   var p = track.program, t = targetsOf(p);
   var sKey = sessionKeyFor(p, iso);
@@ -1636,6 +1705,7 @@ function sectionWorkout(iso){
         restLine+
         (intense ? intenseNoteHTML(ex, prev) : '')+
         warmupHTML(ex, iso, e, wuSteps[ex.id]||[], prev)+
+        symptomHTML(ex, iso, e)+
         '<button type="button" class="ex-open" data-act="ex-toggle" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">'+(open?'ซ่อนช่องบันทึกเซ็ต ▴':(isBW?'บันทึกจำนวนครั้งต่อเซ็ต ▾':'บันทึกน้ำหนัก/ครั้งต่อเซ็ต ▾'))+'</button>'+
         (open? '<div class="setbox">'+setRows+'</div>' : '')+
         perfBlockFor(ex, iso, e, isBW)+
@@ -1645,9 +1715,117 @@ function sectionWorkout(iso){
     '<div class="sec-head"><span class="sq" style="background:var(--accent)"></span><h2>ออกกำลังกาย</h2>'+
     '<span class="meta">'+esc(sKey)+' · ~'+esc(p.minutesEstimate||'45-60 นาที')+' · '+esc(p.trainTime||'')+'</span>'+
     '<span class="cnt">'+doneN+'/'+sess.exercises.length+'</span></div>'+
+    seriousSymptoms(iso).map(function(s){
+      var info = SYMPTOM_INFO[s.level];
+      return '<div class="banner danger"><div class="ic">'+info.icon+'</div><div><b>'+esc(s.name||'')+': '+esc(s.text)+'</b> — '+info.label+' · '+esc(info.advice)+'</div></div>';
+    }).join('')+
     '<div class="chk-list">'+rows+'</div>'+
     '<label class="log-complete-row"><input type="checkbox" data-act="sess-complete" data-date="'+iso+'" '+(log.completed?'checked':'')+'> ทำเซสชันนี้ครบแล้ว (ข้อนี้คือตัวที่นับสตรีคและ % ทำตามแผน)</label>'+
     '</div>';
+}
+
+/* ---------- อาหาร → สารอาหาร: ค่าต่อ 100 g (อาหารสุกถ้าไม่ระบุ) ประมาณจาก USDA FoodData Central ----------
+   พลังงานคิด 4/4/9 kcal ต่อกรัมของโปรตีน/คาร์บ/ไขมัน ให้ยอดแคลแต่ละสารอาหารรวมกันได้พอดี */
+var FOODS = [
+  {id:'chk_breast', cat:'protein', name:'อกไก่ไม่มีหนัง (สุก)', p:31, c:0, f:3.6},
+  {id:'chk_thigh', cat:'protein', name:'สะโพกไก่ไม่มีหนัง (สุก)', p:26, c:0, f:10.9},
+  {id:'chk_drum', cat:'protein', name:'น่องไก่ไม่มีหนัง (สุก)', p:28.3, c:0, f:5.7},
+  {id:'chk_wing', cat:'protein', name:'ปีกไก่ติดหนัง (สุก)', p:26.9, c:0, f:19.5},
+  {id:'egg', cat:'protein', name:'ไข่ไก่ทั้งฟอง (ต้ม)', p:12.6, c:1.1, f:10.6, unit:'1 ฟอง ≈ 50 g'},
+  {id:'egg_white', cat:'protein', name:'ไข่ขาว (สุก)', p:10.9, c:0.7, f:0.2, unit:'ไข่ขาว 1 ฟอง ≈ 33 g'},
+  {id:'pork_loin', cat:'protein', name:'หมูสันใน (สุก)', p:26.2, c:0, f:3.5},
+  {id:'pork_mince', cat:'protein', name:'หมูสับ (สุก)', p:25.7, c:0, f:20.8},
+  {id:'beef_lean', cat:'protein', name:'เนื้อวัวไม่ติดมัน (สุก)', p:29, c:0, f:7},
+  {id:'salmon', cat:'protein', name:'ปลาแซลมอน (สุก)', p:22.1, c:0, f:12.4},
+  {id:'tilapia', cat:'protein', name:'ปลานิล (สุก)', p:26.2, c:0, f:2.7},
+  {id:'shrimp', cat:'protein', name:'กุ้ง (สุก)', p:24, c:0.2, f:0.3},
+  {id:'tuna', cat:'protein', name:'ทูน่ากระป๋องในน้ำแร่ (สะเด็ดน้ำ)', p:25.5, c:0, f:0.8},
+  {id:'tofu', cat:'protein', name:'เต้าหู้แข็ง', p:17.3, c:2.8, f:8.7},
+  {id:'whey', cat:'protein', name:'เวย์โปรตีน (ผง)', p:80, c:8, f:6, unit:'1 สกูป ≈ 30 g'},
+  {id:'milk', cat:'protein', name:'นมจืด', p:3.2, c:4.8, f:3.3, unit:'1 กล่อง ≈ 200-250 ml (≈ กรัม)'},
+  {id:'rice', cat:'carb', name:'ข้าวขาว (หุงสุก)', p:2.7, c:28.2, f:0.3, unit:'1 ทัพพี ≈ 60 g'},
+  {id:'rice_brown', cat:'carb', name:'ข้าวกล้อง (หุงสุก)', p:2.7, c:25.6, f:1, unit:'1 ทัพพี ≈ 60 g'},
+  {id:'sticky_rice', cat:'carb', name:'ข้าวเหนียวนึ่ง', p:2, c:21.1, f:0.2},
+  {id:'rice_noodle', cat:'carb', name:'เส้นก๋วยเตี๋ยว (ลวก)', p:1.8, c:24, f:0.2},
+  {id:'egg_noodle', cat:'carb', name:'บะหมี่ไข่ (ลวก)', p:4.5, c:25.2, f:2.1},
+  {id:'bread', cat:'carb', name:'ขนมปังขาว', p:9, c:49, f:3.2, unit:'1 แผ่น ≈ 30 g'},
+  {id:'bread_ww', cat:'carb', name:'ขนมปังโฮลวีท', p:12.4, c:43, f:3.5, unit:'1 แผ่น ≈ 30 g'},
+  {id:'oats', cat:'carb', name:'ข้าวโอ๊ต (แห้ง ก่อนต้ม)', p:16.9, c:66, f:6.9},
+  {id:'pasta', cat:'carb', name:'พาสต้า (ต้มสุก)', p:5.8, c:31, f:0.9},
+  {id:'potato', cat:'carb', name:'มันฝรั่ง (ต้ม)', p:1.9, c:20.1, f:0.1},
+  {id:'sweet_potato', cat:'carb', name:'มันเทศ (สุก)', p:2, c:20.7, f:0.2},
+  {id:'banana', cat:'carb', name:'กล้วยหอม', p:1.1, c:22.8, f:0.3, unit:'1 ลูก ≈ 120 g (ไม่รวมเปลือก)'},
+  {id:'oil', cat:'fat', name:'น้ำมันพืช/น้ำมันมะกอก', p:0, c:0, f:100, unit:'1 ช้อนโต๊ะ ≈ 14 g'},
+  {id:'butter', cat:'fat', name:'เนย', p:0.9, c:0.1, f:81, unit:'1 ช้อนโต๊ะ ≈ 14 g'},
+  {id:'avocado', cat:'fat', name:'อะโวคาโด', p:2, c:8.5, f:14.7},
+  {id:'almond', cat:'fat', name:'อัลมอนด์', p:21.2, c:21.6, f:49.9},
+  {id:'peanut', cat:'fat', name:'ถั่วลิสงคั่ว', p:23.7, c:21.5, f:49.7},
+  {id:'peanut_butter', cat:'fat', name:'เนยถั่ว', p:25, c:20, f:50, unit:'1 ช้อนโต๊ะ ≈ 16 g'},
+  {id:'coconut_milk', cat:'fat', name:'กะทิ', p:2.3, c:5.5, f:23.8}
+];
+var FOOD_CAT_LABEL = {protein:'แหล่งโปรตีน', carb:'แหล่งคาร์โบไฮเดรต', fat:'แหล่งไขมัน'};
+function r1(x){ return Math.round(x*10)/10; }
+function foodById(id){ return FOODS.filter(function(f){ return f.id===id; })[0] || null; }
+function foodMacros(food, g){
+  var p = r1(food.p*g/100), c = r1(food.c*g/100), f = r1(food.f*g/100);
+  return {p:p, c:c, f:f, kcal:Math.round(p*4 + c*4 + f*9)};
+}
+function macroLine(m){
+  return 'โปรตีน '+m.p+' g ('+Math.round(m.p*4)+' kcal) · คาร์บ '+m.c+' g ('+Math.round(m.c*4)+' kcal) · ไขมัน '+m.f+' g ('+Math.round(m.f*9)+' kcal) = '+m.kcal+' kcal';
+}
+function foodPreviewText(food, grams){
+  if(!food) return '';
+  if(grams>0) return grams+' g → '+macroLine(foodMacros(food, grams));
+  return 'ต่อ 100 g: '+macroLine(foodMacros(food, 100))+(food.unit ? ' · '+food.unit : '');
+}
+function updateFoodPreview(iso, cat){
+  var sel = document.getElementById('food-sel-'+cat+'-'+iso), g = document.getElementById('food-g-'+cat+'-'+iso);
+  var out = document.getElementById('food-prev-'+cat+'-'+iso);
+  if(!sel || !g || !out) return;
+  out.textContent = foodPreviewText(foodById(sel.value), parseFloat(g.value));
+}
+function addFood(iso, cat){
+  var sel = document.getElementById('food-sel-'+cat+'-'+iso), gEl = document.getElementById('food-g-'+cat+'-'+iso);
+  var food = sel ? foodById(sel.value) : null, g = numInRange(gEl ? gEl.value : '', 1, 3000);
+  if(!food || !g.valid || g.value==null){ track.foodErr[iso+':'+cat] = 'กรอกน้ำหนักอาหารเป็นกรัม (1-3000)'; render(); return; }
+  track.foodErr[iso+':'+cat] = '';
+  var m = foodMacros(food, g.value);
+  var n = (logFor(iso)||{}).nutrition || {};
+  patchNutrition(iso, {
+    foods: (n.foods||[]).concat([{fid:food.id, cat:cat, name:food.name, g:g.value, p:m.p, c:m.c, f:m.f, kcal:m.kcal}]),
+    proteinG: r1((n.proteinG||0)+m.p), carbG: r1((n.carbG||0)+m.c), fatG: r1((n.fatG||0)+m.f), kcal: Math.round((n.kcal||0)+m.kcal)
+  });
+}
+function removeFood(iso, idx){
+  var n = (logFor(iso)||{}).nutrition || {}, foods = (n.foods||[]).slice(), x = foods[idx];
+  if(!x) return;
+  foods.splice(idx, 1);
+  patchNutrition(iso, {
+    foods: foods,
+    proteinG: r1(Math.max(0, (n.proteinG||0)-x.p)), carbG: r1(Math.max(0, (n.carbG||0)-x.c)),
+    fatG: r1(Math.max(0, (n.fatG||0)-x.f)), kcal: Math.max(0, Math.round((n.kcal||0)-x.kcal))
+  });
+}
+function foodPanelHTML(iso, cat, n){
+  var open = !!track.openFood[iso+':'+cat];
+  var mine = (n.foods||[]).map(function(x, i){ return {x:x, i:i}; }).filter(function(o){ return o.x.cat===cat; });
+  var list = mine.length ? '<div class="food-list">'+mine.map(function(o){
+    return '<div class="food-item"><div><b>'+esc(o.x.name)+'</b> '+o.x.g+' g<div class="food-macro">'+esc(macroLine(o.x))+'</div></div>'+
+      '<button type="button" class="food-del" data-act="food-del" data-date="'+iso+'" data-idx="'+o.i+'" aria-label="ลบ '+esc(o.x.name)+'">✕</button></div>';
+  }).join('')+'</div>' : '';
+  var btn = '<button type="button" class="ex-open" data-act="food-toggle" data-date="'+iso+'" data-cat="'+cat+'">'+
+    (open ? 'ซ่อนช่องเพิ่มอาหาร ▴' : '+ เพิ่มอาหาร ('+FOOD_CAT_LABEL[cat]+') ▾')+'</button>';
+  if(!open) return btn + list;
+  var foods = FOODS.filter(function(f){ return f.cat===cat; });
+  var err = track.foodErr[iso+':'+cat];
+  return btn + '<div class="setbox food-box">'+
+    '<div class="food-row"><select id="food-sel-'+cat+'-'+iso+'" data-act="food-pick" data-date="'+iso+'" data-cat="'+cat+'" aria-label="เลือกอาหาร">'+
+      foods.map(function(f){ return '<option value="'+f.id+'">'+esc(f.name)+'</option>'; }).join('')+'</select>'+
+    '<input type="number" inputmode="decimal" min="1" max="3000" id="food-g-'+cat+'-'+iso+'" data-act="food-grams" data-date="'+iso+'" data-cat="'+cat+'" data-fkey="food-g-'+cat+'-'+iso+'" placeholder="กรัม" aria-label="น้ำหนักอาหาร (กรัม)">'+
+    '<button type="button" class="btn sm" data-act="food-add" data-date="'+iso+'" data-cat="'+cat+'">เพิ่ม</button></div>'+
+    '<div class="food-prev" id="food-prev-'+cat+'-'+iso+'">'+esc(foodPreviewText(foods[0], 0))+'</div>'+
+    (err ? '<div class="hint" style="color:var(--warn)">'+esc(err)+'</div>' : '')+
+    '<div class="hint">อาหารที่เพิ่มจะบวกโปรตีน/คาร์บ/ไขมัน/แคลอรี่เข้ายอดรวมของวันให้อัตโนมัติ — ค่าประมาณต่อ 100 g จาก USDA</div></div>' + list;
 }
 
 function sectionFood(iso){
@@ -1669,9 +1847,18 @@ function sectionFood(iso){
     '<span class="meta">'+fmtKcal(t.kcal)+' kcal · โปรตีน '+t.proteinG+' g · น้ำ '+fmt1(t.waterL)+' ล.</span>'+
     '<span class="cnt">'+doneN+'/'+(3+t.meals)+'</span></div>'+
     '<div class="chk-list">'+
-      '<div class="chk'+((n.proteinG!=null&&n.proteinG>=t.proteinG*0.9)?' on':'')+'">'+
+      '<div class="chk wrap'+((n.proteinG!=null&&n.proteinG>=t.proteinG*0.9)?' on':'')+'">'+
         '<div class="cb"><div class="t">โปรตีนวันนี้</div><div class="s">เป้า '+t.proteinG+' g (2 g ต่อน้ำหนักตัว 1 กก.) — ติ๊กผ่านเมื่อถึง 90% ขึ้นไป</div></div>'+
-        '<div class="val"><input type="number" inputmode="decimal" data-act="nut" data-field="proteinG" data-date="'+iso+'" data-fkey="nut-p-'+iso+'" value="'+num(n.proteinG)+'" placeholder="g"><span class="tgt">/ '+t.proteinG+' g</span></div></div>'+
+        '<div class="val"><input type="number" inputmode="decimal" data-act="nut" data-field="proteinG" data-date="'+iso+'" data-fkey="nut-p-'+iso+'" value="'+num(n.proteinG)+'" placeholder="g"><span class="tgt">/ '+t.proteinG+' g</span></div>'+
+        '<div class="chk-full">'+foodPanelHTML(iso, 'protein', n)+'</div></div>'+
+      '<div class="chk wrap">'+
+        '<div class="cb"><div class="t">คาร์โบไฮเดรตวันนี้</div><div class="s">เป้าประมาณ '+t.carbG+' g — แสดงเป็นข้อมูล ไม่นับในเช็คลิสต์</div></div>'+
+        '<div class="val"><input type="number" inputmode="decimal" data-act="nut" data-field="carbG" data-date="'+iso+'" data-fkey="nut-c-'+iso+'" value="'+num(n.carbG)+'" placeholder="g"><span class="tgt">/ '+t.carbG+' g</span></div>'+
+        '<div class="chk-full">'+foodPanelHTML(iso, 'carb', n)+'</div></div>'+
+      '<div class="chk wrap">'+
+        '<div class="cb"><div class="t">ไขมันวันนี้</div><div class="s">เป้าประมาณ '+t.fatG+' g — แสดงเป็นข้อมูล ไม่นับในเช็คลิสต์</div></div>'+
+        '<div class="val"><input type="number" inputmode="decimal" data-act="nut" data-field="fatG" data-date="'+iso+'" data-fkey="nut-f-'+iso+'" value="'+num(n.fatG)+'" placeholder="g"><span class="tgt">/ '+t.fatG+' g</span></div>'+
+        '<div class="chk-full">'+foodPanelHTML(iso, 'fat', n)+'</div></div>'+
       '<div class="chk'+(kcalOk(n.kcal, t.kcal)?' on':'')+'">'+
         '<div class="cb"><div class="t">พลังงานที่กินวันนี้</div><div class="s">เป้า '+fmtKcal(t.kcal)+' kcal · '+esc(t.kcalDirection)+(t.kcal!=null?' — ผ่านเมื่ออยู่ในช่วง '+Math.ceil(t.kcal*0.9).toLocaleString()+'–'+Math.floor(t.kcal*1.1).toLocaleString()+' kcal (กินน้อยเกินไปก็ยังไม่ผ่าน)':'')+'</div></div>'+
         '<div class="val"><input type="number" inputmode="decimal" data-act="nut" data-field="kcal" data-date="'+iso+'" data-fkey="nut-k-'+iso+'" value="'+num(n.kcal)+'" placeholder="kcal"><span class="tgt">/ '+fmtKcal(t.kcal)+'</span></div></div>'+
@@ -1681,7 +1868,7 @@ function sectionFood(iso){
       '<div class="chk"><div class="cb"><div class="t">มื้ออาหารตามแผน</div><div class="s">'+t.meals+' มื้อ/วัน ตามที่ตอบไว้ — กดเพื่อติ๊กเมื่อกินแล้ว</div>'+
         '<div class="meal-row" style="margin-top:8px">'+mealBtns+'</div></div></div>'+
     '</div>'+
-    '<p class="hint">ต้นแบบนี้ยังไม่มีเมนูอาหารรายมื้อ — บันทึกเป็นตัวเลขรวมของวันก่อน (โปรตีน/พลังงาน/น้ำ) แล้วค่อยต่อยอดเป็นเมนูในเฟสถัดไป</p>'+
+    '<p class="hint">กด “+ เพิ่มอาหาร” ใต้แต่ละหมวดเพื่อให้ระบบแปลงน้ำหนักอาหารเป็นสารอาหารและแคลอรี่ หรือกรอกยอดรวมเองได้โดยตรง</p>'+
     '</div>';
 }
 
@@ -1768,7 +1955,25 @@ function dayDetailHTML(iso){
       '<div class="hist-items">'+its.map(function(x){
         return '<div class="hist-item'+(x.done?'':' act-miss')+'"><span>'+esc(x.label)+'</span><span class="mono">'+esc(x.val)+'</span></div>';
       }).join('')+'</div></div>'+(g.k==='workout' ? wu : '');
-  }).join('');
+  }).join('') + dayExtrasHTML(iso);
+}
+/* อาการหลังออกกำลังกาย + รายการอาหาร ของวันนั้น (อ่านจาก log โดยตรง ใช้ได้ทั้งวันที่ล็อกแล้ว) */
+function dayExtrasHTML(iso){
+  var lg = logFor(iso) || {}, out = '';
+  var syms = Object.keys(lg.exercises||{}).map(function(id){ return lg.exercises[id].symptom; }).filter(Boolean);
+  if(syms.length){
+    out += '<div class="sec-card"><div class="sec-head"><h2>อาการหลังออกกำลังกาย</h2></div><div class="hist-items">'+syms.map(function(s){
+      var info = SYMPTOM_INFO[s.level] || SYMPTOM_INFO.unknown;
+      return '<div class="hist-item'+(info.cls==='danger'?' act-miss':'')+'"><span>'+esc(s.name||'')+': '+esc(s.text)+'</span><span>'+info.icon+' '+info.label+'</span></div>';
+    }).join('')+'</div></div>';
+  }
+  var foods = (lg.nutrition||{}).foods || [];
+  if(foods.length){
+    out += '<div class="sec-card"><div class="sec-head"><h2>อาหารที่บันทึก</h2></div><div class="food-list">'+foods.map(function(x){
+      return '<div class="food-item"><div><b>'+esc(x.name)+'</b> '+x.g+' g<div class="food-macro">'+esc(macroLine(x))+'</div></div></div>';
+    }).join('')+'</div></div>';
+  }
+  return out;
 }
 /* วันที่ยังแก้ได้ = ฟอร์มบันทึก, วันที่ล็อกแล้ว = ดูผลสุดท้ายอย่างเดียว */
 function dayPanelBody(iso){
@@ -2099,6 +2304,7 @@ function historyHTML(p){
       return '<span class="chip'+(past && n<its.length?' miss':'')+'">'+esc(g.label)+' '+n+'/'+its.length+'</span>';
     }).join('');
     if(rep.warmup && rep.warmup.total) groups += '<span class="chip" title="บันทึกไว้เป็นข้อมูล ไม่นับความครบ">Warm-up '+rep.warmup.done+'/'+rep.warmup.total+'</span>';
+    if(seriousSymptoms(iso).length) groups += '<span class="chip miss">⚠️ มีอาการบาดเจ็บ</span>';
     rows += '<button type="button" class="hist-row'+(past && !rep.complete?' miss':'')+(open?' open':'')+'" data-act="hist-open" data-date="'+iso+'" aria-expanded="'+open+'">'+
       '<div class="hist-top"><span class="hist-date">'+esc(longDateTH(iso))+'</span><span>· '+dayLabelHTML(p, iso, 'พัก')+'</span>'+status+'</div>'+
       '<div class="hist-groups">'+groups+'</div></button>';
@@ -3075,7 +3281,7 @@ function patchExercise(iso, exId, patch){
   var exs = {};
   Object.keys(cur.exercises||{}).forEach(function(k){ exs[k] = cur.exercises[k]; });
   var e = exs[exId] || {};
-  var next = {sets: e.sets||[], done: !!e.done, warmup: e.warmup||[]};
+  var next = {sets: e.sets||[], done: !!e.done, warmup: e.warmup||[], symptom: e.symptom||null};
   Object.keys(patch).forEach(function(k){ next[k] = patch[k]; });
   exs[exId] = next;
   saveDay(iso, {exercises: exs});
@@ -3270,6 +3476,17 @@ document.addEventListener("click", function(ev){
     return;
   }
   if(act==='hist-open'){ track.histOpen = (track.histOpen===iso ? null : iso); track.saveStatus=''; render(); return; }
+  if(act==='sym-toggle'){ var sk = iso+':'+el.getAttribute('data-ex'); track.openSym[sk] = !track.openSym[sk]; render(); return; }
+  if(act==='sym-chip' || act==='sym-clear'){
+    var sex = el.getAttribute('data-ex');
+    var cur = ((((logFor(iso)||{}).exercises||{})[sex]||{}).symptom||{}).text || '';
+    var nextTxt = act==='sym-clear' ? '' : (cur ? cur+', ' : '')+el.getAttribute('data-val');
+    saveSymptom(iso, sex, nextTxt, exerciseName(iso, sex));
+    return;
+  }
+  if(act==='food-toggle'){ var fk = iso+':'+el.getAttribute('data-cat'); track.openFood[fk] = !track.openFood[fk]; render(); return; }
+  if(act==='food-add'){ addFood(iso, el.getAttribute('data-cat')); return; }
+  if(act==='food-del'){ removeFood(iso, parseInt(el.getAttribute('data-idx'),10)); return; }
   if(act==='fat-toggle'){ track.fatOpen = !track.fatOpen; render(); return; }
   if(act==='fat-ack'){ var ft = fatTug(track.program); lsSet('gymbro_fat_seen', {gains:ft.gains.length, losses:ft.losses.length}); render(); return; }
   if(act==='hist-more'){ track.histDays += 14; render(); return; }
@@ -3399,6 +3616,8 @@ document.addEventListener("change", function(ev){
   var iso = el.getAttribute('data-date');
   if(act==='ex-done'){ patchExercise(iso, el.getAttribute('data-ex'), {done: el.checked}); return; }
   if(act==='set'){ patchExercise(iso, el.getAttribute('data-ex'), {sets: setsFromDom(el.getAttribute('data-ex'), iso)}); return; }
+  if(act==='symptom'){ var syx = el.getAttribute('data-ex'); saveSymptom(iso, syx, el.value, exerciseName(iso, syx)); return; }
+  if(act==='food-pick'){ updateFoodPreview(iso, el.getAttribute('data-cat')); return; }
   if(act==='warmup'){
     var wex = el.getAttribute('data-ex');
     var wflags = (((logFor(iso)||{}).exercises||{})[wex]||{}).warmup || [];
@@ -3449,6 +3668,10 @@ document.addEventListener("input", function(ev){
   if(ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act')==='bf-spin-range'){
     bodyFatSpinStopAuto();
     bodyFatSpinShow(parseInt(ev.target.value, 10) || 0);
+    return;
+  }
+  if(ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act')==='food-grams'){
+    updateFoodPreview(ev.target.getAttribute('data-date'), ev.target.getAttribute('data-cat'));
     return;
   }
   var el = ev.target && ev.target.closest ? ev.target.closest('[data-act="set"]') : null;

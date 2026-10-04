@@ -352,6 +352,26 @@ input:focus{border-color:var(--accent); outline:none;}
 .wk-chips{margin-left:auto; display:flex; gap:5px; flex-wrap:wrap;}
 .wk-name{font-weight:700; font-size:14px;}
 .act-miss{color:var(--warn); font-weight:700;}
+.sym-sum{font-size:12px; margin-top:6px; color:var(--text-2);}
+.sym-sum.sym-danger{color:var(--warn);}
+.sym-sum.sym-warn{color:var(--branch-ink);}
+.sym-sum.sym-ok{color:var(--ok);}
+.setbox .sym-input{width:100%; max-width:none; box-sizing:border-box;}
+.chk.wrap{flex-wrap:wrap;}
+.chk-full{flex-basis:100%; min-width:0;}
+.food-row select{max-width:none;}
+.sym-chips{display:flex; flex-wrap:wrap; gap:5px; margin-top:8px;}
+.sym-chips .opt{padding:4px 10px; font-size:12px;}
+.sym-advice{font-size:12px; margin-top:8px; color:var(--text-2); line-height:1.5;}
+.food-row{display:flex; gap:6px; flex-wrap:wrap; align-items:center;}
+.food-row select{flex:1 1 180px; min-width:0;}
+.food-row input{width:90px;}
+.food-prev{font-size:11.5px; color:var(--text-3); margin-top:6px; line-height:1.5;}
+.food-list{display:flex; flex-direction:column; gap:5px; margin-top:8px;}
+.food-item{display:flex; justify-content:space-between; gap:8px; align-items:flex-start; font-size:12.5px; border:1px solid var(--border); border-radius:var(--r-sm); padding:6px 8px; background:var(--surface);}
+.food-macro{font-size:11px; color:var(--text-3); margin-top:2px; line-height:1.45;}
+.food-del{border:0; background:none; color:var(--text-3); cursor:pointer; font-size:14px; padding:0 4px;}
+.food-del:hover{color:var(--warn);}
 .cov-card{border:1px solid var(--border); border-radius:var(--r-md); background:var(--surface); padding:12px 14px; margin-top:12px;}
 .cov-head{font-size:13.5px; margin-bottom:8px;}
 .cov-chips{display:flex; flex-wrap:wrap; gap:5px;}

@@ -1486,7 +1486,9 @@ function intenseNoteHTML(ex, prev){
 function warmupHTML(ex, iso, e, steps, prev){
   if(!steps.length) return '';
   var todayMax = (e.sets||[]).reduce(function(m,s){ var w = s && s.weight!=null ? Number(s.weight) : 0; return w>m ? w : m; }, 0);
-  var refKg = todayMax || (prev && prev.weight) || null;
+  // ท่าเข้มข้นวอร์มอัพเทียบกับน้ำหนักเข้มข้นที่จะยก (~83.5% ของ e1RM กลางช่วง 79-88%) ไม่ใช่น้ำหนักแบบทั่วไปของครั้งก่อน
+  var intenseRef = !todayMax && isIntense(ex) && prev && prev.e1rm ? warmupKg(prev.e1rm, 0.835, ex.equip) : null;
+  var refKg = todayMax || intenseRef || (prev && prev.weight) || null;
   var flags = e.warmup || [];
   var boxes = steps.map(function(st, i){
     var kg = warmupKg(refKg, st.pct, ex.equip);
@@ -1496,7 +1498,7 @@ function warmupHTML(ex, iso, e, steps, prev){
       'W'+(i+1)+' · '+esc(what)+' × '+esc(st.reps)+'</label>';
   }).join('');
   var basis = steps[0].pct==null ? ''
-    : (refKg ? 'คำนวณจากน้ำหนักเซ็ตจริง '+refKg+' กก.'+(todayMax?' (วันนี้)':' (ครั้งก่อน)') : 'ยังไม่มีน้ำหนักอ้างอิง — ใช้ % ของน้ำหนักเซ็ตจริงที่จะยก');
+    : (refKg ? 'คำนวณจากน้ำหนักเซ็ตจริง '+refKg+' กก.'+(todayMax?' (วันนี้)':(intenseRef?' (น้ำหนักเข้มข้นที่แนะนำ)':' (ครั้งก่อน)')) : 'ยังไม่มีน้ำหนักอ้างอิง — ใช้ % ของน้ำหนักเซ็ตจริงที่จะยก');
   return '<div class="wu-list"><span class="wu-label">Warm-up (ไม่บังคับ):</span>'+boxes+'</div>'+
     (basis ? '<div class="wu-basis">'+esc(basis)+'</div>' : '');
 }

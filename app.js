@@ -893,6 +893,33 @@ function warmupSummary(program, iso){
   });
   return {done:done, total:total, byEx:byEx};
 }
+/* ---------- แถบไขมัน (ชักเย่อ): TDEE − แคลที่กินจริง สะสมรายวัน ครบ ±7,700 kcal = ไขมัน ∓1 กก. แล้วเริ่มที่ 0 ใหม่ ----------
+   1 กก. ไขมันในร่างกาย ≈ 7,700 kcal (เนื้อเยื่อไขมันมีไขมันจริง ~85% × 9 kcal/g) นับเฉพาะวันที่จบแล้ว (ก่อนวันนี้) และกรอกแคลอรี่ไว้ */
+var FAT_KCAL_PER_KG = 7700;
+var FAT_BAR_GOALS = ['ลดไขมัน', 'Recomposition (ลด+เพิ่มพร้อมกัน)'];
+function fatBarEnabled(program){ return !!program && FAT_BAR_GOALS.indexOf(program.goal)>-1; }
+function dayEnergy(program, iso){
+  var lg = logFor(iso);
+  if(lg && lg.final && lg.final.energy) return lg.final.energy;
+  var kcal = lg && lg.nutrition ? lg.nutrition.kcal : null;
+  var tdee = targetsOf(program).tdee;
+  return (kcal!=null && tdee!=null) ? {kcal:kcal, tdee:tdee} : null;
+}
+function fatTug(program){
+  var today = todayISO(), acc = 0, gains = [], losses = [], days = [];
+  Object.keys(track.logs).filter(function(d){ return d < today; }).sort().forEach(function(iso){
+    var en = dayEnergy(program, iso);
+    if(!en) return;
+    var bal = en.tdee - en.kcal; // + = กินขาด (ขวา/เขียว), − = กินเกิน (ซ้าย/แดง)
+    acc += bal;
+    var ev = null;
+    if(acc >= FAT_KCAL_PER_KG){ losses.push(iso); acc = 0; ev = 'loss'; }
+    else if(acc <= -FAT_KCAL_PER_KG){ gains.push(iso); acc = 0; ev = 'gain'; }
+    days.push({date:iso, kcal:en.kcal, tdee:en.tdee, bal:bal, ev:ev});
+  });
+  return {acc:acc, gains:gains, losses:losses, days:days};
+}
+function fatSeen(){ var s = lsGet('gymbro_fat_seen', null); return (s && typeof s==='object') ? s : {gains:0, losses:0}; }
 function targetsOf(program){
   return (program && program.targets) ? program.targets : computeTargets(state.answers);
 }
@@ -994,7 +1021,8 @@ function finalizeLockedDays(){
     var rep = dayReport(p, iso);
     var next = lg ? {} : {date: iso, stub: true};
     if(lg) Object.keys(lg).forEach(function(k){ next[k] = lg[k]; });
-    next.final = {at: new Date().toISOString(), parts: dayActivity(p, iso), items: rep.items, complete: rep.complete, warmup: rep.warmup};
+    next.final = {at: new Date().toISOString(), parts: dayActivity(p, iso), items: rep.items, complete: rep.complete, warmup: rep.warmup,
+                  energy: dayEnergy(p, iso)};
     track.logs[iso] = next;
     changed.push(iso);
   }
@@ -1642,7 +1670,7 @@ function renderToday(){
       '<button type="button" class="btn" data-act="nav" data-view="progress">ความคืบหน้า</button>'+
     '</div></div>';
 
-  html += oldScheduleBanner(p);
+  html += oldScheduleBanner(p) + fatAlertHTML(p);
   html += '<div class="today-grid"><div class="stack">'+dayEditor(iso)+'</div>'+
     '<aside class="rail">'+
       '<div class="prog-card"><div class="prog-top"><h3>ความคืบหน้าวันนี้</h3><span class="n mono">'+counts.done+'/'+counts.total+'</span></div>'+
@@ -1868,6 +1896,59 @@ function milestonesOf(p){
   return list;
 }
 
+/* แจ้งเตือนเมื่อครบ 1 กก. — โชว์จนกว่าจะกดรับทราบ (จำจำนวนที่เห็นแล้วไว้ในเครื่อง) */
+function fatAlertHTML(p){
+  if(!fatBarEnabled(p)) return '';
+  var t = fatTug(p), seen = fatSeen();
+  var fixSeen = {gains: Math.min(seen.gains, t.gains.length), losses: Math.min(seen.losses, t.losses.length)};
+  if(fixSeen.gains!==seen.gains || fixSeen.losses!==seen.losses){ lsSet('gymbro_fat_seen', fixSeen); seen = fixSeen; }
+  var nl = t.losses.length - seen.losses, ng = t.gains.length - seen.gains;
+  if(nl<=0 && ng<=0) return '';
+  var msg = [];
+  if(nl>0) msg.push('<div class="banner fat-ok"><div class="ic">🎉</div><div><b>คุณลดไขมันได้ '+nl+' กก.</b> จากการกินน้อยกว่าที่ร่างกายต้องการสะสมครบ '+(nl*FAT_KCAL_PER_KG).toLocaleString()+' kcal — รวมลดได้แล้ว '+t.losses.length+' ครั้ง</div></div>');
+  if(ng>0) msg.push('<div class="banner danger"><div class="ic">⚠️</div><div><b>ไขมันของคุณเพิ่มขึ้น '+ng+' กก.</b> จากการกินเกินที่ร่างกายต้องการสะสมครบ '+(ng*FAT_KCAL_PER_KG).toLocaleString()+' kcal — รวมเพิ่มแล้ว '+t.gains.length+' ครั้ง</div></div>');
+  return msg.join('')+'<div style="margin:-4px 0 14px"><button type="button" class="btn sm" data-act="fat-ack">รับทราบ</button></div>';
+}
+function fatBarHTML(p){
+  if(!fatBarEnabled(p)) return '';
+  var head = '<div class="section-title">แถบไขมัน (ชักเย่อแคลอรี่)</div><div class="card">';
+  var tdee = targetsOf(p).tdee;
+  if(tdee==null) return head+'<p class="hint">ยังคำนวณไม่ได้ — ข้อมูลแบบสอบถามไม่พอคำนวณพลังงานที่ร่างกายต้องการ (TDEE)</p></div>';
+  var t = fatTug(p), acc = t.acc, pct = Math.min(100, Math.abs(acc)/FAT_KCAL_PER_KG*100);
+  var side = acc>0 ? 'ok' : (acc<0 ? 'warn' : '');
+  var now = acc>0 ? 'กินขาดสะสม <b>'+Math.round(acc).toLocaleString()+'</b> / '+FAT_KCAL_PER_KG.toLocaleString()+' kcal → อีก '+Math.round(FAT_KCAL_PER_KG-acc).toLocaleString()+' kcal จะลดไขมันได้ 1 กก.'
+    : acc<0 ? 'กินเกินสะสม <b>'+Math.round(-acc).toLocaleString()+'</b> / '+FAT_KCAL_PER_KG.toLocaleString()+' kcal → อีก '+Math.round(FAT_KCAL_PER_KG+acc).toLocaleString()+' kcal ไขมันจะเพิ่ม 1 กก.'
+    : 'แถบอยู่ที่ 0';
+  var te = dayEnergy(p, todayISO());
+  var todayLine = te
+    ? 'วันนี้กินไป '+te.kcal.toLocaleString()+' kcal จาก TDEE '+te.tdee.toLocaleString()+' kcal — ถ้าจบวันที่ตัวเลขนี้ แถบจะขยับ'+
+      (te.tdee-te.kcal>=0 ? 'ไปทางขวา +'+(te.tdee-te.kcal).toLocaleString() : 'ไปทางซ้าย '+(te.tdee-te.kcal).toLocaleString())+' kcal (นับตอนเที่ยงคืน)'
+    : 'วันนี้ยังไม่ได้กรอกแคลอรี่ — กรอกที่หน้า “วันนี้” แล้วระบบจะนับให้ตอนจบวัน';
+  var bar = '<div class="fat-bar" role="img" aria-label="แถบไขมัน: '+(acc>=0?'กินขาด':'กินเกิน')+'สะสม '+Math.abs(Math.round(acc))+' จาก '+FAT_KCAL_PER_KG+' kcal">'+
+      '<div class="fat-half left"><i style="width:'+(acc<0?pct:0)+'%"></i></div><div class="fat-mid"></div>'+
+      '<div class="fat-half right"><i style="width:'+(acc>0?pct:0)+'%"></i></div></div>'+
+    '<div class="fat-scale"><span>ไขมัน +1 กก.<br>−7,700 kcal</span><span>0</span><span>ไขมัน −1 กก.<br>+7,700 kcal</span></div>';
+  var events = t.days.filter(function(d){ return d.ev; }).reverse().slice(0,10).map(function(d){
+    return '<div class="hist-item'+(d.ev==='gain'?' act-miss':'')+'"><span>'+(d.ev==='loss'?'🟢 ลดไขมัน 1 กก.':'🔴 ไขมันเพิ่ม 1 กก.')+'</span><span class="mono">'+esc(shortDateTH(d.date))+'</span></div>';
+  }).join('');
+  var recent = t.days.slice(-7).reverse().map(function(d){
+    return '<tr><td>'+esc(shortDateTH(d.date))+'</td><td>'+d.kcal.toLocaleString()+'</td><td>'+d.tdee.toLocaleString()+'</td>'+
+      '<td class="'+(d.bal>=0?'fat-pos':'fat-neg')+'">'+(d.bal>=0?'+':'')+d.bal.toLocaleString()+'</td></tr>';
+  }).join('');
+  return head+
+    '<div class="fat-now '+side+'">'+now+'</div>'+bar+
+    '<div class="stat-strip" style="margin-top:14px">'+
+      '<div class="stat-b"><div class="l">ลดไขมันได้แล้ว</div><div class="v fat-pos">'+t.losses.length+' <small>ครั้ง (กก.)</small></div><div class="d">ฝั่งขวาครบ 7,700 kcal</div></div>'+
+      '<div class="stat-b"><div class="l">ไขมันเพิ่มขึ้น</div><div class="v fat-neg">'+t.gains.length+' <small>ครั้ง (กก.)</small></div><div class="d">ฝั่งซ้ายครบ 7,700 kcal</div></div>'+
+      '<div class="stat-b"><div class="l">สุทธิ</div><div class="v '+(t.losses.length>t.gains.length?'fat-pos':(t.losses.length<t.gains.length?'fat-neg':''))+'">'+(t.losses.length-t.gains.length>0?'−':(t.losses.length-t.gains.length<0?'+':''))+Math.abs(t.losses.length-t.gains.length)+' <small>กก. ไขมัน</small></div><div class="d">นับจาก '+t.days.length+' วันที่กรอกแคลอรี่</div></div>'+
+    '</div>'+
+    '<p class="hint" style="margin-top:12px">'+esc(todayLine)+'</p>'+
+    (events ? '<h3 style="font-size:13.5px;margin:14px 0 6px">ประวัติการครบ 1 กก.</h3><div class="hist-items">'+events+'</div>' : '')+
+    (recent ? '<table class="logtab"><thead><tr><th>วันที่</th><th>กิน (kcal)</th><th>ร่างกายต้องการ</th><th>ขยับแถบ</th></tr></thead><tbody>'+recent+'</tbody></table>' : '')+
+    '<p class="hint" style="margin-top:10px">ร่างกายต้องการ = TDEE (BMR × ระดับกิจกรรมจากลักษณะงาน ยังไม่รวมแคลที่เผาจากการออกกำลังกาย) · 1 กก. ไขมัน ≈ 7,700 kcal · กินขาด = ขยับขวา (เขียว) กินเกิน = ขยับซ้าย (แดง) ครบฝั่งใดฝั่งหนึ่งแล้วเริ่มที่ 0 ใหม่ · นับเมื่อจบวัน และไม่นับวันที่ไม่ได้กรอกแคลอรี่ · เป็นการประมาณ ไม่ใช่การวัดไขมันจริง</p>'+
+    '</div>';
+}
+
 function historyHTML(p){
   var today = todayISO();
   // ประวัติจากแผนก่อนหน้า (ก่อนวันเริ่มปัจจุบัน) ยังต้องเห็นอยู่ — แสดงเฉพาะวันที่มีบันทึกจริง
@@ -1917,7 +1998,7 @@ function renderProgress(){
     '<div class="sub">ทุกตัวเลขในหน้านี้คำนวณจากสิ่งที่คุณบันทึกไว้จริงเท่านั้น ไม่มีค่าตัวอย่างผสม — ช่องไหนยังว่างแปลว่ายังไม่มีข้อมูลพอ</div></div>'+
     '<div class="head-actions"><button type="button" class="btn" data-act="nav" data-view="today">กลับไปเช็คลิสต์วันนี้</button></div></div>';
 
-  html += historyHTML(p);
+  html += fatAlertHTML(p) + fatBarHTML(p) + historyHTML(p);
 
   var deltaFirst = (last && startW!=null) ? (last.kg - startW) : null;
   var remain = (last && t.goalWeight!=null) ? (last.kg - t.goalWeight) : null;
@@ -2971,10 +3052,11 @@ document.addEventListener("click", function(ev){
     return;
   }
   if(act==='hist-open'){ track.histOpen = (track.histOpen===iso ? null : iso); track.saveStatus=''; render(); return; }
+  if(act==='fat-ack'){ var ft = fatTug(track.program); lsSet('gymbro_fat_seen', {gains:ft.gains.length, losses:ft.losses.length}); render(); return; }
   if(act==='hist-more'){ track.histDays += 14; render(); return; }
   if(act==='progress-ex'){ track.progressEx = el.getAttribute('data-ex'); render(); return; }
   if(act==='hard-restart'){
-    lsRemove("gymbro_program"); lsRemove("gymbro_logs"); lsRemove("gymbro_weights"); lsRemove("gymbro_onb_proto");
+    lsRemove("gymbro_program"); lsRemove("gymbro_logs"); lsRemove("gymbro_weights"); lsRemove("gymbro_onb_proto"); lsRemove("gymbro_fat_seen");
     track.program = null; track.logs = {}; track.weights = {};
     state = freshState();
     render(true);

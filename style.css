@@ -352,6 +352,22 @@ input:focus{border-color:var(--accent); outline:none;}
 .wk-chips{margin-left:auto; display:flex; gap:5px; flex-wrap:wrap;}
 .wk-name{font-weight:700; font-size:14px;}
 .act-miss{color:var(--warn); font-weight:700;}
+.fat-now{font-size:13.5px; margin-bottom:10px; color:var(--text-2);}
+.fat-now.ok b{color:var(--ok);}
+.fat-now.warn b{color:var(--warn);}
+.fat-bar{display:flex; align-items:stretch; height:22px; border:1px solid var(--border-strong); border-radius:999px; overflow:hidden; background:var(--surface-2);}
+.fat-half{flex:1; display:flex;}
+.fat-half.left{justify-content:flex-end;}
+.fat-half i{display:block; height:100%; transition:width .3s;}
+.fat-half.left i{background:var(--warn);}
+.fat-half.right i{background:var(--ok);}
+.fat-mid{width:2px; background:var(--text);}
+.fat-scale{display:flex; justify-content:space-between; font-size:11px; color:var(--text-3); margin-top:5px; line-height:1.35;}
+.fat-scale span:nth-child(1){color:var(--warn);}
+.fat-scale span:nth-child(3){color:var(--ok); text-align:right;}
+.fat-pos{color:var(--ok);}
+.fat-neg{color:var(--warn);}
+.banner.fat-ok{background:var(--ok-soft); border-color:var(--ok-line); color:var(--text);}
 .wu-list{display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:8px; font-size:12px;}
 .wu-label{color:var(--text-3);}
 .wu-item{display:inline-flex; align-items:center; gap:5px; border:1px dashed var(--border-strong); border-radius:var(--r-sm); padding:3px 8px; cursor:pointer; color:var(--text-2); font-family:ui-monospace,monospace;}

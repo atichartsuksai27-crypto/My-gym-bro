@@ -355,9 +355,10 @@ var PERSIST_ONBOARDING_STATE = true;
 function freshState(){
   return {step:0, answers:{}, mode:null, nav:'today', editPlan:false,
           plan:{manualPick:{}, unlockedEx:{}, forceLowTier:{}, splitOverride:null,
-                trainDays:null, cardioDays:[], cardioMinByDay:{}}};
+                trainDays:null, cardioDays:[], cardioMinByDay:{}, intensity:{}}};
 }
 function loadPlanSchedule(dst, src){
+  dst.intensity = (src.intensity && typeof src.intensity==='object') ? src.intensity : {};
   dst.trainDays = Array.isArray(src.trainDays) ? src.trainDays : null;
   dst.cardioDays = Array.isArray(src.cardioDays) ? src.cardioDays : [];
   dst.cardioMinByDay = (src.cardioMinByDay && typeof src.cardioMinByDay==='object') ? src.cardioMinByDay : {};
@@ -753,7 +754,8 @@ function buildPlanSnapshot(a){
       return {
         pattern:p, id:sel.picked.id, th:sel.picked.th, sub:sel.picked.sub, tier:sel.picked.tier,
         equip:sel.picked.equip, // เดิมไม่มีฟิลด์นี้ — sectionWorkout ต้องใช้แยกท่า bodyweight (ซ่อนช่องน้ำหนัก)
-        setsReps: p==='core' ? '3 x 30-45 วิ' : repSchemeFor(a.Q1),
+        setsReps: setsRepsFor(p, sel.picked, a),
+        intensity: planIntense(p, sel.picked) ? 'intense' : 'normal',
         timeBased: p==='core'
       };
     }).filter(Boolean);
@@ -858,6 +860,24 @@ function sessionDefFor(program, sKey){
    ท่า isolation 1 เซ็ต (50%), ท่าน้ำหนักตัว 1 เซ็ตแบบเบา, core จับเวลาไม่ต้องวอร์ม */
 var WARMUP_COMPOUND = ['squat','hinge','hpush','hpull','vpush','vpull'];
 var WARMUP_WEIGHTED = ['barbell','dumbbell','machine','cable'];
+/* ---------- ความเข้มข้นรายท่า (ทั่วไป/เข้มข้น) + เวลาพัก ----------
+   เข้มข้น = 2 เซ็ต × 4-8 ครั้งจนหมดแรง ด้วยน้ำหนักที่สูงขึ้น (~79-88% ของ 1RM) เฉพาะท่าที่ใช้น้ำหนัก
+   ท่าน้ำหนักตัวและ core เป็นแบบทั่วไปเสมอ */
+var INTENSE_SCHEME = '2 x 4-8';
+var INTENSE_WARNING = 'ต้องคุมฟอร์มให้ดีและเล่นให้ถูกต้องทุกครั้ง เนื่องจากใช้น้ำหนักสูงจึงอาจเสี่ยงบาดเจ็บได้';
+function intensityEligible(ex){ return !!ex && ex.pattern!=='core' && WARMUP_WEIGHTED.indexOf(ex.equip)>-1; }
+function isIntense(ex){ return intensityEligible(ex) && ex.intensity==='intense'; }
+function planIntense(pattern, ex){ return intensityEligible(ex) && (state.plan.intensity||{})[pattern]==='intense'; }
+function setsRepsFor(pattern, ex, a){
+  if(pattern==='core') return '3 x 30-45 วิ';
+  return planIntense(pattern, ex) ? INTENSE_SCHEME : repSchemeFor(a.Q1);
+}
+function restFor(ex){
+  if(isIntense(ex)) return {set:'3-5 นาที', next:'3-5 นาที'};
+  if(ex.timeBased || ex.pattern==='core') return {set:'30-60 วินาที', next:'2-3 นาที'};
+  if(WARMUP_WEIGHTED.indexOf(ex.equip)===-1 || WARMUP_COMPOUND.indexOf(ex.pattern)===-1) return {set:'60-90 วินาที', next:'2-3 นาที'};
+  return {set:'90-120 วินาที', next:'2-3 นาที'};
+}
 function warmupStepsFor(sess){
   var out = {}, firstHeavy = true;
   (sess ? sess.exercises : []).forEach(function(ex){
@@ -1454,6 +1474,15 @@ function strengthSummaryHTML(exDef, hist){
     '<p class="hint" style="margin-top:10px">ตัวเลขทั้งหมดเป็น <b>ประมาณการ 1RM (Estimated 1RM)</b> จากน้ำหนัก × ครั้งที่บันทึกไว้ ไม่ใช่ 1RM ที่ยกได้จริง — Benchmark เป็นข้อมูลเปรียบเทียบกับกลุ่มอ้างอิงเท่านั้น ไม่ใช่เป้าที่ต้องไปให้ถึง</p>';
 }
 
+/* 4-8 ครั้งจนหมดแรง ≈ 79-88% ของ 1RM (Epley) — แนะนำจาก e1RM ของครั้งก่อนถ้ามี */
+function intenseNoteHTML(ex, prev){
+  var lo = prev && prev.e1rm ? warmupKg(prev.e1rm, 0.79, ex.equip) : null;
+  var hi = prev && prev.e1rm ? warmupKg(prev.e1rm, 0.88, ex.equip) : null;
+  var load = (lo && hi)
+    ? 'น้ำหนักแนะนำ ~'+lo+(hi>lo?'–'+hi:'')+' กก. (≈79–88% ของ 1RM โดยประมาณจากครั้งก่อน) '
+    : 'เลือกน้ำหนักที่ยกได้แค่ 4-8 ครั้งแล้วหมดแรง ';
+  return '<div class="int-warn">⚠️ '+esc(load)+'— '+esc(INTENSE_WARNING)+'</div>';
+}
 function warmupHTML(ex, iso, e, steps, prev){
   if(!steps.length) return '';
   var todayMax = (e.sets||[]).reduce(function(m,s){ var w = s && s.weight!=null ? Number(s.weight) : 0; return w>m ? w : m; }, 0);
@@ -1485,8 +1514,10 @@ function sectionWorkout(iso){
   var exData = log.exercises || {};
   var doneN = sess.exercises.filter(function(ex){ return (exData[ex.id]||{}).done; }).length;
   var wuSteps = warmupStepsFor(sess);
-  var rows = sess.exercises.map(function(ex){
+  var rows = sess.exercises.map(function(ex, exIdx){
     var e = exData[ex.id] || {};
+    var rest = restFor(ex), intense = isIntense(ex);
+    var restLine = '<div class="rest-line">พักระหว่างเซ็ต '+rest.set+(exIdx < sess.exercises.length-1 ? ' · พักก่อนเปลี่ยนท่า '+rest.next : '')+'</div>';
     var open = !!track.openSets[iso+':'+ex.id];
     var prev = lastBestBefore(ex.id, iso);
     var isBW = ex.equip==='bodyweight' && !ex.timeBased; // bodyweight (ไม่นับ core ที่วัดเวลา) — ไม่ต้องมีช่องน้ำหนัก
@@ -1508,8 +1539,10 @@ function sectionWorkout(iso){
     }
     return '<div class="chk'+(e.done?' on':'')+'">'+
       '<input type="checkbox" data-act="ex-done" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" '+(e.done?'checked':'')+' aria-label="ทำท่า '+esc(ex.th)+' แล้ว">'+
-      '<div class="cb"><div class="t">'+esc(ex.th)+'</div>'+
-        '<div class="s">'+esc(ex.setsReps)+' · '+esc(PATTERN_SHORT[ex.pattern]||ex.pattern)+' · '+esc(prevTxt)+'</div>'+
+      '<div class="cb"><div class="t">'+esc(ex.th)+(intense?' <span class="chip miss">เข้มข้น</span>':'')+'</div>'+
+        '<div class="s">'+esc(ex.setsReps)+(intense?' (จนหมดแรง)':'')+' · '+esc(PATTERN_SHORT[ex.pattern]||ex.pattern)+' · '+esc(prevTxt)+'</div>'+
+        restLine+
+        (intense ? intenseNoteHTML(ex, prev) : '')+
         warmupHTML(ex, iso, e, wuSteps[ex.id]||[], prev)+
         '<button type="button" class="ex-open" data-act="ex-toggle" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">'+(open?'ซ่อนช่องบันทึกเซ็ต ▴':(isBW?'บันทึกจำนวนครั้งต่อเซ็ต ▾':'บันทึกน้ำหนัก/ครั้งต่อเซ็ต ▾'))+'</button>'+
         (open? '<div class="setbox">'+setRows+'</div>' : '')+
@@ -2274,8 +2307,10 @@ function renderPlan(){
       '<div class="exercise-list">'+se.exercises.map(function(ex){
         return '<div class="ex-row"><div class="ex-row-top"><div>'+
           '<div class="ex-pattern">'+esc(PATTERN_LABEL[ex.pattern]||ex.pattern)+'</div>'+
-          '<div class="ex-name">'+esc(ex.th)+' '+tierBadge(ex.tier)+'</div>'+
-          '<div class="ex-sub">'+esc(ex.sub||'')+'</div></div>'+
+          '<div class="ex-name">'+esc(ex.th)+' '+tierBadge(ex.tier)+(isIntense(ex)?' <span class="chip miss">เข้มข้น</span>':'')+'</div>'+
+          '<div class="ex-sub">'+esc(ex.sub||'')+'</div>'+
+          '<div class="rest-line">พักระหว่างเซ็ต '+restFor(ex).set+' · ก่อนเปลี่ยนท่า '+restFor(ex).next+'</div>'+
+          (isIntense(ex) ? '<div class="int-warn">⚠️ '+esc(INTENSE_WARNING)+'</div>' : '')+'</div>'+
           '<div class="ex-meta"><span class="ex-sets mono">'+esc(ex.setsReps)+'</span></div></div></div>';
       }).join('')+'</div>';
   }).join('');
@@ -2662,7 +2697,14 @@ function resultsHTML(){
     if(!sel.picked){
       return '<div class="ex-row"><div class="ex-pattern">'+PATTERN_LABEL[pattern]+'</div><div class="banner danger"><div class="ic">✕</div><div>ไม่มีท่าที่เหมาะสมเหลือให้เลือก (อุปกรณ์ไม่พอ หรือถูกล็อกทั้งหมด) — ต้องการอุปกรณ์เพิ่มเติม/ปรึกษาเทรนเนอร์</div></div></div>';
     }
-    var setsReps = pattern==='core' ? '3 x 30-45 วิ' : repSchemeFor(a.Q1);
+    var setsReps = setsRepsFor(pattern, sel.picked, a);
+    var intense = planIntense(pattern, sel.picked);
+    var rest = restFor({pattern:pattern, equip:sel.picked.equip, timeBased:pattern==='core', intensity:intense?'intense':'normal'});
+    var intToggle = intensityEligible(sel.picked)
+      ? '<div class="int-toggle" role="group" aria-label="ความเข้มข้นของท่านี้">'+
+          '<button type="button" class="opt'+(intense?'':' sel')+'" data-act="intensity" data-pattern="'+pattern+'" data-val="normal" aria-pressed="'+!intense+'">ทั่วไป</button>'+
+          '<button type="button" class="opt'+(intense?' sel':'')+'" data-act="intensity" data-pattern="'+pattern+'" data-val="intense" aria-pressed="'+intense+'">เข้มข้น</button></div>'
+      : '';
     var alts = sel.all.filter(function(e){return e.id!==sel.picked.id;});
     var altsHtml = alts.map(function(x){
       var pickedThis = state.plan.manualPick[pattern]===x.id;
@@ -2679,11 +2721,30 @@ function resultsHTML(){
     }).join('');
     return '<div class="ex-row"><div class="ex-row-top"><div><div class="ex-pattern">'+PATTERN_LABEL[pattern]+'</div>'+
       demoBtnHTML(sel.picked.id, pattern, sel.picked.th, sel.picked.sub, tierBadge(sel.picked.tier), 'ex-name')+
-      '<div class="ex-sub">'+sel.picked.sub+'</div></div>'+
-      '<div class="ex-meta"><span class="ex-sets mono">'+setsReps+'</span>'+
+      '<div class="ex-sub">'+sel.picked.sub+'</div>'+
+      '<div class="rest-line">พักระหว่างเซ็ต '+rest.set+' · ก่อนเปลี่ยนท่า '+rest.next+'</div>'+
+      (intense ? '<div class="int-warn">⚠️ เข้มข้น: เพิ่มน้ำหนักให้หมดแรงภายใน 4-8 ครั้ง — '+INTENSE_WARNING+'</div>' : '')+
+      '</div>'+
+      '<div class="ex-meta"><span class="ex-sets mono">'+setsReps+'</span>'+intToggle+
       '<button type="button" class="swap-toggle" data-act="swap-toggle" data-pattern="'+pattern+'">สลับท่า ▾</button></div></div>'+
       '<div class="swap-panel'+(track.openSwap===pattern?' open':'')+'">'+altsHtml+'</div></div>';
   }
+  var anyIntense = false, anyEligible = false;
+  splitDef.sessions.forEach(function(se){ se.patterns.forEach(function(pt){
+    var pk = selectionFor(pt, a).picked;
+    if(intensityEligible(pk)) anyEligible = true;
+    if(planIntense(pt, pk)) anyIntense = true;
+  }); });
+  var intensityBar = anyEligible
+    ? '<div class="int-all"><span>ความเข้มข้นทุกท่า (ยกเว้นท่าน้ำหนักตัว/core):</span>'+
+        '<button type="button" class="opt" data-act="intensity-all" data-val="normal">ทั่วไปทั้งหมด</button>'+
+        '<button type="button" class="opt" data-act="intensity-all" data-val="intense">เข้มข้นทั้งหมด</button></div>'+
+      '<p class="hint">ทั่วไป = จำนวนเซ็ต/ครั้งตามเป้าหมาย พักตามปกติ · เข้มข้น = 2 เซ็ต × 4-8 ครั้ง ใช้น้ำหนักมากขึ้นจนหมดแรงภายใน 4-8 ครั้ง พักเซ็ตละ 3-5 นาที</p>'
+    : '';
+  var intenseBanner = anyIntense
+    ? '<div class="banner warn"><div class="ic">⚠️</div><div><b>คุณเลือกแบบเข้มข้นไว้</b> — '+INTENSE_WARNING+
+        (a.Q16==='มือใหม่' ? ' · คุณระบุว่าเป็นมือใหม่ แนะนำให้เริ่มจากแบบทั่วไปจนฟอร์มนิ่งก่อน' : '')+'</div></div>'
+    : '';
   var sessionBlocks = splitDef.sessions.map(function(se){
     var daysForThis = assignment.filter(function(x){return x.session===se.key;}).map(function(x){return x.day;});
     return '<div class="session-heading">เซสชัน "'+se.key+'" <span class="sh-sub">('+daysForThis.length+'x/สัปดาห์ — '+(daysForThis.join(', ')||'—')+' · ~'+(a.Q3||'45-60 นาที')+' รวมวอร์มอัพ)</span></div>'+
@@ -2737,6 +2798,7 @@ function resultsHTML(){
 
     '<div class="section-title">รายละเอียดเซสชัน</div>'+
     '<div class="tier-legend">'+TIER_ORDER.map(function(tt){ return '<div class="item"><b>Tier '+tt+'</b> '+TIER_LABEL[tt]+'</div>'; }).join('')+'</div>'+
+    intensityBar + intenseBanner +
     sessionBlocks+
 
     (track.editing ? renderStartSetup() :
@@ -3073,6 +3135,8 @@ document.addEventListener("click", function(ev){
       state.plan.cardioDays = (ep.cardioDays||[]).slice();
       state.plan.cardioMinByDay = {};
       state.plan.cardioDays.forEach(function(d){ state.plan.cardioMinByDay[d] = cardioMinFor(ep, d); });
+      state.plan.intensity = {};
+      (ep.sessions||[]).forEach(function(se){ se.exercises.forEach(function(ex){ if(ex.intensity==='intense') state.plan.intensity[ex.pattern] = 'intense'; }); });
     }
     track.schedDraft = null;
     state.editPlan=true; state.step=9; state.mode='results'; track.editing=false; persist(); render(true); return; }
@@ -3146,6 +3210,21 @@ document.addEventListener("click", function(ev){
   if(act==='sched-edit-go'){ openSchedDraft(); state.nav='plan'; persist(); render(true); return; }
   if(act==='sched-cancel'){ track.schedDraft=null; track.saveStatus=''; render(); return; }
   if(act==='sched-save'){ saveSchedDraft(); return; }
+  if(act==='intensity'){
+    var ipat = el.getAttribute('data-pattern');
+    state.plan.intensity = state.plan.intensity || {};
+    if(el.getAttribute('data-val')==='intense') state.plan.intensity[ipat] = 'intense'; else delete state.plan.intensity[ipat];
+    persist(); render(); return;
+  }
+  if(act==='intensity-all'){
+    state.plan.intensity = {};
+    if(el.getAttribute('data-val')==='intense'){
+      SPLIT_DEFS[effectiveSplit(state.answers)].sessions.forEach(function(se){ se.patterns.forEach(function(pt){
+        if(intensityEligible(selectionFor(pt, state.answers).picked)) state.plan.intensity[pt] = 'intense';
+      }); });
+    }
+    persist(); render(); return;
+  }
   if(act==='swap-toggle'){ var pt=el.getAttribute('data-pattern'); track.openSwap = (track.openSwap===pt? null : pt); render(); return; }
   if(act==='demo'){ track.demoExercise = {exId:el.getAttribute('data-exid'), pattern:el.getAttribute('data-pattern'), th:el.getAttribute('data-th'), sub:el.getAttribute('data-sub')}; render(); return; }
   if(act==='demo-stop'){ return; } // คลิกภายในโมดัลไม่ปิด (กันคลิกทะลุไป backdrop)

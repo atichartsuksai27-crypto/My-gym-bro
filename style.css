@@ -497,6 +497,7 @@ svg.pg-chart .ch-t{font-size:12px;}
 
 /* ============ กรอบแผน Progression & Goal ============ */
 .pg-card + .pg-card{margin-top:12px;}
+.pg-card > .chart-wrap:first-child{margin-top:0;}
 .pg-kicker{font-size:11px; color:var(--text-4); font-family:ui-monospace,monospace; letter-spacing:.03em;}
 .pg-goal{font-size:15px; font-weight:700; margin:4px 0 14px; line-height:1.55;}
 .pg-badge{display:inline-flex; align-items:center; gap:6px; font-weight:700; font-size:15px; padding:5px 12px; border-radius:999px; margin-top:8px;

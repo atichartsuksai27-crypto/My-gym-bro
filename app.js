@@ -872,7 +872,7 @@ var track = {
   demoExercise:null, // โมดัลภาพเคลื่อนไหวท่าในหน้าตรวจแผน (null = ปิด)
   histOpen:null, histDays:14, finalizedThrough:null, schedDraft:null, fatOpen:false,
   openSym:{}, openFood:{}, foodErr:{},
-  pgOpen:false, pgCrit:false, pgChecks:{}, pgResetAsk:false // กรอบแผน Progression & Goal: เปิดรายละเอียด / เปิดเกณฑ์ / ติ๊กตรวจข้อมูล
+  pgMore:false, pgOpen:false, pgCrit:false, pgChecks:{}, pgResetAsk:false // กรอบแผน Progression & Goal: เปิดรายละเอียด / เปิดเกณฑ์ / ติ๊กตรวจข้อมูล
 };
 function persistProgram(){
   var ok = lsSet("gymbro_program", track.program);
@@ -2829,11 +2829,16 @@ function pgCriteriaHTML(p, ev){
     ' · ความแข็งแรงตามระดับประสบการณ์ (มือใหม่พัฒนาเร็วกว่า) · เป็นค่าประมาณจากแนวทางทั่วไป ไม่ใช่การรับประกันผล</p>';
   return html;
 }
+/* แบบย่อ (ค่าเริ่มต้น) แสดงแค่กราฟกรอบ — กด "แสดงผลเพิ่มเติม" แล้วรายละเอียดและผลประเมินขึ้นต่อใต้กราฟ */
 function pgPlanCardHTML(p, ev){
-  var ak = ev.ctx.anchorKg, plan = ev.plan, rounds = (pgState(p).adjustments||[]).length;
-  var html = '<div class="card pg-card"><div class="pg-kicker">ถ้าทำตามแผนนี้ต่อเนื่อง · รอบประเมินเริ่ม '+esc(shortDateTH(ev.anchor))+(rounds ? ' (ปรับเป้าแล้ว '+rounds+' ครั้ง)' : '')+'</div>'+
+  var ak = ev.ctx.anchorKg, plan = ev.plan, rounds = (pgState(p).adjustments||[]).length, more = !!track.pgMore;
+  var toggle = '<button type="button" class="ex-open" data-act="pg-more" aria-expanded="'+more+'" style="margin-top:10px">'+(more ? 'ซ่อนผลเพิ่มเติม ▴' : 'แสดงผลเพิ่มเติม ▾')+'</button>';
+  var html = '<div class="card pg-card">'+(ak ? '<div class="chart-wrap">'+pgCorridorSVG(p, ev)+'</div>'
+    : '<p class="hint" style="margin-top:0">ยังไม่มีน้ำหนักตั้งต้น — บันทึกน้ำหนักที่หน้า “วันนี้” แล้วระบบจะวาดกราฟกรอบให้</p>')+toggle;
+  if(!more) return html+'</div>';
+  html += '<div class="pg-kicker" style="margin-top:14px">ถ้าทำตามแผนนี้ต่อเนื่อง · รอบประเมินเริ่ม '+esc(shortDateTH(ev.anchor))+(rounds ? ' (ปรับเป้าแล้ว '+rounds+' ครั้ง)' : '')+'</div>'+
     '<h3 class="pg-goal">'+esc(pgGoalLine(p, plan))+'</h3>';
-  if(!ak) return html+'<p class="hint">ยังไม่มีน้ำหนักตั้งต้น — บันทึกน้ำหนักที่หน้า “วันนี้” แล้วระบบจะวาดกรอบให้</p></div>';
+  if(!ak) return html+'</div>';
   var now = pgNowKg(ev);
   html += '<div class="stat-strip">'+[4,8,12].map(function(wk){
     var a = now.kg + plan.lo*wk, b = now.kg + plan.hi*wk;
@@ -2841,8 +2846,7 @@ function pgPlanCardHTML(p, ev){
       '<div class="d">ช่วง '+fmt1(Math.min(a, b))+'–'+fmt1(Math.max(a, b))+' · '+esc(shortDateTH(fmtDateISO(addDays(new Date(), 7*wk))))+'</div></div>';
   }).join('')+pgEtaBox(p, ev)+'</div>';
   html += '<p class="hint" style="margin-top:8px">คาดการณ์จากน้ำหนักตอนนี้ ~'+fmt1(now.kg)+' กก. ('+esc(now.how)+')</p>';
-  html += '<div class="chart-wrap">'+pgCorridorSVG(p, ev)+'</div>'+
-    '<p class="hint">แถบเขียว = กรอบน้ำหนักที่ควรเป็นถ้าทำตามแผน (ตั้งต้นจาก '+fmt1(ak.kg)+' กก. เมื่อ '+esc(shortDateTH(ak.date))+') · เส้นประเขียว = ค่ากลาง · จุดน้ำเงิน = น้ำหนักที่ชั่งจริง — น้ำหนักรายวันแกว่ง ±1 กก. ได้ ระบบดูแนวโน้มหลายวันรวมกัน</p>';
+  html += '<p class="hint">กราฟ: แถบเขียว = กรอบน้ำหนักที่ควรเป็นถ้าทำตามแผน (ตั้งต้นจาก '+fmt1(ak.kg)+' กก. เมื่อ '+esc(shortDateTH(ak.date))+') · เส้นประเขียว = ค่ากลาง · จุดน้ำเงิน = น้ำหนักที่ชั่งจริง — น้ำหนักรายวันแกว่ง ±1 กก. ได้ ระบบดูแนวโน้มหลายวันรวมกัน</p>';
   var open = !!track.pgCrit;
   html += '<button type="button" class="ex-open" data-act="pg-crit" aria-expanded="'+open+'" style="margin-top:6px">'+(open ? 'ซ่อนเกณฑ์และจุดตรวจ ▴' : 'ดูเกณฑ์รายสัปดาห์ จุดตรวจ และเป้าความแข็งแรง ▾')+'</button>';
   if(open) html += pgCriteriaHTML(p, ev);
@@ -2943,7 +2947,7 @@ function pgEvalCardHTML(p, ev){
 }
 function pgSectionHTML(p){
   var ev = pgCurrent(p);
-  return '<div class="section-title">เป้าหมาย & กรอบพัฒนาการ (Progression & Goal)</div>'+pgPlanCardHTML(p, ev)+pgEvalCardHTML(p, ev);
+  return '<div class="section-title">เป้าหมาย & กรอบพัฒนาการ (Progression & Goal)</div>'+pgPlanCardHTML(p, ev)+(track.pgMore ? pgEvalCardHTML(p, ev) : '');
 }
 /* แจ้งเตือนหน้า "วันนี้" ทันทีที่ระบบพบความผิดปกติ — รายละเอียดและการตรวจข้อมูลอยู่หน้าความคืบหน้า */
 function pgAlertHTML(p){
@@ -2952,7 +2956,7 @@ function pgAlertHTML(p){
   if(PG_LEVELS[ev.level].n < 3) return '';
   return '<div class="banner warn"><div class="ic">'+PG_LEVELS[ev.level].icon+'</div><div><b>กรอบแผน: '+esc(PG_LEVELS[ev.level].label)+'</b> — '+
     esc(ev.level==='adjust' ? 'ระบบมีคำแนะนำให้ปรับแผนจากผลจริงของคุณ' : 'ผลลัพธ์ไม่เป็นไปตามกรอบของแผน ช่วยตรวจว่าข้อมูลที่บันทึกครบและถูกต้อง')+
-    '<div style="margin-top:6px"><button type="button" class="btn sm" data-act="nav" data-view="progress">ดูที่หน้าความคืบหน้า →</button></div></div></div>';
+    '<div style="margin-top:6px"><button type="button" class="btn sm" data-act="pg-goto">ดูที่หน้าความคืบหน้า →</button></div></div></div>';
 }
 
 function historyHTML(p){
@@ -4163,6 +4167,8 @@ document.addEventListener("click", function(ev){
   if(act==='fat-toggle'){ track.fatOpen = !track.fatOpen; render(); return; }
   if(act==='fat-ack'){ var ft = fatTug(track.program); lsSet('gymbro_fat_seen', {gains:ft.gains.length, losses:ft.losses.length}); render(); return; }
   if(act==='hist-more'){ track.histDays += 14; render(); return; }
+  if(act==='pg-more'){ track.pgMore = !track.pgMore; render(); return; }
+  if(act==='pg-goto'){ track.pgMore = true; goto('progress'); return; } // มาจากแจ้งเตือนหน้าวันนี้ → เปิดผลประเมินให้เห็นทันที
   if(act==='pg-crit'){ track.pgCrit = !track.pgCrit; render(); return; }
   if(act==='pg-open'){ track.pgOpen = !track.pgOpen; render(); return; }
   if(act==='pg-confirm'){ if(el.disabled) return; track.pgChecks = {}; pgSave({confirmedAt: todayISO()}); return; }

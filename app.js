@@ -2095,7 +2095,30 @@ function repRange(setsReps){
   var m = /x\s*(\d+)(?:\s*-\s*(\d+))?/.exec(setsReps||'');
   return m ? {lo:+m[1], hi:+(m[2]||m[1])} : {lo:8, hi:12};
 }
-function equipStep(equip, w){ return equip==='dumbbell' ? (w < 10 ? 1 : 2) : 2.5; }
+/* ขั้นน้ำหนักที่ "หาได้จริง" ของอุปกรณ์ (ค่าเริ่มต้นตามที่พบบ่อยในยิม ผู้ใช้ตั้งเองรายท่าได้ — program.equipSteps)
+   บาร์เบลนับรวมสองข้าง (แผ่น 1.25 กก. ข้างละแผ่น = 2.5) · ดัมเบลชุดทั่วไปเพิ่มทีละ 1 กก. ถึง 10 กก. แล้วทีละ 2 กก.
+   เครื่อง/เคเบิลแบบเสียบหมุดส่วนใหญ่แผ่นละ 5 กก. */
+var EQUIP_STEP_OPTS = {barbell:[1, 2.5, 5], dumbbell:[0.5, 1, 2, 2.5], machine:[1, 2.5, 5], cable:[1, 2.5, 5]};
+function defaultStep(equip, w){
+  if(equip==='dumbbell') return w < 10 ? 1 : 2;
+  if(equip==='machine' || equip==='cable') return 5;
+  return 2.5;
+}
+function equipStep(ex, w){
+  var o = ((track.program||{}).equipSteps||{})[ex.id];
+  return o>0 ? o : defaultStep(ex.equip, w);
+}
+/* แยกเกณฑ์ยกเบา/ปานกลาง/หนัก จาก "ขั้นที่เล็กที่สุดที่หาได้ คิดเป็นกี่ % ของน้ำหนักที่ยก" (รายท่า ไม่ใช่รายคน
+   เพราะคนเดียวกันอาจยกหนักในสควอทแต่ยกเบาในท่ายกข้าง)
+   เบา (ขั้นเดียว > 10%) → เพิ่มจำนวนครั้งก่อน ครบช่วงบนทุกเซ็ตแล้วขึ้น 1 ขั้นและเริ่มนับครั้งใหม่ (double progression)
+   ปานกลาง (5-10%) → ขึ้นทีละ 1 ขั้น
+   หนัก (≤ 5%) → ขึ้นตามสัดส่วน: ส่วนล่าง ~5% ส่วนบน ~2.5% ปัดลงเป็นจำนวนขั้นเต็ม (อย่างน้อย 1 ขั้น ไม่เกิน 10 กก.) */
+var LOAD_TIER = {
+  light:{label:'ยกเบา', how:'เพิ่มจำนวนครั้งก่อน ครบช่วงบนทุกเซ็ตแล้วค่อยขึ้น 1 ขั้น'},
+  mid:{label:'ยกปานกลาง', how:'ขึ้นทีละ 1 ขั้น'},
+  heavy:{label:'ยกหนัก', how:'ขึ้นตามสัดส่วน (ส่วนล่าง ~5% ส่วนบน ~2.5%) ปัดเป็นขั้นเต็ม'}
+};
+function loadTier(step, w){ var r = step/w; return r > 0.10 ? 'light' : (r > 0.05 ? 'mid' : 'heavy'); }
 function cleanSets(sets){
   return (sets||[]).filter(function(s){ return s && ((s.weight!=null && s.weight>0) || (s.reps!=null && s.reps>0)); })
     .map(function(s){ return {weight: s.weight!=null && s.weight>0 ? Number(s.weight) : null, reps: s.reps!=null && s.reps>0 ? Number(s.reps) : null}; });
@@ -2111,15 +2134,13 @@ function fitSets(base, n){
   for(var i=0; i<n; i++){ var s = base[Math.min(i, base.length-1)]; out.push({weight:s.weight, reps:s.reps}); }
   return out;
 }
-/* ขั้นน้ำหนักที่จะเพิ่ม — null = ขั้นเล็กสุดของอุปกรณ์ยังกระโดดเกิน 10% ให้เพิ่มจำนวนครั้งแทน */
-function safeIncrement(ex, w, cautious){
-  if(!(w>0)) return null;
-  var step = equipStep(ex.equip, w);
-  if(step/w > 0.10) return null;
-  if(cautious) return step;
+/* ขั้นที่จะเพิ่มสำหรับระดับปานกลาง/หนัก (ระดับเบาไม่เรียกฟังก์ชันนี้) — หลังกด "กลับไปค่าเดิม" ขึ้นแค่ 1 ขั้น */
+function safeIncrement(ex, w, step, tier, cautious){
+  if(tier==='mid' || cautious) return step;
   var pct = LOWER_PATTERNS.indexOf(ex.pattern)>-1 ? 0.05 : 0.025;
-  return Math.min(10, Math.max(step, Math.floor(w*pct/step)*step));
+  return Math.min(Math.max(step, 10 - 10 % step), Math.max(step, Math.floor(w*pct/step)*step));
 }
+function tierNote(tier, step, w){ return LOAD_TIER[tier].label+' (ขั้นละ '+step+' กก. = '+Math.round(step/w*100)+'% ของน้ำหนักที่ยก)'; }
 function exerciseOn(iso, exId){
   var p = track.program || {}, sess = sessionDefFor(p, sessionKeyFor(p, iso));
   return (sess ? sess.exercises : []).filter(function(x){ return x.id===exId; })[0] || null;
@@ -2145,20 +2166,22 @@ function planFrom(ex, base, feel, prog, symptom){
       out.change = {kind:'hold'}; out.note = 'ครั้งก่อนบางเซ็ตทำไม่ถึง '+rr.lo+' ครั้ง — คงไว้จนทำครบทุกเซ็ตก่อน'; return out;
     }
     if(kind==='weight'){
-      var cautious = !!(prog && prog.reverted), inc = safeIncrement(ex, top, cautious);
-      if(inc!=null){
+      var step = equipStep(ex, top), tier = loadTier(step, top), cautious = !!(prog && prog.reverted);
+      out.tier = tier; out.step = step;
+      if(tier!=='light'){
+        var inc = safeIncrement(ex, top, step, tier, cautious);
         sets.forEach(function(s){ if(s.weight>0) s.weight = r2(s.weight + inc); if(s.reps!=null) s.reps = Math.min(rr.hi, Math.max(rr.lo, s.reps)); });
         out.change = {kind:'weight', from:top, to:r2(top + inc), inc:inc};
-        out.note = 'เหลือแรง → เพิ่ม +'+inc+' กก. ('+Math.round(inc/top*100)+'%)'+(cautious ? ' · ขึ้นแค่ขั้นเล็กสุด เพราะครั้งก่อนกลับไปน้ำหนักเดิม' : '');
+        out.note = tierNote(tier, step, top)+' → เพิ่ม +'+inc+' กก.'+(inc > step ? ' ('+(inc/step)+' ขั้น)' : '')+
+          (cautious ? ' · ขึ้นแค่ 1 ขั้น เพราะครั้งก่อนกลับไปน้ำหนักเดิม' : '');
       } else if(base.every(function(s){ return (s.reps||0) >= rr.hi; })){
-        var step = equipStep(ex.equip, top);
         sets.forEach(function(s){ if(s.weight>0) s.weight = r2(s.weight + step); s.reps = rr.lo; });
         out.change = {kind:'weight', from:top, to:r2(top + step), inc:step};
-        out.note = 'ทำครบ '+rr.hi+' ครั้งทุกเซ็ตแล้ว → ขึ้นน้ำหนัก +'+step+' กก. และเริ่มใหม่ที่ '+rr.lo+' ครั้ง';
+        out.note = tierNote(tier, step, top)+' · ทำครบ '+rr.hi+' ครั้งทุกเซ็ตแล้ว → ขึ้น +'+step+' กก. และเริ่มใหม่ที่ '+rr.lo+' ครั้ง';
       } else {
         sets.forEach(function(s){ s.reps = Math.min(rr.hi, (s.reps||rr.lo) + 1); });
         out.change = {kind:'reps'};
-        out.note = 'ขั้นน้ำหนักถัดไปกระโดดเกิน 10% → เพิ่มทีละ 1 ครั้ง/เซ็ตก่อน ครบ '+rr.hi+' ครั้งทุกเซ็ตแล้วจะขึ้นน้ำหนักให้';
+        out.note = tierNote(tier, step, top)+' → เพิ่มทีละ 1 ครั้ง/เซ็ตก่อน ครบ '+rr.hi+' ครั้งทุกเซ็ตแล้วจึงขึ้น +'+step+' กก.';
       }
     } else if(kind==='reps'){
       var cap = rr.hi + 5;
@@ -2230,6 +2253,19 @@ function loadLineHTML(ex, iso, e, plan){
   var note = plan && !logged ? '<div class="load-note">ตั้งให้จากครั้งก่อน ('+esc(shortDateTH(plan.prevDate))+')'+(plan.note ? ' · '+esc(plan.note) : '')+' — ติ๊กว่าทำแล้วระบบบันทึกค่านี้ให้</div>' : '';
   return '<div class="load-line">'+txt+' '+badge+'</div>'+note+
     '<div class="load-actions">'+editBtn+btn+'</div>';
+}
+/* ตั้งขั้นน้ำหนักที่อุปกรณ์ของผู้ใช้มีจริงรายท่า + บอกว่าตอนนี้ท่านี้อยู่ระดับยกเบา/ปานกลาง/หนัก */
+function stepPickerHTML(ex, w){
+  var opts = EQUIP_STEP_OPTS[ex.equip] || [1, 2.5, 5], cur = ((track.program||{}).equipSteps||{})[ex.id] || null;
+  var btn = function(v, label){
+    return '<button type="button" class="opt'+((v||null)===cur ? ' sel' : '')+'" data-act="equip-step" data-ex="'+esc(ex.id)+'" data-val="'+(v||'')+'">'+esc(label)+'</button>';
+  };
+  var step = equipStep(ex, w||0), tier = w>0 ? loadTier(step, w) : null;
+  return '<div class="step-pick"><div class="feel-label">อุปกรณ์ของคุณเพิ่มน้ำหนักได้ทีละ'+(ex.equip==='barbell' ? ' (รวมสองข้าง)' : (ex.equip==='dumbbell' ? ' (ต่อข้าง)' : ''))+':</div>'+
+      '<div class="step-btns">'+btn(null, 'อัตโนมัติ ('+defaultStep(ex.equip, w||0)+' กก.)')+opts.map(function(v){ return btn(v, v+' กก.'); }).join('')+'</div>'+
+      (tier ? '<div class="hint">ตอนนี้ท่านี้อยู่ระดับ <b>'+esc(LOAD_TIER[tier].label)+'</b> — ขั้นละ '+step+' กก. = '+Math.round(step/w*100)+'% ของ '+w+' กก. → '+esc(LOAD_TIER[tier].how)+'</div>' : '')+
+      (ex.equip==='barbell' ? '<div class="hint">เช่น มีแผ่น 1.25 กก. ใส่ข้างละแผ่น = 2.5 กก. · มีแผ่นเล็ก 0.5 กก. = 1 กก. · มีแค่แผ่น 2.5 กก. = 5 กก.</div>' : '')+
+    '</div>';
 }
 function feelHTML(ex, iso, e, plan){
   var cur = e.feel || null;
@@ -2408,6 +2444,10 @@ function sectionWorkout(iso){
         (isBW?'':'<input type="number" inputmode="decimal" placeholder="'+(ex.timeBased?'วินาที':'น.น.(กก.)')+'" data-act="set" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" data-field="weight" data-idx="'+i+'" data-fkey="set-'+iso+'-'+ex.id+'-w'+i+'" value="'+num(sv.weight)+'">')+
         (ex.timeBased?'':'<input type="number" inputmode="numeric" placeholder="ครั้ง" data-act="set" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" data-field="reps" data-idx="'+i+'" data-fkey="set-'+iso+'-'+ex.id+'-r'+i+'" value="'+num(sv.reps)+'">')+
         '</div>';
+    }
+    if(!isBW && !ex.timeBased && WARMUP_WEIGHTED.indexOf(ex.equip)>-1){
+      // ระดับเทียบกับน้ำหนักที่ใช้คำนวณขั้นถัดไป: ยังไม่บันทึกวันนี้ = ครั้งก่อน (ตรงกับข้อความของแผน), บันทึกแล้ว = วันนี้
+      setRows += stepPickerHTML(ex, (usePlan ? topWeight(plan.base) : topWeight(cleanSets(sets))) || (prev && prev.weight) || 0);
     }
     return '<div class="chk'+(e.done?' on':'')+'">'+
       '<input type="checkbox" data-act="ex-done" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" '+(e.done?'checked':'')+' aria-label="ทำท่า '+esc(ex.th)+' แล้ว">'+
@@ -4594,6 +4634,17 @@ document.addEventListener("click", function(ev){
     patchExercise(iso, fx, withPlan(iso, fx, {feel: fe.feel===fk ? null : fk}));
     return;
   }
+  if(act==='equip-step'){
+    var ep = track.program;
+    if(!ep) return;
+    var es = {}, ev = parseFloat(el.getAttribute('data-val')), eid = el.getAttribute('data-ex');
+    Object.keys(ep.equipSteps||{}).forEach(function(k){ es[k] = ep.equipSteps[k]; });
+    if(ev>0) es[eid] = ev; else delete es[eid];
+    ep.equipSteps = es;
+    persistProgram();
+    render();
+    return;
+  }
   if(act==='prog-revert' || act==='prog-reapply'){
     var rx = el.getAttribute('data-ex'), rex = exerciseOn(iso, rx), rpl = rex ? progressionPlan(rex, iso) : null;
     if(!rpl) return;
@@ -4689,6 +4740,7 @@ document.addEventListener("click", function(ev){
         return;
       }
       snap = buildPlanSnapshot(state.answers);
+      if(track.program && track.program.equipSteps) snap.equipSteps = track.program.equipSteps; // อุปกรณ์ที่มีจริงยังเหมือนเดิมแม้เปลี่ยนแผน
       snap.startDate = val;
       snap.planId = Date.now().toString(36);
       snap.createdAt = new Date().toISOString();

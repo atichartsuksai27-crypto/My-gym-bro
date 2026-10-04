@@ -355,12 +355,24 @@ var PERSIST_ONBOARDING_STATE = true;
 function freshState(){
   return {step:0, answers:{}, mode:null, nav:'today', editPlan:false,
           plan:{manualPick:{}, unlockedEx:{}, forceLowTier:{}, splitOverride:null,
-                trainDays:null, cardioDays:[], cardioMinutes:30}};
+                trainDays:null, cardioDays:[], cardioMinByDay:{}}};
 }
 function loadPlanSchedule(dst, src){
   dst.trainDays = Array.isArray(src.trainDays) ? src.trainDays : null;
   dst.cardioDays = Array.isArray(src.cardioDays) ? src.cardioDays : [];
-  dst.cardioMinutes = src.cardioMinutes>0 ? src.cardioMinutes : 30;
+  dst.cardioMinByDay = (src.cardioMinByDay && typeof src.cardioMinByDay==='object') ? src.cardioMinByDay : {};
+}
+var CARDIO_DEFAULT_MIN = 30;
+/* นาที cardio ตามแผนของวันในสัปดาห์นั้น (แผนเก่าที่มีค่าเดียวทั้งสัปดาห์ใช้ cardioMinutes) */
+function cardioMinFor(program, wd){
+  var m = program.cardioMinByDay && program.cardioMinByDay[wd];
+  return m>0 ? m : (program.cardioMinutes || CARDIO_DEFAULT_MIN);
+}
+function cardioTargetOn(program, iso){ return cardioMinFor(program, thaiWeekdayOfDate(parseISO(iso))); }
+function minsForDays(minByDay, days){
+  var out = {};
+  days.forEach(function(d){ out[d] = (minByDay||{})[d] || CARDIO_DEFAULT_MIN; });
+  return out;
 }
 var state = freshState();
 if(PERSIST_ONBOARDING_STATE){
@@ -751,7 +763,7 @@ function buildPlanSnapshot(a){
     splitKey:split, splitLabel:splitDef.label, goal:a.Q1,
     days:trainDays, dayToSession:dayToSession, sessions:sessions,
     availableDays:(a.Q2||[]).slice(),
-    cardioDays:planCardioDays(a), cardioMinutes:state.plan.cardioMinutes||30,
+    cardioDays:planCardioDays(a), cardioMinByDay:minsForDays(state.plan.cardioMinByDay, planCardioDays(a)),
     minutesEstimate:a.Q3||'45-60 นาที',
     trainTime:a.Q24||'ไม่แน่นอนแล้วแต่วัน',
     targets: computeTargets(a),
@@ -770,7 +782,7 @@ var track = {
   openDate:null, openSets:{}, saveStatus:'', openSwap:null,
   schedTab:'week', editing:false, progressEx:null, openBench:{}, sleepHoursError:{},
   demoExercise:null, // โมดัลภาพเคลื่อนไหวท่าในหน้าตรวจแผน (null = ปิด)
-  histOpen:null, histDays:14, finalizedThrough:null
+  histOpen:null, histDays:14, finalizedThrough:null, schedDraft:null
 };
 function persistProgram(){
   var ok = lsSet("gymbro_program", track.program);
@@ -900,7 +912,7 @@ function dayItems(program, iso){
   }
   if(cardioPlannedFor(program, iso)){
     var cm = cardioMinutesOn(iso);
-    items.push({group:'cardio', key:'cardio', label:'Cardio', val: cm? cm+' / '+(program.cardioMinutes||30)+' นาที' : NA, done: !!cm});
+    items.push({group:'cardio', key:'cardio', label:'Cardio', val: cm? cm+' / '+cardioTargetOn(program, iso)+' นาที' : NA, done: !!cm});
   }
   var n = log.nutrition || {};
   items.push({group:'food', key:'protein', label:'โปรตีน', val: n.proteinG!=null? n.proteinG+' / '+t.proteinG+' g' : NA, done: n.proteinG!=null && n.proteinG >= t.proteinG*0.9});
@@ -1512,7 +1524,7 @@ function sectionCardio(iso){
   var p = track.program;
   var planned = cardioPlannedFor(p, iso);
   var mins = cardioMinutesOn(iso);
-  var target = p.cardioMinutes || 30;
+  var target = cardioTargetOn(p, iso);
   return '<div class="sec-card">'+
     '<div class="sec-head"><span class="sq" style="background:var(--branch)"></span><h2>Cardio</h2>'+
     '<span class="meta">'+(planned ? 'ตามแผน ~'+target+' นาที' : 'ไม่ได้อยู่ในแผนวันนี้ — ถ้าทำก็บันทึกได้')+'</span>'+
@@ -1564,6 +1576,7 @@ function renderToday(){
       '<button type="button" class="btn" data-act="nav" data-view="progress">ความคืบหน้า</button>'+
     '</div></div>';
 
+  html += oldScheduleBanner(p);
   html += '<div class="today-grid"><div class="stack">'+dayEditor(iso)+'</div>'+
     '<aside class="rail">'+
       '<div class="prog-card"><div class="prog-top"><h3>ความคืบหน้าวันนี้</h3><span class="n mono">'+counts.done+'/'+counts.total+'</span></div>'+
@@ -1572,7 +1585,7 @@ function renderToday(){
         (track.saveStatus? '<span class="save-status">'+esc(track.saveStatus)+'</span>':'')+
       '</div>'+
       '<div class="side-card"><h3>พรุ่งนี้</h3>'+
-        '<p><b>'+dayLabelHTML(p, tomorrowIso, 'พักฟื้น')+'</b><br>'+esc(tSess? tSess.exercises.map(function(e){return e.th;}).slice(0,3).join(' · ') : (cardioPlannedFor(p, tomorrowIso)? 'Cardio ~'+(p.cardioMinutes||30)+' นาที' : 'ยืดกล้ามเนื้อ เดินเบาๆ และนอนให้ครบเป้า'))+'</p>'+
+        '<p><b>'+dayLabelHTML(p, tomorrowIso, 'พักฟื้น')+'</b><br>'+esc(tSess? tSess.exercises.map(function(e){return e.th;}).slice(0,3).join(' · ') : (cardioPlannedFor(p, tomorrowIso)? 'Cardio ~'+cardioTargetOn(p, tomorrowIso)+' นาที' : 'ยืดกล้ามเนื้อ เดินเบาๆ และนอนให้ครบเป้า'))+'</p>'+
         '<button type="button" class="linkbtn" data-act="nav" data-view="schedule">ดูตารางทั้งสัปดาห์ →</button></div>'+
       '<div class="side-card"><h3>ทำตามแผนไม่ได้?</h3><p>ข้ามได้โดยไม่ต้องแก้อะไร — เมื่อผ่านวันไปแล้ว ชื่อกิจกรรมที่ไม่สำเร็จจะเป็นตัวแดงในตารางฝึก — บันทึกย้อนหลังได้แค่เมื่อวาน หลังจากนั้นวันนั้นจะล็อก</p>'+
         '<button type="button" class="linkbtn" data-act="nav" data-view="plan">ปรับแผน/เปลี่ยนวันฝึก →</button></div>'+
@@ -1616,10 +1629,15 @@ function renderWeekGrid(){
     var chips = (iso===today?'<span class="chip now">วันนี้</span>':'') +
                 (sKey?'<span class="chip">'+esc(p.minutesEstimate||'')+'</span>':(active?'':'<span class="chip">พัก</span>')) +
                 (STATUS_CHIP[stt]||'');
-    var cardioTxt = hasCardio ? 'Cardio ~'+(p.cardioMinutes||30)+' นาที' : '';
+    var cardioTxt = hasCardio ? 'Cardio ~'+cardioTargetOn(p, iso)+' นาที' : '';
     var sub = sess
       ? sess.exercises.map(function(e){return e.th;}).join(' · ') + (cardioTxt? ' · '+cardioTxt : '')
       : (cardioTxt || (active ? 'ทำ cardio เพิ่มนอกแผน' : 'ยืดกล้ามเนื้อ 10 นาที · เดินเบาๆ · เน้นนอนให้ครบเป้า'));
+    var fin = (logFor(iso)||{}).final;
+    if(fin){
+      chips = fin.complete ? '<span class="chip ok">ครบ ✓ 🔒</span>' : '<span class="chip miss">ไม่ครบ 🔒</span>';
+      sub = 'ล็อกแล้ว — ทำได้ '+fin.items.filter(function(x){ return x.done; }).length+'/'+fin.items.length+' ข้อ';
+    }
     if(iso < p.startDate){ chips = STATUS_CHIP.before; sub = logFor(iso) ? 'ก่อนเริ่มแผนปัจจุบัน — กดเพื่อดูบันทึก' : 'ก่อนเริ่มแผนปัจจุบัน'; }
     cards += '<button type="button" class="'+cls+'"'+(openable?' data-act="open-day" data-date="'+iso+'" data-open="1"':' disabled')+'>'+
       '<div class="wk-top"><span class="wk-day mono">'+esc(DAYS_SHORT[i])+'</span><span class="wk-date mono">'+d.getDate()+' '+esc(TH_MONTHS[d.getMonth()])+'</span>'+
@@ -2000,6 +2018,69 @@ function coachAsk(){
 }
 
 /* ---------- หน้า: แผนของฉัน ---------- */
+/* วันว่างของโปรแกรมที่เริ่มแล้ว — แผนที่สร้างก่อนมีระบบเลือกวันไม่มี availableDays ใช้คำตอบ Q2 แทน */
+function progAvailDays(p){
+  var avail = (p.availableDays && p.availableDays.length) ? p.availableDays : (state.answers.Q2 || []);
+  return DAYS.filter(function(d){ return avail.indexOf(d)>-1 || (p.days||[]).indexOf(d)>-1; });
+}
+function schedLists(ctx){
+  if(ctx==='prog'){ var dr = track.schedDraft; return {train:dr.days, cardio:dr.cardioDays, mins:dr.cardioMinByDay}; }
+  return {train:planTrainDays(state.answers), cardio:planCardioDays(state.answers), mins:state.plan.cardioMinByDay};
+}
+function setSchedLists(ctx, train, cardio){
+  var byWeek = function(list){ return DAYS.filter(function(d){ return list.indexOf(d)>-1; }); };
+  if(ctx==='prog'){ track.schedDraft.days = byWeek(train); track.schedDraft.cardioDays = byWeek(cardio); render(); return; }
+  state.plan.trainDays = byWeek(train); state.plan.cardioDays = byWeek(cardio);
+  persist(); render();
+}
+function openSchedDraft(){
+  var p = track.program, mins = {};
+  (p.cardioDays||[]).forEach(function(d){ mins[d] = cardioMinFor(p, d); });
+  track.schedDraft = {days:(p.days||[]).slice(), cardioDays:(p.cardioDays||[]).slice(), cardioMinByDay:mins};
+  track.saveStatus = '';
+}
+/* ปรับวันของโปรแกรมที่ใช้อยู่ โดยท่า/เป้าหมายเดิมไม่เปลี่ยน — วันที่ล็อกแล้วมี snapshot ของตัวเองจึงไม่กระทบประวัติ */
+function saveSchedDraft(){
+  var p = track.program, dr = track.schedDraft, avail = progAvailDays(p);
+  var need = minTrainDays(p.splitKey, {Q2:avail});
+  if(dr.days.length < need){
+    track.saveStatus = 'ยังบันทึกไม่ได้ — '+(p.splitLabel||'')+' ต้องมีวันฝึกอย่างน้อย '+need+' วัน/สัปดาห์';
+    render(); return;
+  }
+  var next = {};
+  Object.keys(p).forEach(function(k){ next[k] = p[k]; });
+  next.days = dr.days.slice();
+  next.dayToSession = {};
+  assignSessions(p.splitKey, next.days).forEach(function(x){ next.dayToSession[x.day] = x.session; });
+  next.cardioDays = dr.cardioDays.slice();
+  next.cardioMinByDay = minsForDays(dr.cardioMinByDay, next.cardioDays);
+  next.availableDays = avail;
+  track.program = next;
+  var ok = persistProgram();
+  state.plan.trainDays = next.days.slice();
+  state.plan.cardioDays = next.cardioDays.slice();
+  state.plan.cardioMinByDay = minsForDays(next.cardioMinByDay, next.cardioDays);
+  persist();
+  track.schedDraft = null;
+  track.saveStatus = ok ? 'บันทึกวันฝึกแล้ว ✓' : 'บันทึกไม่ได้ — พื้นที่จัดเก็บของเบราว์เซอร์ใช้ไม่ได้ตอนนี้';
+  render();
+}
+function schedEditorPanelHTML(){
+  var p = track.program, dr = track.schedDraft;
+  if(!dr) return '';
+  return '<div class="setup-panel"><h3>เลือกวันฝึกและวัน cardio</h3>'+
+    '<p>วันว่างคือวันที่ “เลือกได้” — กดเลือกเฉพาะวันที่จะเล่นจริง ท่าออกกำลังกายและเป้าหมายเดิมไม่เปลี่ยน วันที่ถูกล็อกเป็นประวัติแล้วไม่ได้รับผลกระทบ</p>'+
+    scheduleEditorHTML('prog', p.splitKey, progAvailDays(p), dr.days, dr.cardioDays, dr.cardioMinByDay, p.minutesEstimate||'')+
+    '<div class="setup-row" style="margin-top:12px"><button type="button" class="btn primary" data-act="sched-save">บันทึกวันฝึก</button>'+
+    '<button type="button" class="btn ghost" data-act="sched-cancel">ยกเลิก</button>'+
+    '<span class="save-status">'+esc(track.saveStatus||'')+'</span></div></div>';
+}
+function oldScheduleBanner(p){
+  if(p.availableDays || track.schedDraft) return '';
+  return '<div class="banner warn"><div class="ic">⚠️</div><div>แผนนี้สร้างก่อนมีระบบเลือกวัน — ตอนนี้ <b>ทุกวันที่ว่างยังถูกนับเป็นวันฝึก</b> '+
+    '<button type="button" class="linkbtn" data-act="sched-edit-go">เลือกวันที่จะเล่นจริง และวัน cardio →</button></div></div>';
+}
+
 function renderPlan(){
   var p = track.program, t = targetsOf(p);
   var pKcal = t.proteinG*4, fKcal = t.fatG*9, cKcal = t.carbG*4, tot = pKcal+fKcal+cKcal;
@@ -2008,9 +2089,12 @@ function renderPlan(){
   var html = '<div class="page-head"><div><div class="eyebrow">โปรแกรมที่กำลังติดตาม</div><h1>แผนของฉัน</h1>'+
     '<div class="sub">แผนนี้ถูกล็อกไว้ตั้งแต่วันที่กด “เริ่มโปรแกรม” เพื่อไม่ให้ประวัติที่บันทึกไปแล้วเปลี่ยนความหมายย้อนหลัง — แก้ได้โดยกดปุ่มด้านขวา</div></div>'+
     '<div class="head-actions">'+
+      '<button type="button" class="btn" data-act="sched-edit">ปรับวันฝึก / วัน cardio</button>'+
       '<button type="button" class="btn" data-act="edit-plan">แก้ไขแผน / ทำแบบสอบถามใหม่</button>'+
       '<button type="button" class="btn" data-act="edit-start">ตั้งวันเริ่มใหม่</button>'+
     '</div></div>';
+  html += oldScheduleBanner(p) + schedEditorPanelHTML();
+  if(!track.schedDraft && track.saveStatus==='บันทึกวันฝึกแล้ว ✓') html += '<div class="banner info"><div class="ic">✓</div><div>บันทึกวันฝึกแล้ว</div></div>';
 
   if(track.editing){
     html += renderStartSetup();
@@ -2045,7 +2129,8 @@ function renderPlan(){
       }).join('')+'</div>';
   }).join('');
   if((p.cardioDays||[]).length){
-    html += '<div class="session-heading">Cardio <span class="sh-sub">'+p.cardioDays.length+'x/สัปดาห์ — '+esc(p.cardioDays.join(', '))+' · ~'+(p.cardioMinutes||30)+' นาที</span></div>';
+    html += '<div class="session-heading">Cardio <span class="sh-sub">'+p.cardioDays.length+'x/สัปดาห์ — '+
+      esc(p.cardioDays.map(function(d){ return d+' '+cardioMinFor(p, d)+' นาที'; }).join(', '))+'</span></div>';
   }
 
   html += '<div class="disclaimer-block"><h3>สิ่งที่ต้องรู้ก่อนใช้จริง</h3><ul>'+
@@ -2349,6 +2434,38 @@ function demoModalHTML(){
     '</div></div>';
 }
 
+/* ตัวเลือกวันฝึก/วัน cardio (+ นาที cardio รายวัน) ใช้ร่วมกันระหว่างหน้าตรวจแผน (ctx 'plan' → state.plan)
+   และหน้าแผนของฉัน (ctx 'prog' → track.schedDraft ของโปรแกรมที่เริ่มไปแล้ว) */
+function scheduleEditorHTML(ctx, splitKey, avail, train, cardio, minByDay, sessMinutes){
+  var def = SPLIT_DEFS[splitKey];
+  var d2s = {};
+  assignSessions(splitKey, train).forEach(function(x){ d2s[x.day]=x.session; });
+  var minTrain = minTrainDays(splitKey, {Q2:avail});
+  var cards = DAYS.map(function(d,i){
+    var isAvail = avail.indexOf(d)>-1, isTrain = train.indexOf(d)>-1, isCardio = cardio.indexOf(d)>-1;
+    var sKey = isTrain ? d2s[d] : null;
+    var seDef = sKey ? def.sessions.filter(function(s){return s.key===sKey;})[0] : null;
+    var chips = seDef ? seDef.patterns.map(function(p){ return '<span class="chip">'+esc(PATTERN_SHORT[p]||p)+'</span>'; }).join('') : '';
+    var mins = (minByDay||{})[d] || CARDIO_DEFAULT_MIN;
+    var name = [sKey, isCardio?'Cardio':null].filter(Boolean).join(' + ') || (isAvail ? 'พัก' : 'ไม่ว่าง');
+    var body = isAvail
+      ? '<div class="sched-btns">'+
+          '<button type="button" class="opt'+(isTrain?' sel':'')+'" data-act="train-day" data-ctx="'+ctx+'" data-day="'+esc(d)+'" aria-pressed="'+isTrain+'">ฝึก</button>'+
+          '<button type="button" class="opt'+(isCardio?' sel':'')+'" data-act="cardio-day" data-ctx="'+ctx+'" data-day="'+esc(d)+'" aria-pressed="'+isCardio+'">Cardio</button>'+
+        '</div>'+
+        (isCardio ? '<div class="sched-row"><label>Cardio วันนี้</label><input type="number" inputmode="numeric" min="5" max="300" data-act="cardio-day-min" data-ctx="'+ctx+'" data-day="'+esc(d)+'" data-fkey="cmin-'+ctx+'-'+esc(d)+'" value="'+mins+'"> นาที</div>' : '')
+      : '<div class="wk-sub">ไม่ได้เลือกเป็นวันว่างในแบบสอบถาม</div>';
+    return '<div class="wk-card'+(isTrain||isCardio?'':' rest')+(isAvail?'':' unavail')+'"><div class="wk-top"><span class="wk-day mono">'+esc(DAYS_SHORT[i])+'</span>'+
+      (isTrain&&sessMinutes?'<span class="chip">'+esc(sessMinutes)+'</span>':'')+'</div>'+
+      '<div class="wk-name">'+esc(name)+'</div>'+
+      (chips?'<div class="wk-sub">'+chips+'</div>':'')+body+'</div>';
+  }).join('');
+  var note = train.length >= minTrain
+    ? '<div class="split-auto-line">เลือกวันฝึกไว้ '+train.length+' วัน (ขั้นต่ำของ '+esc(def.label)+' คือ '+minTrain+' วัน) · Cardio '+cardio.length+' วัน — เลือกได้เฉพาะวันที่ว่าง ไม่ต้องใช้ครบทุกวัน cardio อยู่วันเดียวกับวันฝึกหรือคนละวันก็ได้ และตั้งนาทีแยกแต่ละวันได้</div>'
+    : '<div class="banner warn"><div class="ic">⚠️</div><div>'+esc(def.label)+' ต้องมีวันฝึกอย่างน้อย <b>'+minTrain+' วัน/สัปดาห์</b> ตอนนี้เลือกไว้ '+train.length+' วัน — กด “ฝึก” เพิ่มในวันที่ว่าง</div></div>';
+  return '<div class="wk-grid" style="margin-top:12px">'+cards+'</div>'+note;
+}
+
 function resultsHTML(){
   var a = state.answers;
   var t = computeTargets(a);
@@ -2387,30 +2504,7 @@ function resultsHTML(){
     ? '<div class="split-auto-line">คุณเลือกรูปแบบนี้เอง — <button type="button" data-act="split-auto">ให้ระบบแนะนำอัตโนมัติแทน</button></div>'
     : '<div class="split-auto-line">ระบบแนะนำอัตโนมัติตามวันว่างและประสบการณ์ที่ตอบไว้ — กดเลือกรูปแบบอื่นด้านบนได้ถ้าต้องการ</div>';
 
-  var cardioMin = state.plan.cardioMinutes || 30;
-  var weekPreview = DAYS.map(function(d,i){
-    var avail = (a.Q2||[]).indexOf(d)>-1;
-    var train = trainDays.indexOf(d)>-1, cardio = cardioDays.indexOf(d)>-1;
-    var sKey = train ? dayToSession[d] : null;
-    var seDef = sKey ? splitDef.sessions.filter(function(s){return s.key===sKey;})[0] : null;
-    var chips = seDef ? seDef.patterns.map(function(p){ return '<span class="chip">'+esc(PATTERN_SHORT[p]||p)+'</span>'; }).join('') : '';
-    var name = [sKey, cardio?'Cardio':null].filter(Boolean).join(' + ') || (avail ? 'พัก' : 'ไม่ว่าง');
-    var btns = avail
-      ? '<div class="sched-btns">'+
-          '<button type="button" class="opt'+(train?' sel':'')+'" data-act="train-day" data-day="'+esc(d)+'" aria-pressed="'+train+'">ฝึก</button>'+
-          '<button type="button" class="opt'+(cardio?' sel':'')+'" data-act="cardio-day" data-day="'+esc(d)+'" aria-pressed="'+cardio+'">Cardio</button>'+
-        '</div>'
-      : '<div class="wk-sub">ไม่ได้เลือกเป็นวันว่างในแบบสอบถาม</div>';
-    return '<div class="wk-card'+(train||cardio?'':' rest')+(avail?'':' unavail')+'"><div class="wk-top"><span class="wk-day mono">'+esc(DAYS_SHORT[i])+'</span>'+
-      (train?'<span class="chip">'+esc(a.Q3||'')+'</span>':'')+(cardio?'<span class="chip">Cardio '+cardioMin+' นาที</span>':'')+'</div>'+
-      '<div class="wk-name">'+esc(name)+'</div>'+
-      (chips?'<div class="wk-sub">'+chips+'</div>':'')+btns+'</div>';
-  }).join('');
-  var scheduleNote = scheduleOk
-    ? '<div class="split-auto-line">เลือกวันฝึกไว้ '+trainDays.length+' วัน (ขั้นต่ำของ '+esc(splitDef.label)+' คือ '+minTrain+' วัน) · Cardio '+cardioDays.length+' วัน — เลือกได้เฉพาะวันที่ว่างตามที่ตอบไว้ ไม่ต้องใช้ครบทุกวัน และ cardio จะอยู่วันเดียวกับวันฝึกหรือคนละวันก็ได้</div>'
-    : '<div class="banner warn"><div class="ic">⚠️</div><div>'+esc(splitDef.label)+' ต้องมีวันฝึกอย่างน้อย <b>'+minTrain+' วัน/สัปดาห์</b> ตอนนี้เลือกไว้ '+trainDays.length+' วัน — กด “ฝึก” เพิ่มในวันที่ว่างก่อนเริ่มโปรแกรม</div></div>';
-  var cardioRow = '<div class="sched-row"><label for="cardioTargetInput">เวลา cardio ต่อครั้ง</label>'+
-    '<input type="number" id="cardioTargetInput" inputmode="numeric" min="5" max="300" data-act="cardio-target" data-fkey="cardio-target" value="'+cardioMin+'"> นาที</div>';
+  var schedHTML = scheduleEditorHTML('plan', split, a.Q2||[], trainDays, cardioDays, state.plan.cardioMinByDay, a.Q3||'');
 
   function buildExRow(pattern){
     var sel = selectionFor(pattern, a);
@@ -2487,8 +2581,7 @@ function resultsHTML(){
     '<div class="reasoning-card">'+reasoning+'</div>'+
     '<div class="section-title">เลือกวันฝึกและวัน cardio</div>'+
     '<p class="hint">วันว่างที่ตอบไว้คือวันที่ “เลือกได้” — กดเลือกเฉพาะวันที่จะเล่นจริง</p>'+
-    '<div class="wk-grid" style="margin-top:12px">'+weekPreview+'</div>'+
-    scheduleNote + cardioRow +
+    schedHTML +
     (Object.keys(state.plan.forceLowTier).length ? '<div class="banner info"><div class="ic">ⓘ</div><div>คุณเพิ่งแจ้งว่าหายจากอาการบาดเจ็บสำหรับบางท่า — ระบบเริ่มท่าในกลุ่มนั้นใหม่จาก <b>Tier ต่ำสุด</b> ก่อนเสมอเพื่อความปลอดภัย</div></div>' : '')+
 
     '<div class="section-title">รายละเอียดเซสชัน</div>'+
@@ -2646,7 +2739,7 @@ function numInRange(v, lo, hi){
   return {value:n, valid:true};
 }
 
-function goto(view){ state.nav = view; track.openDate=null; track.saveStatus=''; acctOpen=false; persist(); render(true); }
+function goto(view){ state.nav = view; track.openDate=null; track.saveStatus=''; track.schedDraft=null; acctOpen=false; persist(); render(true); }
 
 document.addEventListener("click", function(ev){
   var el = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
@@ -2821,11 +2914,14 @@ document.addEventListener("click", function(ev){
     return;
   }
   if(act==='edit-plan'){
-    if(track.program && state.plan.trainDays==null){
-      state.plan.trainDays = (track.program.days||[]).slice();
-      state.plan.cardioDays = (track.program.cardioDays||[]).slice();
-      state.plan.cardioMinutes = track.program.cardioMinutes || 30;
+    if(track.program){
+      var ep = track.program;
+      state.plan.trainDays = (ep.days||[]).slice();
+      state.plan.cardioDays = (ep.cardioDays||[]).slice();
+      state.plan.cardioMinByDay = {};
+      state.plan.cardioDays.forEach(function(d){ state.plan.cardioMinByDay[d] = cardioMinFor(ep, d); });
     }
+    track.schedDraft = null;
     state.editPlan=true; state.step=9; state.mode='results'; track.editing=false; persist(); render(true); return; }
   if(act==='exit-edit'){ state.editPlan=false; track.editing=false; persist(); render(true); return; }
   if(act==='edit-start'){ if(el.disabled) return; track.editing=true; track.saveStatus=''; render(); return; }
@@ -2886,13 +2982,17 @@ document.addEventListener("click", function(ev){
   if(act==='split'){ if(el.disabled) return; state.plan.splitOverride = el.getAttribute('data-split'); state.plan.manualPick={}; persist(); render(); return; }
   if(act==='split-auto'){ state.plan.splitOverride=null; state.plan.manualPick={}; persist(); render(); return; }
   if(act==='train-day' || act==='cardio-day'){
-    var dday = el.getAttribute('data-day');
-    var list = act==='train-day' ? planTrainDays(state.answers) : planCardioDays(state.answers);
-    var at = list.indexOf(dday);
+    var sctx = el.getAttribute('data-ctx'), sl = schedLists(sctx);
+    var list = (act==='train-day' ? sl.train : sl.cardio).slice();
+    var dday = el.getAttribute('data-day'), at = list.indexOf(dday);
     if(at>-1) list.splice(at,1); else list.push(dday);
-    if(act==='train-day') state.plan.trainDays = list; else state.plan.cardioDays = list;
-    persist(); render(); return;
+    if(act==='train-day') setSchedLists(sctx, list, sl.cardio); else setSchedLists(sctx, sl.train, list);
+    return;
   }
+  if(act==='sched-edit'){ openSchedDraft(); render(); return; }
+  if(act==='sched-edit-go'){ openSchedDraft(); state.nav='plan'; persist(); render(true); return; }
+  if(act==='sched-cancel'){ track.schedDraft=null; track.saveStatus=''; render(); return; }
+  if(act==='sched-save'){ saveSchedDraft(); return; }
   if(act==='swap-toggle'){ var pt=el.getAttribute('data-pattern'); track.openSwap = (track.openSwap===pt? null : pt); render(); return; }
   if(act==='demo'){ track.demoExercise = {exId:el.getAttribute('data-exid'), pattern:el.getAttribute('data-pattern'), th:el.getAttribute('data-th'), sub:el.getAttribute('data-sub')}; render(); return; }
   if(act==='demo-stop'){ return; } // คลิกภายในโมดัลไม่ปิด (กันคลิกทะลุไป backdrop)
@@ -2931,9 +3031,12 @@ document.addEventListener("change", function(ev){
     else render();
     return;
   }
-  if(act==='cardio-target'){
-    var ct = numInRange(el.value, 5, 300);
-    if(ct.valid && ct.value!=null){ state.plan.cardioMinutes = Math.round(ct.value); persist(); }
+  if(act==='cardio-day-min'){
+    var cmctx = el.getAttribute('data-ctx'), cmv = numInRange(el.value, 5, 300);
+    if(cmv.valid && cmv.value!=null){
+      schedLists(cmctx).mins[el.getAttribute('data-day')] = Math.round(cmv.value);
+      if(cmctx!=='prog') persist();
+    }
     render(); return;
   }
   if(act==='weight'){

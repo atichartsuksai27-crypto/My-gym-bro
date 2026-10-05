@@ -1076,29 +1076,41 @@ function warmupSummary(program, iso){
   });
   return {done:done, total:total, byEx:byEx};
 }
-/* ---------- แถบไขมัน (ชักเย่อ): TDEE − แคลที่กินจริง สะสมรายวัน ครบ ±7,700 kcal = ไขมัน ∓1 กก. แล้วเริ่มที่ 0 ใหม่ ----------
+/* ---------- แถบไขมัน (ชักเย่อ): พลังงานที่ใช้จริง − แคลที่กินจริง สะสมรายวัน ครบ ±7,700 kcal = ไขมัน ∓1 กก. แล้วเริ่มที่ 0 ใหม่ ----------
+   พลังงานที่ใช้ = TDEE (BMR × ลักษณะงาน ไม่รวมการออกกำลังกาย) + แคลที่เผาจากการฝึก/cardio ที่ทำจริงวันนั้น
+   เป้าแคลอรี่ของแผนตั้งจาก TDEE นี้ กินตามเป้าในวันฝึกจึงขาดเท่ากับแคลที่เผาจากการฝึก ไม่ใช่ 0
    1 กก. ไขมันในร่างกาย ≈ 7,700 kcal (เนื้อเยื่อไขมันมีไขมันจริง ~85% × 9 kcal/g) นับเฉพาะวันที่จบแล้ว (ก่อนวันนี้) และกรอกแคลอรี่ไว้ */
 var FAT_KCAL_PER_KG = 7700;
 var FAT_BAR_GOALS = ['ลดไขมัน', 'Recomposition (ลด+เพิ่มพร้อมกัน)'];
 function fatBarEnabled(program){ return !!program && FAT_BAR_GOALS.indexOf(program.goal)>-1; }
+/* แคลที่เผาเพิ่มจากการออกกำลังกายที่ทำจริงวันนั้น — เซสชันที่ทำครบ + นาที cardio ที่บันทึก
+   วันที่ล็อกแล้วดูว่าเซสชันสำเร็จจาก snapshot (parts) เพราะแผนปัจจุบันอาจเปลี่ยนไปแล้ว */
+function dayExerciseKcal(program, iso){
+  var kg = bodyweightAsOf(iso) || parseFloat((state.answers||{}).Q12) || null;
+  if(!kg) return 0;
+  var lg = logFor(iso), parts = lg && lg.final && lg.final.parts, sess;
+  if(parts) sess = parts.some(function(x){ return !x.missed && x.label.indexOf('Cardio')!==0; });
+  else sess = !!sessionKeyFor(program, iso) && sessionDone(program, iso);
+  return Math.round(pgExerciseKcal(kg, sess ? 1 : 0, pgSessMin(program), cardioMinutesOn(iso) || 0));
+}
 function dayEnergy(program, iso){
-  var lg = logFor(iso);
-  if(lg && lg.final && lg.final.energy) return lg.final.energy;
+  var lg = logFor(iso), fe = lg && lg.final && lg.final.energy;
+  if(fe) return fe.ex!=null ? fe : {kcal:fe.kcal, tdee:fe.tdee, ex:dayExerciseKcal(program, iso)}; // snapshot เก่าก่อนมีช่อง ex
   var kcal = lg && lg.nutrition ? lg.nutrition.kcal : null;
   var tdee = targetsOf(program).tdee;
-  return (kcal!=null && tdee!=null) ? {kcal:kcal, tdee:tdee} : null;
+  return (kcal!=null && tdee!=null) ? {kcal:kcal, tdee:tdee, ex:dayExerciseKcal(program, iso)} : null;
 }
 function fatTug(program){
   var today = todayISO(), acc = 0, gains = [], losses = [], days = [];
   Object.keys(track.logs).filter(function(d){ return d < today; }).sort().forEach(function(iso){
     var en = dayEnergy(program, iso);
     if(!en) return;
-    var bal = en.tdee - en.kcal; // + = กินขาด (ขวา/เขียว), − = กินเกิน (ซ้าย/แดง)
+    var burn = en.tdee + en.ex, bal = burn - en.kcal; // + = กินขาด (ขวา/เขียว), − = กินเกิน (ซ้าย/แดง)
     acc += bal;
     var ev = null;
     if(acc >= FAT_KCAL_PER_KG){ losses.push(iso); acc = 0; ev = 'loss'; }
     else if(acc <= -FAT_KCAL_PER_KG){ gains.push(iso); acc = 0; ev = 'gain'; }
-    days.push({date:iso, kcal:en.kcal, tdee:en.tdee, bal:bal, ev:ev});
+    days.push({date:iso, kcal:en.kcal, tdee:en.tdee, ex:en.ex, burn:burn, bal:bal, ev:ev});
   });
   return {acc:acc, gains:gains, losses:losses, days:days};
 }
@@ -3051,8 +3063,8 @@ function fatAlertHTML(p){
   var nl = t.losses.length - seen.losses, ng = t.gains.length - seen.gains;
   if(nl<=0 && ng<=0) return '';
   var msg = [];
-  if(nl>0) msg.push('<div class="banner fat-ok"><div class="ic">🎉</div><div><b>คุณลดไขมันได้ '+nl+' กก.</b> จากการกินน้อยกว่าที่ร่างกายต้องการสะสมครบ '+(nl*FAT_KCAL_PER_KG).toLocaleString()+' kcal — รวมลดได้แล้ว '+t.losses.length+' ครั้ง</div></div>');
-  if(ng>0) msg.push('<div class="banner danger"><div class="ic">⚠️</div><div><b>ไขมันของคุณเพิ่มขึ้น '+ng+' กก.</b> จากการกินเกินที่ร่างกายต้องการสะสมครบ '+(ng*FAT_KCAL_PER_KG).toLocaleString()+' kcal — รวมเพิ่มแล้ว '+t.gains.length+' ครั้ง</div></div>');
+  if(nl>0) msg.push('<div class="banner fat-ok"><div class="ic">🎉</div><div><b>คุณลดไขมันได้ '+nl+' กก.</b> จากการกินน้อยกว่าที่ร่างกายใช้สะสมครบ '+(nl*FAT_KCAL_PER_KG).toLocaleString()+' kcal — รวมลดได้แล้ว '+t.losses.length+' ครั้ง</div></div>');
+  if(ng>0) msg.push('<div class="banner danger"><div class="ic">⚠️</div><div><b>ไขมันของคุณเพิ่มขึ้น '+ng+' กก.</b> จากการกินเกินที่ร่างกายใช้สะสมครบ '+(ng*FAT_KCAL_PER_KG).toLocaleString()+' kcal — รวมเพิ่มแล้ว '+t.gains.length+' ครั้ง</div></div>');
   return msg.join('')+'<div style="margin:-4px 0 14px"><button type="button" class="btn sm" data-act="fat-ack">รับทราบ</button></div>';
 }
 function fatBarHTML(p){
@@ -3065,10 +3077,11 @@ function fatBarHTML(p){
   var now = acc>0 ? 'กินขาดสะสม <b>'+Math.round(acc).toLocaleString()+'</b> / '+FAT_KCAL_PER_KG.toLocaleString()+' kcal → อีก '+Math.round(FAT_KCAL_PER_KG-acc).toLocaleString()+' kcal จะลดไขมันได้ 1 กก.'
     : acc<0 ? 'กินเกินสะสม <b>'+Math.round(-acc).toLocaleString()+'</b> / '+FAT_KCAL_PER_KG.toLocaleString()+' kcal → อีก '+Math.round(FAT_KCAL_PER_KG+acc).toLocaleString()+' kcal ไขมันจะเพิ่ม 1 กก.'
     : 'แถบอยู่ที่ 0';
-  var te = dayEnergy(p, todayISO());
+  var te = dayEnergy(p, todayISO()), tBal = te ? te.tdee + te.ex - te.kcal : 0;
   var todayLine = te
-    ? 'วันนี้กินไป '+te.kcal.toLocaleString()+' kcal จาก TDEE '+te.tdee.toLocaleString()+' kcal — ถ้าจบวันที่ตัวเลขนี้ แถบจะขยับ'+
-      (te.tdee-te.kcal>=0 ? 'ไปทางขวา +'+(te.tdee-te.kcal).toLocaleString() : 'ไปทางซ้าย '+(te.tdee-te.kcal).toLocaleString())+' kcal (นับตอนเที่ยงคืน)'
+    ? 'วันนี้กินไป '+te.kcal.toLocaleString()+' kcal · ร่างกายใช้ '+(te.tdee + te.ex).toLocaleString()+' kcal (TDEE '+te.tdee.toLocaleString()+
+      (te.ex ? ' + ออกกำลังกายที่บันทึกแล้ว ~'+te.ex.toLocaleString() : ' — ยังไม่มีการออกกำลังกายที่บันทึกวันนี้')+') — ถ้าจบวันที่ตัวเลขนี้ แถบจะขยับ'+
+      (tBal>=0 ? 'ไปทางขวา +'+tBal.toLocaleString() : 'ไปทางซ้าย '+tBal.toLocaleString())+' kcal (นับตอนเที่ยงคืน)'
     : 'วันนี้ยังไม่ได้กรอกแคลอรี่ — กรอกที่หน้า “วันนี้” แล้วระบบจะนับให้ตอนจบวัน';
   var bar = '<div class="fat-bar" role="img" aria-label="แถบไขมัน: '+(acc>=0?'กินขาด':'กินเกิน')+'สะสม '+Math.abs(Math.round(acc))+' จาก '+FAT_KCAL_PER_KG+' kcal">'+
       '<div class="fat-half left"><i style="width:'+(acc<0?pct:0)+'%"></i></div><div class="fat-mid"></div>'+
@@ -3078,7 +3091,8 @@ function fatBarHTML(p){
     return '<div class="hist-item'+(d.ev==='gain'?' act-miss':'')+'"><span>'+(d.ev==='loss'?'🟢 ลดไขมัน 1 กก.':'🔴 ไขมันเพิ่ม 1 กก.')+'</span><span class="mono">'+esc(shortDateTH(d.date))+'</span></div>';
   }).join('');
   var recent = t.days.slice(-7).reverse().map(function(d){
-    return '<tr><td>'+esc(shortDateTH(d.date))+'</td><td>'+d.kcal.toLocaleString()+'</td><td>'+d.tdee.toLocaleString()+'</td>'+
+    return '<tr><td>'+esc(shortDateTH(d.date))+'</td><td>'+d.kcal.toLocaleString()+'</td><td>'+d.burn.toLocaleString()+
+      (d.ex ? '<br><small style="color:var(--text-3)">'+d.tdee.toLocaleString()+' + ฝึก '+d.ex.toLocaleString()+'</small>' : '')+'</td>'+
       '<td class="'+(d.bal>=0?'fat-pos':'fat-neg')+'">'+(d.bal>=0?'+':'')+d.bal.toLocaleString()+'</td></tr>';
   }).join('');
   var open = !!track.fatOpen;
@@ -3093,8 +3107,9 @@ function fatBarHTML(p){
     '</div>'+
     '<p class="hint" style="margin-top:12px">'+esc(todayLine)+'</p>'+
     (events ? '<h3 style="font-size:13.5px;margin:14px 0 6px">ประวัติการครบ 1 กก.</h3><div class="hist-items">'+events+'</div>' : '')+
-    (recent ? '<table class="logtab"><thead><tr><th>วันที่</th><th>กิน (kcal)</th><th>ร่างกายต้องการ</th><th>ขยับแถบ</th></tr></thead><tbody>'+recent+'</tbody></table>' : '')+
-    '<p class="hint" style="margin-top:10px">ร่างกายต้องการ = TDEE (BMR × ระดับกิจกรรมจากลักษณะงาน ยังไม่รวมแคลที่เผาจากการออกกำลังกาย) · 1 กก. ไขมัน ≈ 7,700 kcal · กินขาด = ขยับขวา (เขียว) กินเกิน = ขยับซ้าย (แดง) ครบฝั่งใดฝั่งหนึ่งแล้วเริ่มที่ 0 ใหม่ · นับเมื่อจบวัน และไม่นับวันที่ไม่ได้กรอกแคลอรี่ · เป็นการประมาณ ไม่ใช่การวัดไขมันจริง</p>'+
+    (recent ? '<table class="logtab"><thead><tr><th>วันที่</th><th>กิน (kcal)</th><th>ร่างกายใช้</th><th>ขยับแถบ</th></tr></thead><tbody>'+recent+'</tbody></table>' : '')+
+    '<p class="hint" style="margin-top:10px">ร่างกายใช้ = TDEE '+tdee.toLocaleString()+' kcal (BMR × ระดับกิจกรรมจากลักษณะงาน) + แคลที่เผาจากการฝึกและ cardio ที่บันทึกว่าทำจริงวันนั้น · '+
+      'เป้าแคลอรี่ของแผน ('+fmtKcal(targetsOf(p).kcal)+' kcal) คือเป้าที่ควรกิน ไม่ใช่พลังงานที่ใช้ — กินตามเป้าในวันฝึก แถบจะขยับไปทางขวาเท่ากับแคลที่เผาจากการฝึก · 1 กก. ไขมัน ≈ 7,700 kcal · กินขาด = ขยับขวา (เขียว) กินเกิน = ขยับซ้าย (แดง) ครบฝั่งใดฝั่งหนึ่งแล้วเริ่มที่ 0 ใหม่ · นับเมื่อจบวัน และไม่นับวันที่ไม่ได้กรอกแคลอรี่ · เป็นการประมาณ ไม่ใช่การวัดไขมันจริง</p>'+
     '</div>';
 }
 
@@ -3711,7 +3726,7 @@ function renderPlan(){
   html += '<div class="card"><div class="stat-grid">'+
     '<div class="stat-tile"><div class="l">รูปแบบโปรแกรม</div><div class="v" style="font-size:17px">'+esc(p.splitLabel)+'</div><span class="pill">'+(p.days||[]).length+' วัน/สัปดาห์</span></div>'+
     '<div class="stat-tile"><div class="l">วันเริ่มโปรแกรม</div><div class="v" style="font-size:17px">'+esc(shortDateTH(p.startDate))+'</div><span class="pill">'+Math.max(0,daysBetween(p.startDate, todayISO()))+' วันที่ผ่านมา</span></div>'+
-    '<div class="stat-tile"><div class="l">TDEE โดยประมาณ</div><div class="v">'+fmtKcal(t.tdee)+' <small>kcal/วัน</small></div></div>'+
+    '<div class="stat-tile"><div class="l">TDEE โดยประมาณ</div><div class="v">'+fmtKcal(t.tdee)+' <small>kcal/วัน</small></div><span class="pill">ยังไม่รวมแคลจากการออกกำลังกาย</span></div>'+
     '<div class="stat-tile"><div class="l">เป้าแคลอรี่ต่อวัน</div><div class="v">'+fmtKcal(t.kcal)+' <small>kcal</small></div><span class="pill">'+esc(t.kcalDirection)+'</span>'+
       (t.kcalFloored?'<span class="pill" style="background:var(--warn-soft);color:var(--warn);border-color:var(--warn-line)">ปรับขึ้นถึงขั้นต่ำ</span>':'')+'</div>'+
     '</div>'+
@@ -4155,7 +4170,7 @@ function resultsHTML(){
   var statTiles =
     '<div class="stat-tile"><div class="l">BMI ปัจจุบัน</div><div class="v">'+bmiNow.toFixed(1)+'</div><span class="pill">'+bmiLabel(bmiNow)+'</span></div>'+
     (bmiTarget ? '<div class="stat-tile"><div class="l">BMI เป้าหมาย</div><div class="v">'+bmiTarget.toFixed(1)+'</div><span class="pill">'+bmiLabel(bmiTarget)+'</span></div>' : '')+
-    '<div class="stat-tile"><div class="l">TDEE โดยประมาณ</div><div class="v">'+fmtKcal(t.tdee)+' <small>kcal/วัน</small></div></div>'+
+    '<div class="stat-tile"><div class="l">TDEE โดยประมาณ</div><div class="v">'+fmtKcal(t.tdee)+' <small>kcal/วัน</small></div><span class="pill">ยังไม่รวมแคลจากการออกกำลังกาย</span></div>'+
     '<div class="stat-tile"><div class="l">เป้าแคลอรี่ต่อวัน</div><div class="v">'+fmtKcal(t.kcal)+' <small>kcal</small></div>'+
       '<span class="pill">'+esc(t.kcalDirection)+'</span>'+
       (t.kcalFloored ? '<span class="pill" style="background:var(--warn-soft);color:var(--warn);border-color:var(--warn-line)">ปรับขึ้นถึง floor ขั้นต่ำ</span>' : '')+'</div>';

@@ -425,6 +425,8 @@ for(var pc = 0; pc < 160; pc++){
 }
 
 fs.mkdirSync(OUT, {recursive: true});
+var foodCases = ev('FOODS.map(function(food){ return {food:food, cases:[1,33,100,175.5,3000].map(function(g){ return Object.assign({g:g}, foodMacros(food,g)); })}; })');
+fs.writeFileSync(path.join(OUT, 'foods.json'), JSON.stringify(foodCases, null, 2));
 fs.writeFileSync(path.join(OUT, 'progress.json'), JSON.stringify(progressCases));
 fs.writeFileSync(path.join(OUT, 'tracking.json'), JSON.stringify(trackingCases));
 fs.writeFileSync(path.join(OUT, 'questions.json'), JSON.stringify(questionCases));

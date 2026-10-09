@@ -264,6 +264,7 @@ private fun FoodSection(t: TrackData, iso: String, store: TrackStore) {
             RowTitle("โปรตีนวันนี้")
             Hint("เป้า $proteinTxt g (2 g ต่อน้ำหนักตัว 1 กก.) — ติ๊กผ่านเมื่อถึง 90% ขึ้นไป")
             ValueRow("/ $proteinTxt g") { NumberField(n.proteinG, { _, v -> patch { it.copy(proteinG = v) } }, "g", Modifier.weight(1f)) }
+            FoodPanel(iso, "protein", n, store)
         }
         CheckRow(kOk, null) {
             RowTitle("พลังงานที่กินวันนี้")
@@ -278,11 +279,13 @@ private fun FoodSection(t: TrackData, iso: String, store: TrackStore) {
             RowTitle("คาร์โบไฮเดรตวันนี้")
             Hint(tg.carbG?.let { "เป้า $it g (ส่วนที่เหลือหลังหักโปรตีนและไขมัน) — ติ๊กผ่านเมื่ออยู่ในช่วง ±10% (บันทึกเพื่อติดตาม ไม่นับในคะแนนรวม)" } ?: "ข้อมูลไม่ครบ")
             ValueRow("/ ${tg.carbG?.let { "$it g" } ?: "—"}") { NumberField(n.carbG, { _, v -> patch { it.copy(carbG = v) } }, "g", Modifier.weight(1f)) }
+            FoodPanel(iso, "carb", n, store)
         }
         CheckRow(Tracking.macroOk(n.fatG, tg.fatG), null) {
             RowTitle("ไขมันวันนี้")
             Hint(tg.fatG?.let { "เป้า $it g (≈28% ของแคลอรี่) — ติ๊กผ่านเมื่ออยู่ในช่วง ±10% (บันทึกเพื่อติดตาม ไม่นับในคะแนนรวม)" } ?: "ข้อมูลไม่ครบ")
             ValueRow("/ ${tg.fatG?.let { "$it g" } ?: "—"}") { NumberField(n.fatG, { _, v -> patch { it.copy(fatG = v) } }, "g", Modifier.weight(1f)) }
+            FoodPanel(iso, "fat", n, store)
         }
         CheckRow(wOk, null) {
             RowTitle("น้ำดื่ม")
@@ -309,7 +312,7 @@ private fun FoodSection(t: TrackData, iso: String, store: TrackStore) {
                 }
             }
         }
-        Hint("ยังไม่มีเมนูอาหารรายมื้อ — บันทึกเป็นตัวเลขรวมของวันก่อน (โปรตีน/พลังงาน/น้ำ)")
+        Hint("กด “+ เพิ่มอาหาร” ใต้แต่ละหมวดเพื่อแปลงน้ำหนักอาหารเป็นสารอาหารและแคลอรี่ หรือกรอกยอดรวมเองได้โดยตรง")
     }
 }
 

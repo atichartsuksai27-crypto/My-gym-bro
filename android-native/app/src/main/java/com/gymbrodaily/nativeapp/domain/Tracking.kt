@@ -89,6 +89,7 @@ data class Nutrition(
     val meals: List<Boolean?> = emptyList(),
     val carbG: Double? = null,
     val fatG: Double? = null,
+    val foods: List<FoodEntry> = emptyList(),
 )
 
 @Serializable

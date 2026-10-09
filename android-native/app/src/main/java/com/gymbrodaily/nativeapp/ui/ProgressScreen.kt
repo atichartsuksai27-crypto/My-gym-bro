@@ -37,7 +37,7 @@ import kotlin.math.abs
 import kotlin.math.max
 
 @Composable
-fun ProgressScreen(t: TrackData, today: LocalDate) {
+fun ProgressScreen(t: TrackData, today: LocalDate, store: com.gymbrodaily.nativeapp.data.TrackStore, fatSeen: com.gymbrodaily.nativeapp.data.FatSeen) {
     val p = t.program
     val tg = Tracking.targetsOf(t)
     val series = Tracking.weightSeries(t)
@@ -51,6 +51,11 @@ fun ProgressScreen(t: TrackData, today: LocalDate) {
             p.startDate?.let { "ตั้งแต่ ${Fmt.shortDate(it)} · $since วัน" }, "ความคืบหน้า",
             "ทุกตัวเลขในหน้านี้คำนวณจากสิ่งที่คุณบันทึกไว้จริงเท่านั้น — ช่องไหนยังว่างแปลว่ายังไม่มีข้อมูลพอ",
         )
+
+        // ลำดับเดียวกับ renderProgress ของเว็บ: แจ้งเตือนไขมัน → กรอบแผน → แถบไขมัน
+        FatAlert(t, today.toString(), store, fatSeen)
+        PgSection(t, today.toString(), store)
+        FatBarSection(t, today.toString())
 
         Card {
             val deltaFirst = if (last != null && startW != null) last.kg - startW else null

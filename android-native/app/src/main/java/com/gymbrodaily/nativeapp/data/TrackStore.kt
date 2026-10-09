@@ -75,7 +75,12 @@ private data class LocalCache(
     val onboarding: JsonObject? = null,
     val pending: List<PendingOp> = emptyList(),
     val lastSyncedAt: String? = null,
+    val fatSeen: FatSeen = FatSeen(),
 )
+
+/** จำนวนครั้งที่ครบ 1 กก. ที่ผู้ใช้กดรับทราบแล้ว (gymbro_fat_seen ของเว็บ — เก็บในเครื่อง ไม่ซิงก์) */
+@Serializable
+data class FatSeen(val gains: Int = 0, val losses: Int = 0)
 
 enum class SyncPhase { IDLE, SYNCING, OFFLINE }
 
@@ -92,6 +97,7 @@ data class TrackState(
     val phase: SyncPhase = SyncPhase.IDLE,
     val lastError: String? = null,
     val lastSyncedAt: String? = null,
+    val fatSeen: FatSeen = FatSeen(),
 ) {
     val answers: Answers
         get() = Answers((onboarding?.get("answers") as? JsonObject) ?: JsonObject(emptyMap()))
@@ -202,7 +208,7 @@ class TrackStore(context: Context, private val userId: String, private val scope
         val cache = runCatching { json.decodeFromString<LocalCache>(file.readText()) }.getOrNull() ?: LocalCache()
         pending = cache.pending
         _state.value = buildState(cache.program, cache.logs, cache.weights, cache.onboarding)
-            .copy(loaded = cache.program != null || cache.lastSyncedAt != null, lastSyncedAt = cache.lastSyncedAt)
+            .copy(loaded = cache.program != null || cache.lastSyncedAt != null, lastSyncedAt = cache.lastSyncedAt, fatSeen = cache.fatSeen)
     }
 
     private fun saveCache() {
@@ -215,6 +221,7 @@ class TrackStore(context: Context, private val userId: String, private val scope
             onboarding = s.onboarding,
             pending = pending,
             lastSyncedAt = s.lastSyncedAt,
+            fatSeen = s.fatSeen,
         )
         scope.launch(Dispatchers.IO) {
             fileMutex.withLock {
@@ -376,6 +383,19 @@ class TrackStore(context: Context, private val userId: String, private val scope
         val next = JsonObject(raw + ("startDate" to JsonPrimitive(iso)))
         _state.update { buildState(next, it.logsRaw, it.weights, it.onboarding) }
         enqueue(PendingOp("program", payload = next))
+    }
+
+    /** แก้ payload ของแผนตรงๆ (field ที่ไม่ได้แตะคงเดิมทุกตัว) — ใช้กับ program.pg / targets ของกรอบแผน */
+    fun patchProgram(change: (JsonObject) -> JsonObject) {
+        val raw = _state.value.programRaw ?: return
+        val next = change(raw)
+        _state.update { buildState(next, it.logsRaw, it.weights, it.onboarding) }
+        enqueue(PendingOp("program", payload = next))
+    }
+
+    fun setFatSeen(seen: FatSeen) {
+        _state.update { it.copy(fatSeen = seen) }
+        saveCache()
     }
 
     /**

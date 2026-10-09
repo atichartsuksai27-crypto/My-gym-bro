@@ -178,7 +178,7 @@ fun MainScreen(store: TrackStore, email: String?, onSignOut: () -> Unit) {
                     when (tab) {
                         Tab.TODAY -> TodayScreen(data, today, store) { tab = it }
                         Tab.SCHEDULE -> ScheduleScreen(data, today, store)
-                        Tab.PROGRESS -> ProgressScreen(data, today)
+                        Tab.PROGRESS -> ProgressScreen(data, today, store, state.fatSeen)
                         Tab.PLAN -> PlanScreen(data, state, today, store, email, onSignOut)
                         Tab.COACH -> CoachScreen()
                     }

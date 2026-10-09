@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -29,6 +31,9 @@ fun TodayScreen(t: TrackData, today: LocalDate, store: TrackStore, onNavigate: (
             if (sKey != null) "เซสชัน “$sKey” ตามตารางที่ผูกกับวันที่จริง — ติ๊กทีละข้อระหว่างวันได้เลย ข้อมูลบันทึกทันทีที่กด"
             else "วันพักตามตาราง — เช็คลิสต์เหลือเฉพาะโภชนาการ การนอน และน้ำหนักตัว",
         )
+        val st by store.state.collectAsState()
+        FatAlert(t, iso, store, st.fatSeen)
+        PgAlert(t, iso) { onNavigate(Tab.PROGRESS) }
         Card {
             Row {
                 Text("ความคืบหน้าวันนี้", fontWeight = FontWeight.SemiBold, modifier = androidx.compose.ui.Modifier.weight(1f))

@@ -14,6 +14,15 @@ import com.gymbrodaily.nativeapp.domain.Program
 import com.gymbrodaily.nativeapp.domain.TrackData
 import com.gymbrodaily.nativeapp.domain.Tracking
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
+import io.github.jan.supabase.realtime.PostgresChangeFilter
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -396,10 +405,57 @@ class TrackStore(context: Context, private val userId: String, private val scope
 
     fun syncNow() = scope.launch { refresh() }
 
+    /* ---------- realtime: แก้จากเว็บ/เครื่องอื่นแล้วเห็นทันที ----------
+       ฟังเฉพาะ INSERT/UPDATE ของแถวตัวเอง (ตั้งใจไม่ฟัง DELETE — ไม่ผ่าน RLS/filter ดู
+       supabase/migrations/2026-10-realtime.sql) พอมี event ก็เรียก refresh() เดิม ไม่มีตรรกะผสานซ้ำ
+       เรียก start/stop ตามวงจรหน้าจอ (เปิดตอน resume ปิดตอน pause) ไม่ค้างซ็อกเก็ตไว้ตอนอยู่เบื้องหลัง */
+    private var rtJob: Job? = null
+    private var rtChannel: RealtimeChannel? = null
+    private var rtRefreshJob: Job? = null
+
+    fun startRealtime() {
+        if (wiped || rtJob?.isActive == true) return
+        rtJob = scope.launch {
+            try {
+                val ch = db.channel("sync-$userId")
+                for (table in listOf("daily_logs", "body_weights", "programs", "onboarding_state")) {
+                    val f: PostgresChangeFilter.() -> Unit = {
+                        this.table = table
+                        filter("user_id", FilterOperator.EQ, userId)
+                    }
+                    ch.postgresChangeFlow<PostgresAction.Insert>("public", f).onEach { requestRefresh() }.launchIn(this)
+                    ch.postgresChangeFlow<PostgresAction.Update>("public", f).onEach { requestRefresh() }.launchIn(this)
+                }
+                rtChannel = ch
+                ch.subscribe(blockUntilSubscribed = true)
+                kotlinx.coroutines.awaitCancellation()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // เชื่อม realtime ไม่ได้ (ออฟไลน์/ยังไม่รัน migration) — ไม่กระทบการใช้งาน ยังซิงก์ตอนเปิดแอปเหมือนเดิม
+            }
+        }
+    }
+
+    fun stopRealtime() {
+        rtJob?.cancel(); rtJob = null
+        rtRefreshJob?.cancel()
+        val ch = rtChannel; rtChannel = null
+        if (ch != null) scope.launch { runCatching { db.realtime.removeChannel(ch) } }
+    }
+
+    /** event มาติดๆ กัน (เช่นบันทึกหลายช่อง) รวมเป็นการดึงครั้งเดียว */
+    private fun requestRefresh() {
+        if (wiped) return
+        rtRefreshJob?.cancel()
+        rtRefreshJob = scope.launch { delay(600); refresh() }
+    }
+
     /** ล้างข้อมูลในเครื่องหลังลบบัญชีที่ server สำเร็จแล้ว: หยุดซิงก์ ทิ้งคิวที่ค้าง ลบไฟล์แคช และเคลียร์ state */
     fun wipeLocal() {
         wiped = true
         flushJob?.cancel()
+        stopRealtime()
         pending = emptyList()
         _state.value = TrackState()
         scope.launch(Dispatchers.IO) { fileMutex.withLock { file.delete(); File(file.parentFile, file.name + ".tmp").delete() } }

@@ -27,6 +27,7 @@ function isReady(){ return !!client; }
 /* ---------- auth ----------
    Google เท่านั้น (ตัดอีเมล/รหัสผ่านออกแล้ว — กันอีเมลปลอมได้ฟรีโดย Google เอง ไม่ต้อง
    พึ่ง SMTP/SMS ที่มีค่าใช้จ่ายและขีดจำกัดตามที่เจอมาก่อนหน้า) */
+function signInAnonymously(){ return client.auth.signInAnonymously(); }
 function signOut(){ return client.auth.signOut(); }
 function getSession(){ return client.auth.getSession(); }
 function onAuthChange(cb){ return client.auth.onAuthStateChange(cb); }
@@ -94,30 +95,55 @@ function pushProgram(userId, payload){
   return client.from('programs').upsert({user_id:userId, payload:payload}, {onConflict:'user_id'});
 }
 function pullProgram(userId){
-  return client.from('programs').select('payload').eq('user_id', userId).maybeSingle();
+  return client.from('programs').select('payload,updated_at').eq('user_id', userId).maybeSingle();
 }
 function pushOnboarding(userId, payload){
   return client.from('onboarding_state').upsert({user_id:userId, payload:payload}, {onConflict:'user_id'});
 }
 function pullOnboarding(userId){
-  return client.from('onboarding_state').select('payload').eq('user_id', userId).maybeSingle();
+  return client.from('onboarding_state').select('payload,updated_at').eq('user_id', userId).maybeSingle();
 }
 function pushDailyLog(userId, dateISO, payload){
   return client.from('daily_logs').upsert({user_id:userId, log_date:dateISO, payload:payload}, {onConflict:'user_id,log_date'});
 }
 function pullDailyLogs(userId){
-  return client.from('daily_logs').select('log_date,payload').eq('user_id', userId);
+  return client.from('daily_logs').select('log_date,payload,updated_at').eq('user_id', userId);
 }
 function pushWeight(userId, dateISO, kg){
   return client.from('body_weights').upsert({user_id:userId, log_date:dateISO, kg:kg}, {onConflict:'user_id,log_date'});
 }
 function pullWeights(userId){
-  return client.from('body_weights').select('log_date,kg').eq('user_id', userId);
+  return client.from('body_weights').select('log_date,kg,updated_at').eq('user_id', userId);
+}
+
+/* ---------- realtime ----------
+   ฟังการเปลี่ยนแปลง (INSERT/UPDATE) ของแถวตัวเองในตารางซิงก์ แล้วเรียก onChange(ชื่อตาราง)
+   ไม่ฟัง DELETE โดยตั้งใจ (Realtime ไม่ใช้ RLS/filter กับ DELETE — ดู supabase/migrations/2026-10-realtime.sql)
+   ต้องรัน migration นั้นก่อน ไม่งั้นไม่มี event มา (ไม่ error — เว็บยังซิงก์ตอนเปิด/สลับแท็บเหมือนเดิม) */
+var rtChannel = null;
+function unsubscribeChanges(){
+  if(rtChannel && client){ try{ client.removeChannel(rtChannel); }catch(e){} }
+  rtChannel = null;
+}
+function subscribeChanges(userId, onChange){
+  unsubscribeChanges();
+  if(!client || typeof client.channel!=='function') return;
+  try{
+    var ch = client.channel('gymbro-sync-'+userId);
+    ['daily_logs','body_weights','programs','onboarding_state'].forEach(function(t){
+      ['INSERT','UPDATE'].forEach(function(ev){
+        ch.on('postgres_changes', {event:ev, schema:'public', table:t, filter:'user_id=eq.'+userId}, function(){ onChange(t); });
+      });
+    });
+    ch.subscribe();
+    rtChannel = ch;
+  }catch(e){ rtChannel = null; }
 }
 
 global.GymBroSync = {
+  subscribeChanges: subscribeChanges, unsubscribeChanges: unsubscribeChanges,
   isReady: isReady,
-  signOut: signOut,
+  signOut: signOut, signInAnonymously: signInAnonymously,
   getSession: getSession, onAuthChange: onAuthChange,
   signInWithGoogle: signInWithGoogle, handleNativeAuthCallback: handleNativeAuthCallback,
   pushProgram: pushProgram, pullProgram: pullProgram,

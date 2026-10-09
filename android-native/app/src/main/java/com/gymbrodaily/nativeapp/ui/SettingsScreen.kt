@@ -86,7 +86,7 @@ const val SETTINGS_ICON = GEAR_ICON
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(email: String?, anonymous: Boolean, state: TrackState, store: TrackStore, onBack: () -> Unit, onSignOut: () -> Unit) {
+fun SettingsScreen(email: String?, state: TrackState, store: TrackStore, onBack: () -> Unit, onSignOut: () -> Unit) {
     var deleting by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = !deleting, onBack = onBack)
 
@@ -108,16 +108,13 @@ fun SettingsScreen(email: String?, anonymous: Boolean, state: TrackState, store:
         ) {
             SectionLabel("บัญชี")
             Card {
-                Text(if (anonymous) "ใช้งานโดยไม่ล็อกอิน" else email ?: "—", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                Hint((if (anonymous) "ข้อมูลซิงก์ขึ้น server ผูกกับแอปในเครื่องนี้ · " else "เข้าสู่ระบบด้วย Google · ") + syncText(state))
+                Text(email ?: "—", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Hint("เข้าสู่ระบบด้วย Google · " + syncText(state))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { store.syncNow() }) { Text("ซิงก์ตอนนี้") }
-                    // anonymous ห้ามออกจากระบบ (เหมือนเว็บ) — ออกแล้วกลับเข้า user เดิมไม่ได้อีก
-                    if (!anonymous) OutlinedButton(onClick = onSignOut) { Text("ออกจากระบบ") }
+                    OutlinedButton(onClick = onSignOut) { Text("ออกจากระบบ") }
                 }
             }
-            // ลบบัญชีมีเฉพาะผู้ใช้ที่ล็อกอินจริง (เว็บก็ซ่อนปุ่มนี้ตอนเป็น anonymous)
-            if (anonymous) return@Column
 
             SectionLabel("โซนอันตราย")
             Column(

@@ -76,7 +76,7 @@ private const val LIBRARY_ICON = "M3 9.5v5M6 7v10M18 7v10M21 9.5v5M6 12h12"
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun MainScreen(store: TrackStore, email: String?, anonymous: Boolean = false, onSignOut: () -> Unit) {
+fun MainScreen(store: TrackStore, email: String?, onSignOut: () -> Unit) {
     val state by store.state.collectAsState()
     var tab by rememberSaveable { mutableStateOf(Tab.TODAY) }
     var libraryOpen by rememberSaveable { mutableStateOf(false) }
@@ -90,7 +90,8 @@ fun MainScreen(store: TrackStore, email: String?, anonymous: Boolean = false, on
         today = LocalDate.now()
         store.syncNow()
         scope.launch { Crm.touch(appContext) }
-        onPauseOrDispose { }
+        store.startRealtime()
+        onPauseOrDispose { store.stopRealtime() }
     }
     LaunchedEffect(Unit) {
         while (true) { delay(60_000); today = LocalDate.now() }
@@ -125,8 +126,7 @@ fun MainScreen(store: TrackStore, email: String?, anonymous: Boolean = false, on
         bottomBar = {
             if (state.program != null && !state.onb.editPlan) {
                 NavigationBar(containerColor = GB.surface, tonalElevation = 0.dp) {
-                    // โค้ชต้องเป็นผู้ใช้ที่ล็อกอินจริง (เหมือน realUser() ของเว็บ) — anonymous ไม่เห็นแท็บนี้
-                    Tab.entries.filter { !anonymous || it != Tab.COACH }.forEach { t ->
+                    Tab.entries.forEach { t ->
                         NavigationBarItem(
                             selected = tab == t,
                             onClick = { tab = t },
@@ -161,7 +161,7 @@ fun MainScreen(store: TrackStore, email: String?, anonymous: Boolean = false, on
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 OnboardingFlow(state, store, hasProgram = data != null)
-                if (data == null && !anonymous) TextButton(onClick = onSignOut) { Text("ออกจากระบบ", color = GB.warn) }
+                if (data == null) TextButton(onClick = onSignOut) { Text("ออกจากระบบ", color = GB.warn) }
                 Box(Modifier.padding(bottom = 24.dp))
             }
             else -> PullToRefreshBox(
@@ -179,8 +179,8 @@ fun MainScreen(store: TrackStore, email: String?, anonymous: Boolean = false, on
                         Tab.TODAY -> TodayScreen(data, today, store) { tab = it }
                         Tab.SCHEDULE -> ScheduleScreen(data, today, store)
                         Tab.PROGRESS -> ProgressScreen(data, today)
-                        Tab.PLAN -> PlanScreen(data, state, today, store, email, anonymous, onSignOut)
-                        Tab.COACH -> if (anonymous) TodayScreen(data, today, store) { tab = it } else CoachScreen()
+                        Tab.PLAN -> PlanScreen(data, state, today, store, email, onSignOut)
+                        Tab.COACH -> CoachScreen()
                     }
                     Box(Modifier.padding(bottom = 24.dp))
                 }
@@ -200,7 +200,7 @@ fun MainScreen(store: TrackStore, email: String?, anonymous: Boolean = false, on
         enter = slideInHorizontally { it } + fadeIn(),
         exit = slideOutHorizontally { it / 3 } + fadeOut(),
     ) {
-        SettingsScreen(email, anonymous, state, store, onBack = { settingsOpen = false }, onSignOut = onSignOut)
+        SettingsScreen(email, state, store, onBack = { settingsOpen = false }, onSignOut = onSignOut)
     }
     }
 }

@@ -48,7 +48,7 @@ const ALLOWED_REASONS = [
 /* ทุกตารางที่เก็บข้อมูลผูกกับผู้ใช้ (คีย์ด้วยคอลัมน์ user_id ทั้งหมด) — ถ้าเพิ่มตารางใหม่
    ที่ผูกกับ auth.users ในอนาคต ต้องเพิ่มชื่อตารางตรงนี้ด้วยเสมอ ไม่งั้นข้อมูลจะค้างหลังลบ
    บัญชี (account_deletion_feedback จงใจไม่อยู่ในลิสต์ — ไม่ผูกกับผู้ใช้ ดูคอมเมนต์บนไฟล์) */
-const USER_TABLES = ['programs', 'daily_logs', 'body_weights', 'onboarding_state', 'coach_usage'];
+const USER_TABLES = ['programs', 'daily_logs', 'body_weights', 'onboarding_state', 'coach_usage', 'crm_profiles'];
 
 function jsonResponse(body, status){
   return new Response(JSON.stringify(body), {

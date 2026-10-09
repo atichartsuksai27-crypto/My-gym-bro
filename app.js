@@ -375,6 +375,7 @@ if(PERSIST_ONBOARDING_STATE){
 function persist(){
   if(!PERSIST_ONBOARDING_STATE) return;
   lsSet("gymbro_onb_proto", state);
+  lsSet("gymbro_onb_at", new Date().toISOString());
   if(syncOn()) Promise.resolve(GymBroSync.pushOnboarding(auth.session.user.id, state)).catch(function(){});
 }
 
@@ -748,6 +749,7 @@ var track = {
 };
 function persistProgram(){
   var ok = lsSet("gymbro_program", track.program);
+  if(ok) lsSet("gymbro_program_at", new Date().toISOString());
   if(ok && syncOn()) Promise.resolve(GymBroSync.pushProgram(auth.session.user.id, track.program)).catch(function(){});
   return ok;
 }
@@ -941,7 +943,7 @@ function currentView(){
   if(!track.program || state.editPlan) return 'onboarding';
   var v = state.nav||'today';
   var allowed = ['today','schedule','progress','plan'];
-  if(auth.session) allowed.push('coach'); // ต้อง login ก่อนเท่านั้น (ต้องมี access token ส่งไป /api/coach)
+  if(realUser()) allowed.push('coach'); // ต้อง login ก่อนเท่านั้น (ต้องมี access token ส่งไป /api/coach)
   return allowed.indexOf(v)>-1 ? v : 'today';
 }
 
@@ -1105,7 +1107,7 @@ function renderNav(view){
      (เอาอีเมลยาวๆ ออกจากแถบหลัก ไม่ให้ไปเบียดเมนูเหมือนหน้าตาเดิม) */
   var html = '<div class="appbar">'+
     '<div class="appbar-brand"><span class="brand-mark"></span><span>Gymbro Daily</span></div>';
-  if(auth.session){
+  if(realUser()){
     var email = auth.session.user.email || '';
     html += '<button type="button" class="acct-btn'+(acctOpen?' open':'')+'" data-act="acct-toggle" aria-label="บัญชีของฉัน">'+
         esc((email.charAt(0) || '?').toUpperCase())+'</button>';
@@ -1118,7 +1120,7 @@ function renderNav(view){
   html += '</div>';
 
   html += '<div class="brand"><div class="brand-mark"></div><div class="brand-name">Gymbro</div></div>';
-  if(auth.session){
+  if(realUser()){
     html += '<div class="nav-acct hint">'+esc(auth.session.user.email||'')+
       '<button type="button" class="ex-open nav-acct-signout" data-act="auth-signout">ออกจากระบบ</button>'+
       '<button type="button" class="linkbtn" style="color:var(--warn);display:block;padding:2px 0" data-act="acct-delete-open">ลบบัญชี</button></div>';
@@ -1127,7 +1129,7 @@ function renderNav(view){
   var counts = null;
   if(!locked && track.program) counts = dayCounts(track.program, todayISO());
   var navItems = NAV_ITEMS.slice();
-  if(auth.session) navItems.push(NAV_ITEM_COACH);
+  if(realUser()) navItems.push(NAV_ITEM_COACH);
   navItems.forEach(function(it){
     var active = (!locked && view===it.k);
     var cnt = (it.k==='today' && counts) ? '<span class="cnt">'+counts.done+'/'+counts.total+'</span>' : '';
@@ -1327,7 +1329,7 @@ function sectionFood(iso){
   for(var j=0;j<t.meals;j++){ if(meals[j]) doneN++; }
   return '<div class="sec-card">'+
     '<div class="sec-head"><span class="sq" style="background:var(--food)"></span><h2>โภชนาการ</h2>'+
-    '<span class="meta">'+fmtKcal(t.kcal)+' kcal · โปรตีน '+t.proteinG+' g · น้ำ '+fmt1(t.waterL)+' ล.</span>'+
+    '<span class="meta">'+fmtKcal(t.kcal)+' kcal · โปรตีน '+t.proteinG+' g'+(t.carbG!=null?' · คาร์บ '+t.carbG+' g · ไขมัน '+t.fatG+' g':'')+' · น้ำ '+fmt1(t.waterL)+' ล.</span>'+
     '<span class="cnt">'+doneN+'/'+(3+t.meals)+'</span></div>'+
     '<div class="chk-list">'+
       '<div class="chk'+((n.proteinG!=null&&n.proteinG>=t.proteinG*0.9)?' on':'')+'">'+
@@ -1336,6 +1338,12 @@ function sectionFood(iso){
       '<div class="chk'+(kcalOk(n.kcal, t.kcal)?' on':'')+'">'+
         '<div class="cb"><div class="t">พลังงานที่กินวันนี้</div><div class="s">เป้า '+fmtKcal(t.kcal)+' kcal · '+esc(t.kcalDirection)+(t.kcal!=null?' — ผ่านเมื่ออยู่ในช่วง '+Math.round(t.kcal*0.9).toLocaleString()+'–'+Math.round(t.kcal*1.1).toLocaleString()+' kcal (กินน้อยเกินไปก็ยังไม่ผ่าน)':'')+'</div></div>'+
         '<div class="val"><input type="number" inputmode="decimal" data-act="nut" data-field="kcal" data-date="'+iso+'" data-fkey="nut-k-'+iso+'" value="'+num(n.kcal)+'" placeholder="kcal"><span class="tgt">/ '+fmtKcal(t.kcal)+'</span></div></div>'+
+      '<div class="chk'+((n.carbG!=null&&t.carbG!=null&&n.carbG>=t.carbG*0.9&&n.carbG<=t.carbG*1.1)?' on':'')+'">'+
+        '<div class="cb"><div class="t">คาร์โบไฮเดรตวันนี้</div><div class="s">เป้า '+(t.carbG!=null?t.carbG+' g (ส่วนที่เหลือหลังหักโปรตีนและไขมัน) — ติ๊กผ่านเมื่ออยู่ในช่วง ±10% (บันทึกเพื่อติดตาม ไม่นับในคะแนนรวม)':'ข้อมูลไม่ครบ')+'</div></div>'+
+        '<div class="val"><input type="number" inputmode="decimal" data-act="nut" data-field="carbG" data-date="'+iso+'" data-fkey="nut-c-'+iso+'" value="'+num(n.carbG)+'" placeholder="g"><span class="tgt">/ '+(t.carbG!=null?t.carbG+' g':'—')+'</span></div></div>'+
+      '<div class="chk'+((n.fatG!=null&&t.fatG!=null&&n.fatG>=t.fatG*0.9&&n.fatG<=t.fatG*1.1)?' on':'')+'">'+
+        '<div class="cb"><div class="t">ไขมันวันนี้</div><div class="s">เป้า '+(t.fatG!=null?t.fatG+' g (≈28% ของแคลอรี่) — ติ๊กผ่านเมื่ออยู่ในช่วง ±10% (บันทึกเพื่อติดตาม ไม่นับในคะแนนรวม)':'ข้อมูลไม่ครบ')+'</div></div>'+
+        '<div class="val"><input type="number" inputmode="decimal" data-act="nut" data-field="fatG" data-date="'+iso+'" data-fkey="nut-f-'+iso+'" value="'+num(n.fatG)+'" placeholder="g"><span class="tgt">/ '+(t.fatG!=null?t.fatG+' g':'—')+'</span></div></div>'+
       '<div class="chk'+((n.waterL!=null&&n.waterL>=t.waterL)?' on':'')+'">'+
         '<div class="cb"><div class="t">น้ำดื่ม</div><div class="s">เป้า '+fmt1(t.waterL)+' ลิตร (≈35 มล. ต่อน้ำหนักตัว 1 กก.)</div></div>'+
         '<div class="val"><input type="number" inputmode="decimal" step="0.1" data-act="nut" data-field="waterL" data-date="'+iso+'" data-fkey="nut-w-'+iso+'" value="'+num(n.waterL)+'" placeholder="ลิตร"><span class="tgt">/ '+fmt1(t.waterL)+' ล.</span></div></div>'+
@@ -2347,7 +2355,16 @@ function restoreFocus(f){
   try{ el.focus(); if(f.s!=null && el.setSelectionRange) el.setSelectionRange(f.s, f.e); }catch(err){}
 }
 
-function syncAvailable(){ return typeof GymBroSync!=='undefined' && GymBroSync.isReady(); }
+/* ปิดระบบ Google login + ซิงก์ Supabase ชั่วคราว: ตั้งเป็น true เพื่อเปิดกลับ (โค้ดทั้งหมดยังอยู่)
+   ปิดอยู่ = syncAvailable() เป็น false → ข้าม auth gate, ใช้แอปแบบ local-only (localStorage) */
+var AUTH_ENABLED = true;
+/* ANON_SYNC: ซิงก์ขึ้น Supabase โดยไม่มีหน้าล็อกอิน — ใช้ anonymous sign-in (ผู้ใช้ไม่เห็นอะไร
+   ได้ user_id จริงอัตโนมัติ RLS เดิมใช้ได้ทุกอย่าง) ต้องเปิด "Allow anonymous sign-ins" ที่
+   Supabase Dashboard > Authentication > Sign In / Providers ถ้ายังไม่เปิด/ออฟไลน์ = local-only */
+var ANON_SYNC = true;
+function syncAvailable(){ return (AUTH_ENABLED || ANON_SYNC) && typeof GymBroSync!=='undefined' && GymBroSync.isReady(); }
+/* ผู้ใช้ที่ล็อกอินจริง (ไม่ใช่ anonymous) — ใช้ซ่อน UI บัญชี/Coach ตอนเป็น anonymous */
+function realUser(){ return !!(auth.session && auth.session.user && !auth.session.user.is_anonymous); }
 var GOOGLE_G_SVG = '<svg width="18" height="18" viewBox="0 0 48 48" style="flex:0 0 auto"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.5 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 16 19 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.5 29.6 4 24 4c-7.6 0-14.1 4.3-17.4 10.7z"/><path fill="#4CAF50" d="M24 44c5.5 0 10.4-1.9 14.3-5.1l-6.6-5.6C29.6 34.9 26.9 36 24 36c-5.3 0-9.7-3.3-11.3-8l-6.6 5.1C9.8 39.6 16.4 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.4l6.6 5.6C39.8 37.4 44 31.5 44 24c0-1.3-.1-2.7-.4-3.5z"/></svg>';
 /* Google เท่านั้น — ตัดอีเมล/รหัสผ่านออกทั้งหมดตามที่ตัดสินใจ (กันอีเมลปลอมได้ฟรี
    ไม่ต้องพึ่ง SMTP/SMS ที่มีค่าใช้จ่ายและขีดจำกัดตามที่เจอมา) ไม่มี signin/signup
@@ -2364,7 +2381,7 @@ function renderAuthGate(){
     '</div></div>';
 }
 function render(toTop){
-  if(auth.ready && syncAvailable() && !auth.session){
+  if(AUTH_ENABLED && auth.ready && syncAvailable() && !auth.session){
     document.getElementById('nav').innerHTML = '';
     // ต่อโมดัลลบบัญชีท้ายหน้า login ด้วย — กรณีเดียวที่จำเป็นคือหลังลบบัญชีสำเร็จ ซึ่ง
     // session ถูกตัดไปแล้ว (signOut จริง) แต่ยังต้องให้ผู้ใช้เห็นข้อความ "ลบบัญชีเรียบร้อย
@@ -2514,6 +2531,7 @@ document.addEventListener("click", function(ev){
       //      เพราะ hydrateFromRemote() ที่เจอ track.program ค้างอยู่ จะ push มันกลับขึ้น
       //      Supabase ให้บัญชีใหม่ทันทีที่ล็อกอินอีกครั้ง
       accountDeleted = true;
+      stopRealtime();
       var finish = function(){
         try{ localStorage.clear(); }catch(e){}
         track.program = null; track.logs = {}; track.weights = {};
@@ -2597,7 +2615,7 @@ document.addEventListener("click", function(ev){
   }
   if(act==='progress-ex'){ track.progressEx = el.getAttribute('data-ex'); render(); return; }
   if(act==='hard-restart'){
-    lsRemove("gymbro_program"); lsRemove("gymbro_logs"); lsRemove("gymbro_weights"); lsRemove("gymbro_onb_proto");
+    lsRemove("gymbro_program"); lsRemove("gymbro_logs"); lsRemove("gymbro_weights"); lsRemove("gymbro_onb_proto"); lsRemove("gymbro_program_at"); lsRemove("gymbro_onb_at");
     track.program = null; track.logs = {}; track.weights = {};
     state = freshState();
     render(true);
@@ -2767,39 +2785,82 @@ document.addEventListener("keydown", function(ev){
    ทันที ขัดกับหลักการ "ห้ามทำข้อมูลผู้ใช้หายเงียบๆ" ที่ยึดมาตลอดทั้งโปรเจกต์
    สำหรับ logs/weights (เป็น dict คีย์ด้วยวันที่) merge แบบ union ต่อวัน: วันที่มีในเครื่อง
    แล้วใช้ของเครื่อง วันที่มีเฉพาะบน remote (เช่นบันทึกไว้จากอีกเครื่อง) ดึงมาเพิ่ม */
+/* เทียบ JSON แบบไม่สนลำดับ key — jsonb ของ Postgres เรียง key ใหม่เสมอ ถ้าเทียบด้วย JSON.stringify ตรงๆ
+   จะเห็นว่า "ต่างกัน" ทั้งที่ข้อมูลเดียวกัน แล้ว push ซ้ำไม่จบเมื่อมี realtime */
+function sameJSON(a, b){
+  function canon(v){
+    if(Array.isArray(v)) return v.map(canon);
+    if(v && typeof v==='object'){ var o = {}; Object.keys(v).sort().forEach(function(k){ o[k] = canon(v[k]); }); return o; }
+    return v;
+  }
+  function norm(v){ return v===undefined ? null : canon(JSON.parse(JSON.stringify(v))); }
+  return JSON.stringify(norm(a))===JSON.stringify(norm(b));
+}
 function hydrateFromRemote(userId){
   // เพิ่งลบบัญชีไปในเซสชันนี้ — ห้าม sync อะไรทั้งสิ้นจนกว่าจะรีโหลด (ดู accountDeleted)
-  if(accountDeleted) return Promise.resolve();
+  if(accountDeleted) return Promise.resolve(false);
+  var changed = false;
+  function ts(v){ var t = v ? Date.parse(v) : NaN; return isNaN(t) ? 0 : t; }
+  function logAt(payload, rowAt){ return ts(payload && payload.updatedAt) || ts(rowAt); }
+  /* กติกา "ใหม่กว่าชนะ" (ใช้ร่วมกับ native app): เทียบเวลาแก้ล่าสุดของเครื่องนี้กับ server
+     — server ใหม่กว่า = ดึงมาทับ (แก้จากแอป native), เครื่องนี้ใหม่กว่าหรือไม่มีเวลากำกับ =
+     ส่งขึ้นไป (กันข้อมูลที่ยังไม่ได้ push หายเงียบๆ ตามหลักเดิม) */
   return GymBroSync.pullProgram(userId).then(function(res){
     var remote = res && res.data && res.data.payload;
-    if(!track.program && remote){ track.program = remote; lsSet("gymbro_program", track.program); }
-    else if(track.program){ return GymBroSync.pushProgram(userId, track.program); }
+    var localAt = ts(lsGet("gymbro_program_at", null));
+    if(remote && (!track.program || (localAt && ts(res.data.updated_at) > localAt))){
+      if(!sameJSON(remote, track.program)) changed = true;
+      track.program = remote; lsSet("gymbro_program", track.program);
+      lsSet("gymbro_program_at", res.data.updated_at || new Date().toISOString());
+    } else if(track.program && !sameJSON(track.program, remote)){ return GymBroSync.pushProgram(userId, track.program); }
   }).catch(function(){}).then(function(){
     return GymBroSync.pullDailyLogs(userId);
   }).then(function(res){
     var rows = (res && res.data) || [];
-    var merged = {}, toPush = [];
-    Object.keys(track.logs).forEach(function(d){ merged[d] = track.logs[d]; });
-    rows.forEach(function(r){ if(!(r.log_date in merged)) merged[r.log_date] = r.payload; });
-    Object.keys(track.logs).forEach(function(d){ toPush.push(GymBroSync.pushDailyLog(userId, d, track.logs[d])); });
-    track.logs = merged; lsSet("gymbro_logs", track.logs);
+    var remoteBy = {}, toPush = [];
+    rows.forEach(function(r){ remoteBy[r.log_date] = r; });
+    rows.forEach(function(r){
+      var l = track.logs[r.log_date];
+      if(!l || (ts(l.updatedAt) && logAt(r.payload, r.updated_at) > ts(l.updatedAt))){
+        track.logs[r.log_date] = r.payload; changed = true;
+      }
+    });
+    Object.keys(track.logs).forEach(function(d){
+      var r = remoteBy[d];
+      if(!r || !sameJSON(track.logs[d], r.payload)){
+        if(!r || ts(track.logs[d].updatedAt) >= logAt(r.payload, r.updated_at)) toPush.push(GymBroSync.pushDailyLog(userId, d, track.logs[d]));
+      }
+    });
+    lsSet("gymbro_logs", track.logs);
     if(toPush.length) return Promise.all(toPush);
   }).catch(function(){}).then(function(){
     return GymBroSync.pullWeights(userId);
   }).then(function(res){
     var rows = (res && res.data) || [];
-    var merged = {}, toPush = [];
-    Object.keys(track.weights).forEach(function(d){ merged[d] = track.weights[d]; });
-    rows.forEach(function(r){ if(!(r.log_date in merged)) merged[r.log_date] = {date:r.log_date, kg:r.kg}; });
-    Object.keys(track.weights).forEach(function(d){ toPush.push(GymBroSync.pushWeight(userId, d, track.weights[d].kg)); });
-    track.weights = merged; lsSet("gymbro_weights", track.weights);
+    var remoteBy = {}, toPush = [];
+    rows.forEach(function(r){ remoteBy[r.log_date] = r; });
+    rows.forEach(function(r){
+      var w = track.weights[r.log_date];
+      if(!w || (ts(w.updatedAt) && Number(w.kg)!==Number(r.kg) && ts(r.updated_at) > ts(w.updatedAt))){
+        track.weights[r.log_date] = {date:r.log_date, kg:r.kg, updatedAt:r.updated_at}; changed = true;
+      }
+    });
+    Object.keys(track.weights).forEach(function(d){
+      var r = remoteBy[d];
+      if(!r || (Number(track.weights[d].kg)!==Number(r.kg) && ts(track.weights[d].updatedAt) >= ts(r.updated_at))){
+        toPush.push(GymBroSync.pushWeight(userId, d, track.weights[d].kg));
+      }
+    });
+    lsSet("gymbro_weights", track.weights);
     if(toPush.length) return Promise.all(toPush);
   }).catch(function(){}).then(function(){
     return GymBroSync.pullOnboarding(userId);
   }).then(function(res){
     var remote = res && res.data && res.data.payload;
     var hasLocalAnswers = state.answers && Object.keys(state.answers).length>0;
-    if(!hasLocalAnswers && remote && typeof remote==='object'){
+    var localAt = ts(lsGet("gymbro_onb_at", null));
+    if(remote && typeof remote==='object' && (!hasLocalAnswers || (localAt && ts(res.data.updated_at) > localAt))){
+      if(!sameJSON(remote.answers||{}, state.answers||{})) changed = true;
       state.step = remote.step||0;
       state.answers = remote.answers||{};
       state.mode = remote.mode||null;
@@ -2812,14 +2873,48 @@ function hydrateFromRemote(userId){
         state.plan.splitOverride = remote.plan.splitOverride||null;
       }
       lsSet("gymbro_onb_proto", state);
-    } else if(hasLocalAnswers){
+      lsSet("gymbro_onb_at", res.data.updated_at || new Date().toISOString());
+    } else if(hasLocalAnswers && !sameJSON(state, remote)){
       return GymBroSync.pushOnboarding(userId, state);
     }
-  }).catch(function(){});
+  }).catch(function(){}).then(function(){ return changed; });
 }
 
 /* ---------- boot: เช็ค session ก่อน render ครั้งแรกเสมอ ถ้า Supabase โหลดไม่ได้เลย
    (ออฟไลน์/ถูกบล็อก) ข้ามระบบ auth ไปทั้งหมด ใช้แอปแบบ local-only เหมือนเดิมทุกประการ ---------- */
+/* ---------- realtime: แก้จากแอป native/อีกแท็บแล้วเห็นทันที ----------
+   event มาแล้วเรียก hydrateFromRemote (กติกา "ใหม่กว่าชนะ" เดิม) ไม่เขียนตรรกะผสานซ้ำ
+   push เฉพาะเมื่อข้อมูลต่างจาก server เท่านั้น ไม่งั้น event ที่ตัวเองยิงจะวนไม่จบ */
+var rtTimer = null, rtUser = null;
+function startRealtime(userId){
+  if(rtUser===userId || accountDeleted) return;
+  rtUser = userId;
+  GymBroSync.subscribeChanges(userId, function(){
+    clearTimeout(rtTimer);
+    rtTimer = setTimeout(function(){
+      if(!auth.session || accountDeleted) return;
+      hydrateFromRemote(auth.session.user.id).then(function(changed){ if(changed) renderWhenIdle(); });
+    }, 500);
+  });
+}
+function stopRealtime(){ rtUser = null; clearTimeout(rtTimer); GymBroSync.unsubscribeChanges(); }
+/* กำลังพิมพ์ในช่องอยู่ = รอให้พิมพ์เสร็จก่อนค่อย render ไม่งั้นตัวเลขที่พิมพ์ค้างหาย */
+var renderWait = false;
+function renderWhenIdle(){
+  var a = document.activeElement, page = document.getElementById('page');
+  if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && page && page.contains(a)){
+    if(renderWait) return;
+    renderWait = true;
+    a.addEventListener('blur', function f(){
+      a.removeEventListener('blur', f);
+      renderWait = false;
+      setTimeout(function(){ render(); }, 400); // รอให้คลิกที่ค้างอยู่ทำงานก่อน ไม่งั้นคลิกหาย
+    });
+    return;
+  }
+  render();
+}
+
 function boot(){
   if(!syncAvailable()){ auth.ready = true; render(true); return; }
   /* ดัก deep link ที่ Supabase ส่ง Google OAuth token กลับมาตอนรันเป็นแอป native
@@ -2842,14 +2937,34 @@ function boot(){
   GymBroSync.onAuthChange(function(event, session){
     var hadSession = !!auth.session;
     auth.session = session || null;
+    if(session) startRealtime(session.user.id); else stopRealtime();
     if(!auth.ready) return; // รอบแรกให้ getSession() ด้านล่างเป็นคนจัดการ render
     if(session && !hadSession) hydrateFromRemote(session.user.id).then(function(){ render(true); });
     else render(true);
+  });
+  /* กลับมาที่แท็บ/แอป: ดึงข้อมูลล่าสุดใหม่ (เผื่อแก้จาก native app) — เว้น 20 วิ และ render
+     เฉพาะเมื่อมีอะไรเปลี่ยนจริง ไม่งั้นจะรีเซ็ตช่องที่ผู้ใช้กำลังพิมพ์ */
+  var lastResync = 0;
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState!=='visible' || !auth.session || !auth.ready) return;
+    if(Date.now()-lastResync < 20000) return;
+    lastResync = Date.now();
+    hydrateFromRemote(auth.session.user.id).then(function(changed){ if(changed) renderWhenIdle(); });
   });
   GymBroSync.getSession().then(function(res){
     var session = res && res.data && res.data.session;
     auth.session = session || null;
     auth.ready = true;
+    if(session) startRealtime(session.user.id);
+    if(!session && ANON_SYNC && !AUTH_ENABLED){
+      GymBroSync.signInAnonymously().then(function(r){
+        var s2 = r && r.data && r.data.session;
+        auth.session = s2 || null;
+        if(s2) startRealtime(s2.user.id); // ล้มเหลว (ยังไม่เปิด anonymous ฯลฯ) = local-only ต่อไป
+        if(s2) hydrateFromRemote(s2.user.id).then(function(){ render(true); }); else render(true);
+      }).catch(function(){ render(true); });
+      return;
+    }
     if(session) hydrateFromRemote(session.user.id).then(function(){ render(true); });
     else render(true);
   }).catch(function(){ auth.ready = true; render(true); });

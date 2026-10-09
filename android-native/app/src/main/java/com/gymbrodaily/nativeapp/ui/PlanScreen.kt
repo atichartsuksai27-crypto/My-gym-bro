@@ -67,7 +67,6 @@ fun PlanScreen(
     today: LocalDate,
     store: TrackStore,
     email: String?,
-    anonymous: Boolean,
     onSignOut: () -> Unit,
 ) {
     val p = t.program
@@ -142,11 +141,11 @@ fun PlanScreen(
 
         SectionTitle("บัญชีและการซิงก์")
         Card {
-            Text(if (anonymous) "ใช้งานโดยไม่ล็อกอิน" else email ?: "", fontWeight = FontWeight.Medium)
+            Text(email ?: "", fontWeight = FontWeight.Medium)
             Hint(syncText(state))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { store.syncNow() }) { Text("ซิงก์ตอนนี้") }
-                if (!anonymous) TextButton(onClick = onSignOut) { Text("ออกจากระบบ", color = GB.warn) }
+                TextButton(onClick = onSignOut) { Text("ออกจากระบบ", color = GB.warn) }
             }
         }
 

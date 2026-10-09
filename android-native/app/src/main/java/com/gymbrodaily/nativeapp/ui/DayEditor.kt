@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -68,7 +67,7 @@ private fun CheckRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(if (on) GB.okSoft else GB.surface2)
             .padding(horizontal = 6.dp, vertical = 8.dp),
         verticalAlignment = Alignment.Top,
@@ -148,7 +147,7 @@ private fun ExerciseRow(t: TrackData, iso: String, ex: PlanExercise, e: Exercise
     }
     CheckRow(done, { c -> patch { it.copy(done = c) } }) {
         RowTitle(ex.th)
-        Hint("${ex.setsReps} · ${Catalog.PATTERN_SHORT[ex.pattern] ?: ex.pattern} · $prevTxt")
+        Hint("${ex.setsReps} · ${com.gymbrodaily.nativeapp.domain.LibraryCatalog.GROUP_SHORT[ex.pattern] ?: ex.pattern} · $prevTxt")
         LinkButton(
             if (open) "ซ่อนช่องบันทึกเซ็ต ▴" else if (isBW) "บันทึกจำนวนครั้งต่อเซ็ต ▾" else "บันทึกน้ำหนัก/ครั้งต่อเซ็ต ▾",
         ) { open = !open }
@@ -198,7 +197,7 @@ private fun PerfBlock(t: TrackData, iso: String, ex: PlanExercise, e: ExerciseLo
         Benchmarks.calculatePersonalProgress(pick.e1rm, histBefore.map { E1rmEntry(it.date, it.e1rm) }) else null
 
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(GB.bg).padding(10.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(GB.bg).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Text("${Fmt.num(pick.weight)} กก. × ${Fmt.num(pick.reps)} ครั้ง", fontSize = 13.sp, color = GB.text2)
@@ -253,11 +252,12 @@ private fun FoodSection(t: TrackData, iso: String, store: TrackStore) {
         store.updateLog(iso) { it.copy(nutrition = change(it.nutrition)) }
     val proteinTxt = tg.proteinG?.toString() ?: "—"
     val waterTxt = tg.waterL?.let { Fmt.one(it) } ?: "—"
+    val macroTxt = if (tg.carbG != null) " · คาร์บ ${tg.carbG} g · ไขมัน ${tg.fatG ?: "—"} g" else ""
 
     Card {
         SectionHead(
             "โภชนาการ", GB.food,
-            "${Fmt.kcal(tg.kcal)} kcal · โปรตีน $proteinTxt g · น้ำ $waterTxt ล.",
+            "${Fmt.kcal(tg.kcal)} kcal · โปรตีน $proteinTxt g$macroTxt · น้ำ $waterTxt ล.",
             "$doneN/${3 + tg.meals}",
         )
         CheckRow(pOk, null) {
@@ -274,6 +274,16 @@ private fun FoodSection(t: TrackData, iso: String, store: TrackStore) {
             )
             ValueRow("/ ${Fmt.kcal(tg.kcal)}") { NumberField(n.kcal, { _, v -> patch { it.copy(kcal = v) } }, "kcal", Modifier.weight(1f)) }
         }
+        CheckRow(Tracking.macroOk(n.carbG, tg.carbG), null) {
+            RowTitle("คาร์โบไฮเดรตวันนี้")
+            Hint(tg.carbG?.let { "เป้า $it g (ส่วนที่เหลือหลังหักโปรตีนและไขมัน) — ติ๊กผ่านเมื่ออยู่ในช่วง ±10% (บันทึกเพื่อติดตาม ไม่นับในคะแนนรวม)" } ?: "ข้อมูลไม่ครบ")
+            ValueRow("/ ${tg.carbG?.let { "$it g" } ?: "—"}") { NumberField(n.carbG, { _, v -> patch { it.copy(carbG = v) } }, "g", Modifier.weight(1f)) }
+        }
+        CheckRow(Tracking.macroOk(n.fatG, tg.fatG), null) {
+            RowTitle("ไขมันวันนี้")
+            Hint(tg.fatG?.let { "เป้า $it g (≈28% ของแคลอรี่) — ติ๊กผ่านเมื่ออยู่ในช่วง ±10% (บันทึกเพื่อติดตาม ไม่นับในคะแนนรวม)" } ?: "ข้อมูลไม่ครบ")
+            ValueRow("/ ${tg.fatG?.let { "$it g" } ?: "—"}") { NumberField(n.fatG, { _, v -> patch { it.copy(fatG = v) } }, "g", Modifier.weight(1f)) }
+        }
         CheckRow(wOk, null) {
             RowTitle("น้ำดื่ม")
             Hint("เป้า $waterTxt ลิตร (≈35 มล. ต่อน้ำหนักตัว 1 กก.)")
@@ -285,7 +295,7 @@ private fun FoodSection(t: TrackData, iso: String, store: TrackStore) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (i in 0 until tg.meals) {
                     val on = n.meals.getOrNull(i) == true
-                    FilterChip(
+                    GbChip(
                         selected = on,
                         onClick = {
                             patch { cur ->

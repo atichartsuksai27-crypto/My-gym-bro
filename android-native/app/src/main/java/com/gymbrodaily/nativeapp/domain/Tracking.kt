@@ -42,6 +42,8 @@ data class Nutrition(
     val kcal: Double? = null,
     val waterL: Double? = null,
     val meals: List<Boolean?> = emptyList(),
+    val carbG: Double? = null,
+    val fatG: Double? = null,
 )
 
 @Serializable
@@ -105,6 +107,9 @@ object Tracking {
 
     fun proteinOk(n: Nutrition, t: Targets) = n.proteinG != null && n.proteinG >= (t.proteinG ?: 0) * 0.9
     fun waterOk(n: Nutrition, t: Targets) = n.waterL != null && n.waterL >= (t.waterL ?: 0.0)
+
+    /** คาร์บ/ไขมัน: ผ่านเมื่ออยู่ในช่วง ±10% ของเป้า (บันทึกเพื่อติดตาม ไม่นับในคะแนนรวม — เหมือน sectionFood ของเว็บ) */
+    fun macroOk(v: Double?, target: Int?) = v != null && target != null && v >= target * 0.9 && v <= target * 1.1
 
     fun sleepHoursValid(h: Double?) = h != null && h.isFinite() && h >= 0 && h <= 24
     fun sleepOk(s: Sleep, t: Targets) = sleepHoursValid(s.hours) && t.sleepH != null && s.hours!! >= t.sleepH - 0.5

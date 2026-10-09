@@ -84,7 +84,7 @@ fun ScheduleScreen(t: TrackData, today: LocalDate, store: TrackStore) {
                 Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("บันทึกของ ${Fmt.longDate(iso)}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Text("บันทึกของ ${Fmt.longDate(iso)}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Hint("$iso · ${Tracking.sessionKeyFor(p, iso) ?: "วันพัก"} — แก้ไขย้อนหลังได้ ข้อมูลบันทึกทันทีที่กรอก")
                 DayEditor(t, iso, store)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -104,7 +104,7 @@ fun ScheduleScreen(t: TrackData, today: LocalDate, store: TrackStore) {
 @Composable
 private fun RangeNav(label: String, prev: String, now: String, next: String, onPrev: () -> Unit, onNow: () -> Unit, onNext: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedButton(onClick = onPrev) { Text(prev, fontSize = 12.sp) }
             OutlinedButton(onClick = onNow) { Text(now, fontSize = 12.sp) }
@@ -220,7 +220,7 @@ private fun MonthCell(t: TrackData, iso: String, todayIso: String, open: (String
         DayStatus.REST_FUTURE -> {}
     }
     val isToday = iso == todayIso
-    val shape = RoundedCornerShape(6.dp)
+    val shape = RoundedCornerShape(14.dp)
     Column(
         Modifier
             .fillMaxWidth()

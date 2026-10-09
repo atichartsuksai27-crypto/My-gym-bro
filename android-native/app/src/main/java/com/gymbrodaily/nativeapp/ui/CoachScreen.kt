@@ -138,7 +138,7 @@ private fun Bubble(m: CoachMessage) {
             m.text, fontSize = 14.sp, lineHeight = 21.sp,
             modifier = Modifier
                 .widthIn(max = 300.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(20.dp))
                 .background(if (m.fromUser) GB.accentSoft else GB.surface2)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         )

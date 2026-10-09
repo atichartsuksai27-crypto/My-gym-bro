@@ -71,7 +71,8 @@ androidComponents {
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
-    implementation("androidx.compose.material3:material3")
+    // API ของ M3 Expressive (MaterialExpressiveTheme, LoadingIndicator ฯลฯ) ใช้ได้เฉพาะรุ่น alpha — ทับเวอร์ชันจาก BOM
+    implementation("androidx.compose.material3:material3:1.5.0-alpha29")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.activity:activity-compose:1.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")

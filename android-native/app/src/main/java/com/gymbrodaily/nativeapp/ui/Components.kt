@@ -1,7 +1,6 @@
 package com.gymbrodaily.nativeapp.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
@@ -37,8 +37,23 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-val CardShape = RoundedCornerShape(10.dp)
+val CardShape = RoundedCornerShape(28.dp)
 
+/* ไอคอนเส้นจาก SVG path (viewport 24) — ใช้แทน material-icons ที่ไม่ได้ใส่เป็น dependency */
+private val iconCache = mutableMapOf<String, androidx.compose.ui.graphics.vector.ImageVector>()
+fun strokeIcon(path: String): androidx.compose.ui.graphics.vector.ImageVector = iconCache.getOrPut(path) {
+    androidx.compose.ui.graphics.vector.ImageVector.Builder(defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
+        .addPath(
+            pathData = androidx.compose.ui.graphics.vector.addPathNodes(path),
+            fill = null,
+            stroke = androidx.compose.ui.graphics.SolidColor(Color.White),
+            strokeLineWidth = 1.7f,
+            strokeLineCap = androidx.compose.ui.graphics.StrokeCap.Round,
+            strokeLineJoin = androidx.compose.ui.graphics.StrokeJoin.Round,
+        ).build()
+}
+
+/** การ์ดแบบ Expressive: มุมโค้งใหญ่ แยกชั้นด้วยสีพื้น (tonal) ไม่ใช้เส้นขอบ */
 @Composable
 fun Card(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Column(
@@ -46,20 +61,19 @@ fun Card(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
             .fillMaxWidth()
             .clip(CardShape)
             .background(GB.surface)
-            .border(1.dp, GB.border, CardShape)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) { content() }
 }
 
-/** หัวการ์ดแบบเว็บ: สี่เหลี่ยมสี + ชื่อ + meta + ตัวนับ done/total */
+/** หัวการ์ด: จุดสีทรงกลม + ชื่อ + meta + ตัวนับ done/total */
 @Composable
 fun SectionHead(title: String, color: Color, meta: String? = null, count: String? = null) {
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(color))
-            Spacer(Modifier.width(8.dp))
-            Text(title, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+            Box(Modifier.size(12.dp).clip(CircleShape).background(color))
+            Spacer(Modifier.width(10.dp))
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
             if (count != null) Text(count, color = GB.text2, fontSize = 13.sp)
         }
         if (meta != null) Text(meta, color = GB.text3, fontSize = 12.5.sp, modifier = Modifier.padding(top = 2.dp))
@@ -75,34 +89,39 @@ fun Hint(text: String, modifier: Modifier = Modifier, color: Color = GB.text3) {
 fun PageHead(eyebrow: String?, title: String, sub: String? = null) {
     Column(Modifier.padding(bottom = 4.dp)) {
         if (eyebrow != null) Text(eyebrow, color = GB.text3, fontSize = 12.sp)
-        Text(title, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Text(title, fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold)
         if (sub != null) Text(sub, color = GB.text2, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
 @Composable
-fun ProgressBar(fraction: Float, modifier: Modifier = Modifier, color: Color = GB.accent, height: Dp = 8.dp) {
+fun ProgressBar(fraction: Float, modifier: Modifier = Modifier, color: Color = GB.accent, height: Dp = 12.dp) {
+    val animated by androidx.compose.animation.core.animateFloatAsState(
+        fraction.coerceIn(0f, 1f),
+        androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 300f),
+        label = "progress",
+    )
     Box(modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(height)).background(GB.surface2)) {
-        Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().background(color))
+        Box(Modifier.fillMaxWidth(animated).fillMaxHeight().clip(RoundedCornerShape(height)).background(color))
     }
 }
 
 @Composable
 fun Pill(text: String, color: Color = GB.text2, bg: Color = GB.surface2) {
     Text(
-        text, color = color, fontSize = 11.5.sp,
-        modifier = Modifier.clip(RoundedCornerShape(50)).background(bg).padding(horizontal = 8.dp, vertical = 2.dp),
+        text, color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.clip(RoundedCornerShape(50)).background(bg).padding(horizontal = 10.dp, vertical = 4.dp),
     )
 }
 
 @Composable
 fun StatTile(label: String, value: String, detail: String? = null, modifier: Modifier = Modifier, valueColor: Color = GB.text) {
     Column(
-        modifier.clip(RoundedCornerShape(8.dp)).background(GB.surface2).padding(12.dp),
+        modifier.clip(RoundedCornerShape(20.dp)).background(GB.surface2).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Text(label, color = GB.text3, fontSize = 12.sp)
-        Text(value, color = valueColor, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        Text(value, color = valueColor, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
         if (detail != null) Text(detail, color = GB.text3, fontSize = 11.5.sp, lineHeight = 16.sp)
     }
 }
@@ -159,8 +178,28 @@ fun NumberField(
         }),
         colors = OutlinedTextFieldDefaults.colors(
             unfocusedBorderColor = GB.borderStrong,
-            focusedContainerColor = GB.bg,
-            unfocusedContainerColor = GB.bg,
+            focusedContainerColor = GB.surface2,
+            unfocusedContainerColor = GB.surface2,
         ),
+        shape = RoundedCornerShape(16.dp),
+    )
+}
+
+/** ชิปตัวเลือกทรงแคปซูล: ตัวที่เลือกเติมสีน้ำเงินเข้ม ตัวที่ไม่เลือกเป็นพื้น tonal ไม่มีเส้นขอบ */
+@Composable
+fun GbChip(selected: Boolean, onClick: () -> Unit, label: @Composable () -> Unit, modifier: Modifier = Modifier) {
+    androidx.compose.material3.FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = label,
+        modifier = modifier,
+        shape = androidx.compose.foundation.shape.CircleShape,
+        colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+            containerColor = GB.surface2,
+            labelColor = GB.text,
+            selectedContainerColor = GB.accentSoft,
+            selectedLabelColor = androidx.compose.ui.graphics.Color(0xFFDCE5FF),
+        ),
+        border = null,
     )
 }

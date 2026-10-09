@@ -75,9 +75,9 @@ fun BodyFatPicker(sex: String?, selected: String?, onSelect: (String) -> Unit) {
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(18.dp))
                             .background(if (sel) GB.accentSoft else GB.surface2)
-                            .border(if (sel) 2.dp else 1.dp, if (sel) GB.accent else GB.border, RoundedCornerShape(8.dp))
+                            .border(if (sel) 3.dp else 0.dp, if (sel) GB.accent else GB.border, RoundedCornerShape(18.dp))
                             .clickable { onSelect(b.key) }
                             .padding(4.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -120,7 +120,7 @@ private fun SpinDialog(folder: String, sex: String, band: String, onClose: () ->
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("ระดับไขมัน $pct ($sex)", fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                Text("ระดับไขมัน $pct ($sex)", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
                 TextButton(onClick = onClose) { Text("✕", color = GB.text2) }
             }
             var dragAcc by remember { mutableStateOf(0f) }

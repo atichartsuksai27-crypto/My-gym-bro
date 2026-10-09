@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -103,7 +102,7 @@ fun ProgressScreen(t: TrackData, today: LocalDate) {
 }
 
 @Composable
-fun SectionTitle(text: String) = Text(text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.padding(top = 4.dp))
+fun SectionTitle(text: String) = Text(text, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(top = 4.dp))
 
 @Composable
 fun TileGrid(tiles: List<Triple<String, String, String?>>) {
@@ -152,7 +151,7 @@ private fun ExerciseProgress(t: TrackData) {
     var picked by rememberSaveable { mutableStateOf(allEx.first().id) }
     val cur = allEx.firstOrNull { it.id == picked } ?: allEx.first()
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        allEx.forEach { e -> FilterChip(selected = e.id == cur.id, onClick = { picked = e.id }, label = { Text(e.th, fontSize = 12.sp) }) }
+        allEx.forEach { e -> GbChip(selected = e.id == cur.id, onClick = { picked = e.id }, label = { Text(e.th, fontSize = 12.sp) }) }
     }
     val hist = Tracking.exerciseHistory(t, cur.id)
     StrengthSummary(t, cur, hist)

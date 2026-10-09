@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,7 +37,9 @@ import androidx.compose.ui.unit.sp
 import com.gymbrodaily.nativeapp.data.SyncPhase
 import com.gymbrodaily.nativeapp.data.TrackState
 import com.gymbrodaily.nativeapp.data.TrackStore
-import com.gymbrodaily.nativeapp.domain.Catalog
+import com.gymbrodaily.nativeapp.domain.Exercise
+import com.gymbrodaily.nativeapp.domain.LibraryCatalog
+import com.gymbrodaily.nativeapp.domain.PlanExercise
 import com.gymbrodaily.nativeapp.domain.TrackData
 import com.gymbrodaily.nativeapp.domain.Tracking
 import com.gymbrodaily.nativeapp.domain.jsRound
@@ -48,6 +51,14 @@ import kotlin.math.max
 
 const val WEB_APP_URL = "https://gymbro-daily.pages.dev"
 
+/** session = เซสชันที่แก้, replaceId = ท่าที่จะถูกแทน (null = เพิ่มท่าใหม่), group = กลุ่มที่เปิดตัวกรองไว้ตอนแรก */
+private data class PickTarget(val session: String, val replaceId: String?, val group: String?)
+
+private fun Exercise.toPlan(setsReps: String) = PlanExercise(
+    pattern = pattern, id = id, th = th, sub = sub, tier = tier, equip = equip,
+    setsReps = setsReps, timeBased = LibraryCatalog.isTimeBased(this),
+)
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun PlanScreen(
@@ -56,17 +67,22 @@ fun PlanScreen(
     today: LocalDate,
     store: TrackStore,
     email: String?,
+    anonymous: Boolean,
     onSignOut: () -> Unit,
 ) {
     val p = t.program
     val tg = Tracking.targetsOf(t)
     var pickDate by remember { mutableStateOf(false) }
     val uri = LocalUriHandler.current
+    val injuries = t.answers.list("Q26")
+    var picker by remember { mutableStateOf<PickTarget?>(null) }
+    var removing by remember { mutableStateOf<Pair<String, PlanExercise>?>(null) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         PageHead(
             "โปรแกรมที่กำลังติดตาม", "แผนของฉัน",
-            "แผนนี้ถูกล็อกไว้ตั้งแต่วันที่กด “เริ่มโปรแกรม” เพื่อไม่ให้ประวัติที่บันทึกไปแล้วเปลี่ยนความหมายย้อนหลัง",
+            "เลือกเปลี่ยน เพิ่ม หรือลบท่าในแต่ละเซสชันได้เองจากคลังทั้งหมด การแก้มีผลกับทุกสัปดาห์ น้ำหนักที่เคยบันทึกยังอยู่ครบ " +
+                "แต่สถิติ “ทำตามแผน” ของวันที่ผ่านมาจะนับตามท่าชุดใหม่ และถ้ากด “แก้ไขแผน / ทำแบบสอบถามใหม่” ท่าที่เลือกเองจะถูกแทนที่ด้วยท่าที่ระบบสร้างใหม่",
         )
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = {
@@ -97,26 +113,40 @@ fun PlanScreen(
                 Text("เซสชัน “${se.key}”", fontWeight = FontWeight.SemiBold)
                 Hint("${daysFor.size}x/สัปดาห์ — ${daysFor.joinToString(", ").ifEmpty { "—" }} · ~${p.minutesEstimate ?: ""}")
                 se.exercises.forEach { ex ->
-                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(GB.surface2).padding(10.dp)) {
-                        Text(Catalog.PATTERN_LABEL[ex.pattern] ?: ex.pattern, color = GB.text3, fontSize = 11.5.sp)
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(GB.surface2).padding(10.dp)) {
+                        Text(LibraryCatalog.GROUP_LABEL[ex.pattern] ?: ex.pattern, color = GB.text3, fontSize = 11.5.sp)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(ex.th, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
                             Pill("Tier ${ex.tier}")
                         }
                         if (ex.sub.isNotEmpty()) Text(ex.sub, color = GB.text3, fontSize = 12.sp)
                         Text(ex.setsReps, color = GB.accent, fontSize = 12.5.sp)
+                        LibraryCatalog.byId(ex.id)?.let { lib ->
+                            val g = LibraryCatalog.guideFor(lib)
+                            val risk = when (g.risk) { 0 -> GB.ok; 1 -> GB.branch; else -> GB.warn }
+                            val hit = LibraryCatalog.cautionsFor(ex.id).filter { it in injuries }
+                            Text(
+                                g.riskLabel + if (hit.isNotEmpty()) " · ⚠ ตรงอาการ ${hit.joinToString(" · ")}" else "",
+                                color = if (hit.isNotEmpty()) GB.warn else risk, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            LinkButton("เปลี่ยนท่า") { picker = PickTarget(se.key, ex.id, ex.pattern) }
+                            if (se.exercises.size > 1) LinkButton("ลบออก") { removing = se.key to ex }
+                        }
                     }
                 }
+                OutlinedButton(onClick = { picker = PickTarget(se.key, null, null) }) { Text("+ เพิ่มท่าจากคลัง") }
             }
         }
 
         SectionTitle("บัญชีและการซิงก์")
         Card {
-            Text(email ?: "", fontWeight = FontWeight.Medium)
+            Text(if (anonymous) "ใช้งานโดยไม่ล็อกอิน" else email ?: "", fontWeight = FontWeight.Medium)
             Hint(syncText(state))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { store.syncNow() }) { Text("ซิงก์ตอนนี้") }
-                TextButton(onClick = onSignOut) { Text("ออกจากระบบ", color = GB.warn) }
+                if (!anonymous) TextButton(onClick = onSignOut) { Text("ออกจากระบบ", color = GB.warn) }
             }
         }
 
@@ -130,6 +160,46 @@ fun PlanScreen(
                 "นี่คือต้นแบบ ไม่ใช่คำแนะนำทางการแพทย์หรือโภชนาการ หากมีอาการผิดปกติระหว่างออกกำลังกาย ควรหยุดและปรึกษาแพทย์ทันที",
             ).forEach { Hint("• $it") }
         }
+    }
+
+    picker?.let { target ->
+        val replacing = target.replaceId != null
+        ExercisePickerSheet(
+            title = if (replacing) "เลือกท่าใหม่แทนท่าเดิม" else "เพิ่มท่าในเซสชัน “${target.session}”",
+            injuries = injuries,
+            inPlan = p.sessions.flatMap { it.exercises }.map { it.id }.toSet(),
+            startGroup = target.group,
+            onPick = { e ->
+                store.editSession(target.session) { list ->
+                    when {
+                        replacing -> list.map { old ->
+                            if (old.id != target.replaceId) old
+                            else if (list.any { it.id == e.id } && e.id != old.id) old
+                            else e.toPlan(if (LibraryCatalog.isTimeBased(e) == old.timeBased) old.setsReps else LibraryCatalog.defaultSetsReps(e, p.goal))
+                        }
+                        list.any { it.id == e.id } -> list
+                        else -> list + e.toPlan(LibraryCatalog.defaultSetsReps(e, p.goal))
+                    }
+                }
+                picker = null
+            },
+            onDismiss = { picker = null },
+        )
+    }
+
+    removing?.let { (sessionKey, ex) ->
+        AlertDialog(
+            onDismissRequest = { removing = null },
+            title = { Text("ลบ ${ex.th} ออกจากเซสชัน “$sessionKey”?") },
+            text = { Text("ท่านี้จะหายจากทุกสัปดาห์ของเซสชันนี้ น้ำหนักที่เคยบันทึกไว้ยังไม่ถูกลบ") },
+            confirmButton = {
+                TextButton(onClick = {
+                    store.editSession(sessionKey) { list -> list.filterNot { it.id == ex.id } }
+                    removing = null
+                }) { Text("ลบ", color = GB.warn) }
+            },
+            dismissButton = { TextButton(onClick = { removing = null }) { Text("ยกเลิก") } },
+        )
     }
 
     if (pickDate) {

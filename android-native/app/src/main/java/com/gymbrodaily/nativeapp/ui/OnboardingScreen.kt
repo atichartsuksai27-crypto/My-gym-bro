@@ -17,7 +17,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -82,7 +81,7 @@ private fun CategoryPage(onb: Onboarding, update: ((Onboarding) -> Onboarding) -
     val ok = Questions.catComplete(cat.id, a)
     ProgressBar(onb.step / 9f)
     Text("หมวด ${cat.id} / 9", color = GB.text3, fontSize = 12.sp)
-    Text(cat.name, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+    Text(cat.name, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
     Questions.visibleQsFor(cat.id, a).forEach { q ->
         androidx.compose.runtime.key(q.id) {
             QuestionBlock(q, a) { newAnswers -> update { it.copy(answers = newAnswers) } }
@@ -107,7 +106,7 @@ private fun QuestionBlock(q: Question, a: Answers, set: (Answers) -> Unit) {
             Text(q.id, color = GB.text4, fontSize = 11.sp)
             if (q.main) Pill("คำถามหลัก") else Pill("แตกกิ่ง · ${q.branchFrom}", GB.branch, GB.branchSoft)
         }
-        Text(q.label, fontWeight = FontWeight.Medium, fontSize = 16.sp)
+        Text(q.label, fontWeight = FontWeight.Bold, fontSize = 18.sp, lineHeight = 25.sp)
         if (q.id == "Q1") GoalFeasibility(a)
         when (q.kind) {
             QKind.BODYFAT -> BodyFatPicker(a.str("Q9"), a.str(q.id)) { set(Questions.setAnswer(a, q.id, it)) }
@@ -116,7 +115,7 @@ private fun QuestionBlock(q: Question, a: Answers, set: (Answers) -> Unit) {
                     q.options.forEach { o ->
                         val sel = if (q.kind == QKind.MULTI) o in a.list(q.id) else a.str(q.id) == o
                         val recommended = q.id == "Q1" && a.str("Q0")?.let { Questions.BODYFAT_GOAL_MAP[it] } == o
-                        FilterChip(
+                        GbChip(
                             selected = sel,
                             onClick = { set(Questions.setAnswer(a, q.id, o)) },
                             label = { Text(o + if (recommended) "  · แนะนำ" else "", fontSize = 13.5.sp) },
@@ -180,9 +179,9 @@ private fun ExtraFields(q: Question, a: Answers, field: (String, String) -> Unit
 @Composable
 private fun Note(title: String, body: String, warn: Boolean = false) {
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
             .background(if (warn) GB.warnSoft else GB.accentSoft)
-            .border(1.dp, if (warn) GB.warnLine else GB.accentLine, RoundedCornerShape(8.dp))
+            .border(1.dp, if (warn) GB.warnLine else GB.accentLine, RoundedCornerShape(18.dp))
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -232,7 +231,7 @@ private fun timeFeedback(a: Answers): String? {
 
 @Composable
 private fun BenchTable(goal: String) {
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(GB.surface2).padding(10.dp)) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(GB.surface2).padding(10.dp)) {
         Text("ข้อความอัตโนมัติจากระบบ (ไม่ใช่คำถาม)", fontSize = 11.sp, color = GB.text3)
         Questions.BENCH.forEach { (g, b) ->
             Row(Modifier.padding(vertical = 2.dp)) {
@@ -250,7 +249,7 @@ private fun GoalFeasibility(a: Answers) {
     val t = a.str("Q3")
     if (days.isEmpty() || t == null) return
     val est = Questions.Q3_MIN[t] ?: 0
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(GB.surface2).padding(10.dp)) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(GB.surface2).padding(10.dp)) {
         Text("เทียบกับวัน/เวลาที่ตอบไว้ (เลือกได้ทุกเป้าหมาย — เวลาไม่พอระบบจะปรับความเข้มข้นให้แทน ไม่ปิดกั้น)", fontSize = 11.sp, color = GB.text3)
         Questions.BENCH.forEach { (g, b) ->
             val ok = days.size >= b.days.first && est >= b.mins.first
@@ -406,8 +405,8 @@ private fun ResultsPage(onb: Onboarding, store: TrackStore, hasProgram: Boolean,
         Catalog.DAYS.forEachIndexed { i, d ->
             val active = d in a.list("Q2")
             Column(
-                Modifier.clip(RoundedCornerShape(6.dp)).background(if (active) GB.surface2 else GB.bg)
-                    .border(1.dp, GB.border, RoundedCornerShape(6.dp)).padding(8.dp),
+                Modifier.clip(RoundedCornerShape(14.dp)).background(if (active) GB.surface2 else GB.bg)
+                    .border(1.dp, GB.border, RoundedCornerShape(14.dp)).padding(8.dp),
             ) {
                 Text(Catalog.DAYS_SHORT[i], color = GB.text3, fontSize = 11.sp)
                 Text(if (active) dayToSession[d] ?: "" else "พัก", fontSize = 12.5.sp, color = if (active) GB.text else GB.text4)
@@ -509,7 +508,7 @@ private fun ExerciseChoice(
     val sel = Generator.selectionFor(pattern, a, onb.plan)
     val picked = sel.picked
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(GB.surface2).padding(10.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(GB.surface2).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(Catalog.PATTERN_LABEL[pattern] ?: pattern, color = GB.text3, fontSize = 11.5.sp)
@@ -529,7 +528,7 @@ private fun ExerciseChoice(
         if (open) sel.all.filter { it.id != picked.id }.forEach { x ->
             val pickedThis = onb.plan.manualPick[pattern] == x.id
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(if (pickedThis) GB.accentSoft else GB.bg).padding(8.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (pickedThis) GB.accentSoft else GB.bg).padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {

@@ -153,6 +153,9 @@ class TrackStore(context: Context, private val userId: String, private val scope
     private val syncMutex = Mutex()
     private val fileMutex = Mutex()
     private var flushJob: Job? = null
+
+    /** true หลังลบบัญชีสำเร็จ — ห้ามซิงก์/เขียนไฟล์อีก ไม่งั้นข้อมูลที่เพิ่งลบจะถูกส่งกลับขึ้น server */
+    @Volatile private var wiped = false
     private val db get() = SupabaseProvider.client
 
     init {
@@ -172,6 +175,7 @@ class TrackStore(context: Context, private val userId: String, private val scope
     }
 
     private fun saveCache() {
+        if (wiped) return
         val s = _state.value
         val snapshot = LocalCache(
             program = s.programRaw,
@@ -213,6 +217,7 @@ class TrackStore(context: Context, private val userId: String, private val scope
 
     /** ส่งคิวที่ค้างก่อน แล้วดึงข้อมูลล่าสุดจาก server มาแทน (ยกเว้นรายการที่ยังส่งไม่สำเร็จ) */
     suspend fun refresh() = syncMutex.withLock {
+        if (wiped) return@withLock
         _state.update { it.copy(phase = SyncPhase.SYNCING) }
         try {
             flushLocked()
@@ -280,6 +285,7 @@ class TrackStore(context: Context, private val userId: String, private val scope
 
     /** รอให้ผู้ใช้หยุดพิมพ์สักครู่ค่อยส่ง ไม่ยิงทุกตัวอักษร */
     private fun scheduleFlush() {
+        if (wiped) return
         flushJob?.cancel()
         flushJob = scope.launch {
             delay(1200)
@@ -339,6 +345,20 @@ class TrackStore(context: Context, private val userId: String, private val scope
     }
 
     /**
+     * แก้รายการท่าของเซสชันหนึ่งในแผนที่ติดตามอยู่ (เปลี่ยน/เพิ่ม/ลบ) — แก้เฉพาะ sessions ของ payload
+     * field อื่นคงเดิม เว็บอ่านท่าจาก snapshot ในแผนจึงแสดงท่าที่เลือกได้ตามปกติ
+     */
+    fun editSession(sessionKey: String, change: (List<com.gymbrodaily.nativeapp.domain.PlanExercise>) -> List<com.gymbrodaily.nativeapp.domain.PlanExercise>) {
+        val s = _state.value
+        val raw = s.programRaw ?: return
+        val program = s.program ?: return
+        val sessions = program.sessions.map { if (it.key == sessionKey) it.copy(exercises = change(it.exercises)) else it }
+        val next = JsonObject(raw + ("sessions" to json.encodeToJsonElement(sessions)))
+        _state.update { buildState(next, emptyMap(), it.weights, it.onboarding).copy(logs = it.logs) }
+        enqueue(PendingOp("program", payload = next))
+    }
+
+    /**
      * เริ่มโปรแกรมจากคำตอบแบบสอบถามที่บันทึกไว้ (ตรงกับปุ่ม "เริ่มโปรแกรม" ของเว็บ) — คืนข้อความ error
      * ถ้ายังสร้างไม่ได้ ด่านตรวจชุดเดียวกับเว็บ: ขอบเขตที่รองรับ + ข้อมูลสมเหตุสมผล + ความปลอดภัย
      */
@@ -375,4 +395,13 @@ class TrackStore(context: Context, private val userId: String, private val scope
     }
 
     fun syncNow() = scope.launch { refresh() }
+
+    /** ล้างข้อมูลในเครื่องหลังลบบัญชีที่ server สำเร็จแล้ว: หยุดซิงก์ ทิ้งคิวที่ค้าง ลบไฟล์แคช และเคลียร์ state */
+    fun wipeLocal() {
+        wiped = true
+        flushJob?.cancel()
+        pending = emptyList()
+        _state.value = TrackState()
+        scope.launch(Dispatchers.IO) { fileMutex.withLock { file.delete(); File(file.parentFile, file.name + ".tmp").delete() } }
+    }
 }

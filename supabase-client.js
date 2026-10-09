@@ -106,6 +106,11 @@ function pullOnboarding(userId){
 function pushDailyLog(userId, dateISO, payload){
   return client.from('daily_logs').upsert({user_id:userId, log_date:dateISO, payload:payload}, {onConflict:'user_id,log_date'});
 }
+function pushDailyLogs(userId, rows){
+  return client.from('daily_logs').upsert(rows.map(function(r){
+    return {user_id:userId, log_date:r.date, payload:r.payload};
+  }), {onConflict:'user_id,log_date'});
+}
 function pullDailyLogs(userId){
   return client.from('daily_logs').select('log_date,payload,updated_at').eq('user_id', userId);
 }
@@ -148,7 +153,7 @@ global.GymBroSync = {
   signInWithGoogle: signInWithGoogle, handleNativeAuthCallback: handleNativeAuthCallback,
   pushProgram: pushProgram, pullProgram: pullProgram,
   pushOnboarding: pushOnboarding, pullOnboarding: pullOnboarding,
-  pushDailyLog: pushDailyLog, pullDailyLogs: pullDailyLogs,
+  pushDailyLog: pushDailyLog, pushDailyLogs: pushDailyLogs, pullDailyLogs: pullDailyLogs,
   pushWeight: pushWeight, pullWeights: pullWeights
 };
 

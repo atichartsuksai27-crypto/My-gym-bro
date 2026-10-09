@@ -37,6 +37,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -81,6 +83,8 @@ data class TrackState(
     val programRaw: JsonObject? = null,
     val program: Program? = null,
     val logs: Map<String, DailyLog> = emptyMap(),
+    /** payload ดิบของแต่ละวันตามที่ server/เว็บเขียนมา — เก็บ field ที่แอปยังไม่รู้จักไว้ ไม่ให้หายตอนแก้แล้วส่งกลับ */
+    val logsRaw: Map<String, JsonObject> = emptyMap(),
     val weights: Map<String, Double> = emptyMap(),
     val onboarding: JsonObject? = null,
     val pendingCount: Int = 0,
@@ -152,6 +156,19 @@ class TrackStore(context: Context, private val userId: String, private val scope
             explicitNulls = false
             encodeDefaults = true
         }
+
+        /** เขียนค่า null ออกมาตรงๆ — ตอนผสานกับ payload ดิบ ช่องที่ผู้ใช้ลบค่าทิ้งต้องกลายเป็น null จริง ไม่ใช่ค้างค่าเก่า */
+        private val jsonExplicit = Json(json) { explicitNulls = true }
+
+        /**
+         * วางค่าที่แอปแก้ทับ payload ดิบทีละ field (ลงไปถึง object/array ซ้อนข้างใน) — field ที่แอปไม่รู้จัก
+         * (เช่น stress / อาการหลังฝึก / อาหาร / warm-up ที่เว็บเพิ่มทีหลัง) ยังอยู่ครบ ส่วน field ที่แอปรู้จักใช้ค่าของแอป
+         */
+        internal fun mergeRaw(raw: JsonElement?, typed: JsonElement): JsonElement = when {
+            raw is JsonObject && typed is JsonObject -> JsonObject(raw + typed.mapValues { (k, v) -> mergeRaw(raw[k], v) })
+            raw is JsonArray && typed is JsonArray -> JsonArray(typed.mapIndexed { i, v -> mergeRaw(raw.getOrNull(i), v) })
+            else -> typed
+        }
     }
 
     private val file = File(context.filesDir, "track-$userId.json")
@@ -188,7 +205,7 @@ class TrackStore(context: Context, private val userId: String, private val scope
         val s = _state.value
         val snapshot = LocalCache(
             program = s.programRaw,
-            logs = s.logs.mapValues { encodeLog(it.value) },
+            logs = s.logsRaw,
             weights = s.weights,
             onboarding = s.onboarding,
             pending = pending,
@@ -212,6 +229,7 @@ class TrackStore(context: Context, private val userId: String, private val scope
         programRaw = programRaw,
         program = programRaw?.let { runCatching { json.decodeFromJsonElement<Program>(it) }.getOrNull() },
         logs = logs.mapNotNull { (d, p) -> decodeLog(d, p)?.let { d to it } }.toMap(),
+        logsRaw = logs,
         weights = weights,
         onboarding = onboarding,
         pendingCount = pending.size,
@@ -220,7 +238,8 @@ class TrackStore(context: Context, private val userId: String, private val scope
     private fun decodeLog(date: String, payload: JsonObject): DailyLog? =
         runCatching { json.decodeFromJsonElement<DailyLog>(JsonObject(payload + ("date" to JsonPrimitive(date)))) }.getOrNull()
 
-    private fun encodeLog(log: DailyLog): JsonObject = json.encodeToJsonElement(log).jsonObject
+    private fun encodeLog(log: DailyLog, raw: JsonObject?): JsonObject =
+        mergeRaw(raw, jsonExplicit.encodeToJsonElement(log)).jsonObject
 
     /* ---------- ซิงก์กับ Supabase ---------- */
 
@@ -330,13 +349,14 @@ class TrackStore(context: Context, private val userId: String, private val scope
             planId = cur.planId ?: program.planId,
             updatedAt = Instant.now().toString(),
         )
-        _state.update { it.copy(logs = it.logs + (iso to next)) }
-        enqueue(PendingOp("log", iso, payload = encodeLog(next)))
+        val payload = encodeLog(next, s.logsRaw[iso])
+        _state.update { it.copy(logs = it.logs + (iso to next), logsRaw = it.logsRaw + (iso to payload)) }
+        enqueue(PendingOp("log", iso, payload = payload))
     }
 
     /** ล้างบันทึกทั้งวัน — ลบบน server ด้วย (เว็บเดิมลบแค่ในเครื่อง ทำให้ข้อมูลเด้งกลับมาตอนซิงก์) */
     fun clearDay(iso: String) {
-        _state.update { it.copy(logs = it.logs - iso) }
+        _state.update { it.copy(logs = it.logs - iso, logsRaw = it.logsRaw - iso) }
         enqueue(PendingOp("delete-log", iso))
     }
 
@@ -349,7 +369,7 @@ class TrackStore(context: Context, private val userId: String, private val scope
     fun setStartDate(iso: String) {
         val raw = _state.value.programRaw ?: return
         val next = JsonObject(raw + ("startDate" to JsonPrimitive(iso)))
-        _state.update { buildState(next, emptyMap(), it.weights, it.onboarding).copy(logs = it.logs) }
+        _state.update { buildState(next, it.logsRaw, it.weights, it.onboarding) }
         enqueue(PendingOp("program", payload = next))
     }
 
@@ -362,8 +382,8 @@ class TrackStore(context: Context, private val userId: String, private val scope
         val raw = s.programRaw ?: return
         val program = s.program ?: return
         val sessions = program.sessions.map { if (it.key == sessionKey) it.copy(exercises = change(it.exercises)) else it }
-        val next = JsonObject(raw + ("sessions" to json.encodeToJsonElement(sessions)))
-        _state.update { buildState(next, emptyMap(), it.weights, it.onboarding).copy(logs = it.logs) }
+        val next = JsonObject(raw + ("sessions" to mergeRaw(raw["sessions"], jsonExplicit.encodeToJsonElement(sessions))))
+        _state.update { buildState(next, it.logsRaw, it.weights, it.onboarding) }
         enqueue(PendingOp("program", payload = next))
     }
 
@@ -396,7 +416,7 @@ class TrackStore(context: Context, private val userId: String, private val scope
                 "createdAt" to JsonPrimitive(now.toString()),
             ),
         )
-        _state.update { buildState(program, emptyMap(), it.weights, it.onboarding).copy(logs = it.logs) }
+        _state.update { buildState(program, it.logsRaw, it.weights, it.onboarding) }
         enqueue(PendingOp("program", payload = program))
         // เหมือนเว็บ: ออกจากโหมดแก้แผน กลับไปหน้าใช้งานประจำวัน
         updateOnboarding { it.copy(editPlan = false) }

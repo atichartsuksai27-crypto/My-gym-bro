@@ -14,61 +14,57 @@ require(path.join(ROOT, 'calculations.js'));
 require(path.join(ROOT, 'benchmarks.js'));
 var C = global.GymBroCalc, B = global.GymBroBenchmark;
 
-/* app.js ผูกกับ DOM/localStorage จึง require ตรงๆ ไม่ได้ — ตัดเฉพาะช่วงที่เป็น logic ล้วนมารันใน vm
-   ถ้า marker ไหนหาไม่เจอ ให้ล้มทันที (ดีกว่าได้ golden ผิดแบบเงียบๆ) */
-var appSrc = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
-function slice(startMarker, endMarker){
-  var s = appSrc.indexOf(startMarker);
-  if(s < 0) throw new Error('marker not found: ' + startMarker);
-  var e = appSrc.indexOf(endMarker, s);
-  if(e < 0) throw new Error('marker not found: ' + endMarker);
-  return appSrc.slice(s, e);
-}
-var logicSrc = [
-  slice('var DAYS = [', 'var BENCH = {'),
-  slice('var EXERCISES = [', '/* ---------- state'),
-  slice('function numberAnswered(v){', 'function catComplete('),
-  slice('function bmiOf(w,h){', 'function kcalOk('),
-  slice('function safetyGate(a){', '/* ---------- date helpers'),
-  slice('function setCountFor(setsRepsStr){', 'var track = {'),
-  slice('function pad2(n){', 'function setCountFor('),
-  slice('function logFor(iso){', '/* ---------- เขียน log รายวัน'),
-  slice('function dayItems(program, iso){', 'function esc(s){'),
-  slice('function fmt1(n){', 'function currentView(){'),
-  slice('function lastBestBefore(exId, iso){', '/* ---------- Strength Performance'),
-  slice('function milestonesOf(p){', 'function renderProgress(){'),
-  'function kcalOk(v, target){ return v!=null && target!=null && v >= target*0.9 && v <= target*1.1; }',
-  'var track = {program:null, logs:{}, weights:{}};',
-  slice('var CATEGORIES = [', 'var DAYS = ['),
-  slice('var BENCH = {', 'var EXERCISES = ['),
-  slice('function visibleQsFor(catId){', 'function numberAnswered(v){'),
-  slice('function catComplete(catId){', 'function setField('),
-  slice('function countAnswered(){', 'function readinessPanel('),
-  'function persist(){} function render(){}',
-].join('\n');
+/* app.js ผูกกับ DOM/localStorage และห่อทั้งไฟล์ไว้ใน IIFE — โหลดทั้งไฟล์ใน vm ที่มี DOM ปลอม (ทุกอย่างคืน no-op)
+   แล้วแทรก hook eval ก่อนบรรทัดปิด IIFE เพื่อเข้าถึงฟังก์ชัน/ตัวแปรข้างในได้ตรงๆ ไม่ต้องตัดโค้ดเป็นช่วงๆ
+   (แบบเดิมพังทุกครั้งที่เว็บเพิ่มฟังก์ชันใหม่นอกช่วงที่ตัดไว้) */
 /* "วันนี้" ของโค้ด JS ถูกล็อกไว้ที่ __today เพื่อให้ผลคงที่ — new Date() ไม่มีอาร์กิวเมนต์คืนเที่ยงวันของ __today */
 var RealDate = Date;
 class FixedDate extends RealDate {
   constructor(...a){ if(a.length === 0) super(ctx.__today + 'T12:00:00'); else super(...a); }
   static now(){ return new RealDate(ctx.__today + 'T12:00:00').getTime(); }
 }
-var ctx = {GymBroCalc: C, GymBroBenchmark: B, state: null, Math: Math, JSON: JSON, Date: FixedDate, __today: '2026-10-03'};
+function domStub(){
+  var p;
+  p = new Proxy(function(){ return p; }, {
+    get: function(t, k){ if(k === Symbol.toPrimitive) return function(){ return ''; }; if(k === 'length') return 0; return p; },
+    apply: function(){ return p; }
+  });
+  return p;
+}
+var lsStore = {};
+var ctx = {
+  GymBroCalc: C, GymBroBenchmark: B, console: console, Math: Math, JSON: JSON, Date: FixedDate, __today: '2026-10-03',
+  document: domStub(), history: domStub(), navigator: {userAgent: ''}, location: {href: '', search: '', hash: ''},
+  localStorage: {getItem: function(k){ return k in lsStore ? lsStore[k] : null; }, setItem: function(k, v){ lsStore[k] = String(v); }, removeItem: function(k){ delete lsStore[k]; }},
+  setTimeout: function(){ return 0; }, clearTimeout: function(){}, setInterval: function(){ return 0; }, clearInterval: function(){},
+  requestAnimationFrame: function(){}, matchMedia: function(){ return {matches: false, addEventListener: function(){}}; },
+  addEventListener: function(){}, fetch: function(){ return new Promise(function(){}); },
+  scrollTo: function(){}, scrollY: 0, innerWidth: 400, innerHeight: 800
+};
+ctx.window = ctx;
 vm.createContext(ctx);
-vm.runInContext(logicSrc + '\nthis.__api = {inScope:inScope, sanityIssues:sanityIssues, computeTargets:computeTargets,' +
+var appSrc = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
+var iifeEnd = appSrc.lastIndexOf('})();');
+if(iifeEnd < 0) throw new Error('app.js: ไม่พบบรรทัดปิด IIFE');
+vm.runInContext(appSrc.slice(0, iifeEnd) + 'window.__ev = function(s){ return eval(s); };\n' + appSrc.slice(iifeEnd), ctx, {filename: 'app.js'});
+var ev = ctx.__ev;
+var setState = ev('(function(v){ state = v; })');
+var getState = ev('(function(){ return state; })');
+var A = ev('({inScope:inScope, sanityIssues:sanityIssues, computeTargets:computeTargets,' +
   ' safetyGate:safetyGate, selectionFor:selectionFor, splitFeasibility:splitFeasibility, effectiveSplit:effectiveSplit,' +
   ' assignSessions:assignSessions, weekdayAdjacencyWarning:weekdayAdjacencyWarning, buildPlanSnapshot:buildPlanSnapshot,' +
   ' setCountFor:setCountFor, bmiOf:bmiOf, bmiLabel:bmiLabel, PATTERNS:Object.keys(PATTERN_LABEL),' +
   ' visibleQsFor:visibleQsFor, catComplete:catComplete, countAnswered:countAnswered, countVisibleTotal:countVisibleTotal,' +
   ' setAnswer:setAnswer, QUESTIONS:QUESTIONS,' +
-  ' setTrack:function(t){ track = t; }, sessionKeyFor:sessionKeyFor, dayItems:dayItems, dayCounts:dayCounts,' +
+  ' setTrack:function(t){ track.program = t.program; track.logs = t.logs; track.weights = t.weights; },' +
+  ' sessionKeyFor:sessionKeyFor, dayItems:dayItems, dayCounts:dayCounts,' +
   ' dayStatus:dayStatus, streakOf:streakOf, weeklyAdherence:weeklyAdherence, weightSeries:weightSeries,' +
   ' exerciseHistory:exerciseHistory, bodyweightAsOf:bodyweightAsOf, lastBestBefore:lastBestBefore, milestonesOf:milestonesOf,' +
   ' catalog:{EXERCISES:EXERCISES, SPLIT_DEFS:SPLIT_DEFS, EXCLUSION_MAP:EXCLUSION_MAP, EXP_RANK:EXP_RANK, REP_SCHEME:REP_SCHEME,' +
   ' PATTERN_LABEL:PATTERN_LABEL, PATTERN_SHORT:PATTERN_SHORT, TIER_LABEL:TIER_LABEL, TIER_DESC:TIER_DESC,' +
   ' CATEGORIES:CATEGORIES, BENCH:BENCH, Q3_MIN:Q3_MIN, QUESTIONS:QUESTIONS.map(function(q){ return {id:q.id, cat:q.cat,' +
   ' kind:q.kind, main:q.main, label:q.label, options:q.options||[], note:q.note||null, branchFrom:q.branchFrom||null,' +
-  ' required:!!q.required, unit:q.unit||null, exclusiveOption:q.exclusiveOption||null}; })}};', ctx);
-var A = ctx.__api;
+  ' required:!!q.required, unit:q.unit||null, exclusiveOption:q.exclusiveOption||null}; })}})');
 
 /* สุ่มแบบ deterministic (seed คงที่) ให้ golden เหมือนเดิมทุกครั้งที่รัน */
 var seed = 20261003;
@@ -148,7 +144,7 @@ for(var i = 0; i < GENERATOR_CASES; i++){
   var a = randomAnswers();
   var plan = randomPlan();
   var planIn = plain(plan);
-  ctx.state = {plan: plan};
+  setState({plan: plan});
   var picks = {};
   A.PATTERNS.forEach(function(p){
     var sel = A.selectionFor(p, a);
@@ -223,7 +219,7 @@ var trackingCases = [];
 for(var t = 0; t < TRACKING_CASES; t++){
   var ta = randomAnswers();
   if(rnd() < 0.9) ta.Q2 = subset(DAYS, 0.5);
-  ctx.state = {plan: randomPlan(), answers: ta};
+  setState({plan: randomPlan(), answers: ta});
   var program = plain(A.buildPlanSnapshot(ta));
   var today = pick(TODAYS);
   ctx.__today = today;
@@ -297,7 +293,7 @@ for(var qi = 0; qi < 400; qi++){
   if(rnd() < 0.3) qa.Q29 = pick(["ทั่วไป","มังสวิรัติ","วีแกน","ฮาลาล"]);
   if(rnd() < 0.2) qa.Q30 = pick(["", "กุ้ง"]);
   var before = plain(qa);
-  ctx.state = {plan: randomPlan(), answers: qa};
+  setState({plan: randomPlan(), answers: qa});
   var vis = {}, complete = {};
   for(var c = 1; c <= 9; c++){
     vis[c] = A.visibleQsFor(c).map(function(q){ return q.id; });
@@ -314,7 +310,7 @@ for(var qi = 0; qi < 400; qi++){
   }
   questionCases.push({
     answers: before, ops: ops,
-    expected: plain({visible: vis, complete: complete, answered: (ctx.state.answers = before, A.countAnswered()),
+    expected: plain({visible: vis, complete: complete, answered: (getState().answers = before, A.countAnswered()),
       visibleTotal: A.countVisibleTotal(), afterOps: qa})
   });
 }

@@ -36,4 +36,14 @@ class MergeRawTest {
         assertEquals("42.5", set0["weight"]!!.jsonPrimitive.content)
         assertEquals("true", set0["warm"]!!.jsonPrimitive.content)
     }
+
+    @Test
+    fun doesNotAddNullKeysTheWebNeverWrote() {
+        val raw = Json.parseToJsonElement("""{"date":"2026-10-09","nutrition":{"kcal":1800}}""")
+        val typed = Json.parseToJsonElement("""{"date":"2026-10-09","stress":null,"nutrition":{"kcal":1800,"fatG":null},"sleep":{"hours":null}}""")
+        val out = TrackStore.mergeRaw(raw, typed).jsonObject
+        assertEquals(false, "stress" in out)
+        assertEquals(false, "fatG" in out["nutrition"]!!.jsonObject)
+        assertEquals(false, "hours" in out["sleep"]!!.jsonObject)
+    }
 }

@@ -315,7 +315,117 @@ for(var qi = 0; qi < 400; qi++){
   });
 }
 
+/* ---------- progress cases (แถบไขมัน + กรอบแผน Progression & Goal) ----------
+   สุ่มคนที่ทำตามแผนได้หลายระดับ: ชั่งบ่อย/นาน ๆ ครั้ง, กรอกแคลอรี่ครบ/ไม่ครบ/ซ้ำ/ตรงเป้าพอดี,
+   น้ำหนักลด/คงที่/ขึ้น, ความแข็งแรงเพิ่ม/ตัน, ความเครียด, อาการบาดเจ็บ, snapshot วันที่ล็อกแล้ว */
+var PG = ev('({fatTug:fatTug, pgCurrent:pgCurrent, pgRecommend:pgRecommend, pgSummaryText:pgSummaryText,' +
+  ' pgGoalLine:pgGoalLine, pgEta:pgEta, pgNowKg:pgNowKg, fmtDateISO:fmtDateISO})');
+var PG_GOALS = ["ลดไขมัน","เพิ่มกล้ามเนื้อ","Recomposition (ลด+เพิ่มพร้อมกัน)","รักษาสุขภาพทั่วไป"];
+var STRESS_NOTES = ['', 'งานเยอะ', 'นอนไม่พอ เพราะลูกป่วยทั้งคืน และต้องตื่นเช้าไปประชุมงานที่สำนักงานใหญ่อีก', 'เรื่องเงิน'];
+var progressCases = [];
+for(var pc = 0; pc < 160; pc++){
+  var pa = randomAnswers();
+  pa.Q2 = subset(DAYS, 0.5 + rnd() * 0.4);
+  if(!pa.Q2.length) pa.Q2 = ['จันทร์', 'พฤหัสบดี'];
+  if(rnd() < 0.85){ pa.Q9 = pick(['ชาย','หญิง']); pa.Q10 = 18 + Math.floor(rnd() * 45); pa.Q11 = 150 + Math.floor(rnd() * 40); pa.Q12 = 50 + Math.floor(rnd() * 60); }
+  setState({plan: randomPlan(), answers: pa});
+  var pp = plain(A.buildPlanSnapshot(pa));
+  var pToday = pick(TODAYS);
+  ctx.__today = pToday;
+  var pTodayD = new RealDate(pToday + 'T12:00:00');
+  var pOff = function(n){ var d = new RealDate(pTodayD.getTime()); d.setDate(d.getDate() + n); return isoOf(d); };
+  var span = 10 + Math.floor(rnd() * 110);
+  pp.goal = pick(PG_GOALS);
+  pp.startDate = pOff(-span);
+  pp.planId = 'pg' + pc;
+  pp.cardioDays = subset(DAYS, 0.25);
+  pp.cardioMinByDay = {};
+  pp.cardioDays.forEach(function(dd){ if(rnd() < 0.6) pp.cardioMinByDay[dd] = pick([20, 30, 45]); });
+  if(rnd() < 0.2) pp.cardioMinutes = pick([25, 40]);
+  if(rnd() < 0.3) pp.exp = pick(EXP);
+  if(pp.targets && rnd() < 0.7) pp.targets.goalWeight = 50 + Math.floor(rnd() * 50);
+  if(rnd() < 0.3){
+    pp.pg = {};
+    if(rnd() < 0.5) pp.pg.evalFrom = pOff(-Math.floor(rnd() * span));
+    if(rnd() < 0.6) pp.pg.confirmedAt = pOff(-Math.floor(rnd() * 40));
+    if(rnd() < 0.4) pp.pg.adjustments = [{date: pOff(-30), fromKcal: 2000, toKcal: 1800, fromTdee: 2300, toTdee: 2150}];
+  }
+  var tg = pp.targets || {};
+  var baseKg = parseFloat(pa.Q12) || 75;
+  var trend = pick([-0.12, -0.07, -0.03, 0, 0.02, 0.05, 0.1]);
+  var pW = pick([0.15, 0.45, 0.85]), pK = pick([0.3, 0.75, 0.95]), pS = pick([0.4, 0.8, 1]);
+  var kcalMode = pick(['real', 'real', 'target', 'repeat']);
+  var growth = pick([0, 0.2, 0.6]);
+  var plogs = {}, pweights = {};
+  var exIdx = 0;
+  for(var po = -span - 3; po <= 0; po++){
+    var di = pOff(po);
+    if(rnd() < pW) pweights[di] = {date: di, kg: Math.round((baseKg + trend * (po + span) + (rnd() - 0.5) * 1.2 + (rnd() < 0.03 ? 3 : 0)) * 10) / 10};
+    var lg = {date: di, planId: pp.planId, exercises: {}, completed: false, nutrition: {}, sleep: {}, updatedAt: '2026-01-01T00:00:00.000Z'};
+    var used = false;
+    var sk = A.sessionKeyFor(pp, di);
+    if(sk && rnd() < pS){
+      var sd = (pp.sessions || []).filter(function(s){ return s.key === sk; })[0];
+      if(sd) sd.exercises.forEach(function(ex, k){
+        var w = Math.round((20 + k * 5) * (1 + growth * exIdx / 60) * 2) / 2;
+        var sets = rnd() < 0.15 ? [] : [{weight: w, reps: pick([6, 8, 10])}, {weight: w, reps: pick([5, 8])}];
+        lg.exercises[ex.id] = {sets: sets, done: rnd() < 0.9};
+        if(rnd() < 0.02) lg.exercises[ex.id].symptom = {text: 'ปวดเข่า', level: pick(['injury', 'mild', 'emergency'])};
+      });
+      exIdx++;
+      if(rnd() < 0.3) lg.completed = true;
+      used = true;
+    }
+    if(rnd() < pK){
+      var kc = kcalMode === 'target' && tg.kcal != null ? tg.kcal
+        : kcalMode === 'repeat' ? 2000
+        : Math.round((tg.kcal || 2000) + (rnd() - 0.45) * 700);
+      if(rnd() < 0.04) kc = 600;
+      lg.nutrition.kcal = kc;
+      if(rnd() < 0.7) lg.nutrition.proteinG = Math.round((tg.proteinG || 120) * (0.6 + rnd() * 0.5));
+      if(rnd() < 0.4){ lg.nutrition.carbG = Math.round(150 + rnd() * 150); lg.nutrition.fatG = Math.round(40 + rnd() * 40); }
+      used = true;
+    }
+    if(rnd() < 0.6){ lg.sleep.hours = pick([5, 6, 6.5, 7, 7.5, 8]); used = true; }
+    if(pp.cardioDays.indexOf(DAYS[(new RealDate(di + 'T12:00:00').getDay() + 6) % 7]) > -1 && rnd() < 0.7){ lg.cardio = {minutes: pick([15, 30, 40])}; used = true; }
+    else if(rnd() < 0.05) lg.cardio = {};
+    if(rnd() < 0.35){ lg.stress = {level: pick([1, 2, 3, 4, 5, 5]), note: pick(STRESS_NOTES)}; used = true; }
+    else if(rnd() < 0.1) lg.stress = {};
+    if(po < -1 && rnd() < 0.25){
+      lg.final = {parts: rnd() < 0.5 ? [{label: sk || 'Cardio 30 นาที', missed: rnd() < 0.3}] : []};
+      if(rnd() < 0.6 && lg.nutrition.kcal != null) lg.final.energy = rnd() < 0.7
+        ? {kcal: lg.nutrition.kcal, tdee: tg.tdee || 2200, ex: Math.round(rnd() * 300)}
+        : {kcal: lg.nutrition.kcal, tdee: tg.tdee || 2200};
+      used = true;
+    }
+    if(used) plogs[di] = lg;
+  }
+  plogs = plain(plogs);
+  A.setTrack({program: pp, logs: plogs, weights: pweights});
+  var evv = PG.pgCurrent(pp);
+  var eta = PG.pgEta(pp, evv);
+  if(eta && eta.date) eta.date = PG.fmtDateISO(eta.date);
+  var sig = function(s){ return {level: s.level, text: s.text, why: s.why || null}; };
+  progressCases.push({
+    today: pToday, answers: pa, program: pp, logs: plogs, weights: pweights,
+    expected: plain({
+      fat: PG.fatTug(pp),
+      level: evv.level, persisted: !!evv.persisted, run: evv.run, confirmed: evv.confirmed,
+      anchor: evv.anchor, ws: evv.ws, refKg: evv.refKg, elapsed: evv.elapsed, plan: evv.plan, reg: evv.reg,
+      history: evv.history,
+      weight: sig(evv.weight),
+      energy: {level: evv.energy.level, text: evv.energy.text, implied: evv.energy.implied == null ? null : evv.energy.implied},
+      strength: {level: evv.strength.level, text: evv.strength.text, why: evv.strength.why || null,
+        lifts: evv.strength.lifts.map(function(l){ return {id: l.ex.id, pct: l.pct, level: l.level}; })},
+      issues: evv.issues, causes: evv.causes,
+      summary: PG.pgSummaryText(evv), goalLine: PG.pgGoalLine(pp, evv.plan), now: PG.pgNowKg(evv), eta: eta,
+      rec: PG.pgRecommend(pp, evv)
+    })
+  });
+}
+
 fs.mkdirSync(OUT, {recursive: true});
+fs.writeFileSync(path.join(OUT, 'progress.json'), JSON.stringify(progressCases));
 fs.writeFileSync(path.join(OUT, 'tracking.json'), JSON.stringify(trackingCases));
 fs.writeFileSync(path.join(OUT, 'questions.json'), JSON.stringify(questionCases));
 fs.writeFileSync(path.join(OUT, 'generator.json'), JSON.stringify(generatorCases));

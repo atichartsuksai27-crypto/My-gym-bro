@@ -75,3 +75,23 @@ fun jsRound(x: Double): Double = floor(x + 0.5)
 
 /** NaN/Infinity ของ JS กลายเป็น null ตอน JSON.stringify — ใช้ก่อนเก็บค่าลงโมเดลที่จะซิงก์ */
 fun Double.finiteOrNull(): Double? = if (isFinite()) this else null
+
+/** x.toFixed(d) ของ JS — ปัดจากค่าฐานสองจริงของ x แบบครึ่งออกจากศูนย์ (−0 แสดงเป็น "0.00") */
+fun jsToFixed(x: Double, d: Int): String {
+    val s = java.math.BigDecimal(x).setScale(d, java.math.RoundingMode.HALF_UP).toPlainString()
+    return if (s.startsWith("-") && s.trim('-', '0', '.').isEmpty()) s.substring(1) else s
+}
+
+/** x.toLocaleString() ของ JS (en-US): คั่นหลักพันด้วย "," ทศนิยมไม่เกิน 3 ตำแหน่ง */
+fun jsLocale(x: Double): String {
+    if (x.isNaN()) return "NaN"
+    val bd = java.math.BigDecimal(x).setScale(3, java.math.RoundingMode.HALF_UP).stripTrailingZeros()
+    val neg = bd.signum() < 0
+    val plain = bd.abs().toPlainString()
+    val intPart = plain.substringBefore('.')
+    val frac = plain.substringAfter('.', "")
+    val grouped = intPart.reversed().chunked(3).joinToString(",").reversed()
+    return (if (neg) "-" else "") + grouped + (if (frac.isNotEmpty()) ".$frac" else "")
+}
+
+fun jsLocale(x: Int): String = jsLocale(x.toDouble())

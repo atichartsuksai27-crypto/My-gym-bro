@@ -39,6 +39,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -165,7 +166,11 @@ class TrackStore(context: Context, private val userId: String, private val scope
          * (เช่น stress / อาการหลังฝึก / อาหาร / warm-up ที่เว็บเพิ่มทีหลัง) ยังอยู่ครบ ส่วน field ที่แอปรู้จักใช้ค่าของแอป
          */
         internal fun mergeRaw(raw: JsonElement?, typed: JsonElement): JsonElement = when {
-            raw is JsonObject && typed is JsonObject -> JsonObject(raw + typed.mapValues { (k, v) -> mergeRaw(raw[k], v) })
+            // null ทับได้เฉพาะ key ที่มีอยู่แล้ว (ผู้ใช้ลบค่า) — ไม่เติม key ว่างใหม่ลงข้อมูลที่เว็บไม่เคยเขียน
+            typed is JsonObject -> {
+                val r = raw as? JsonObject ?: JsonObject(emptyMap())
+                JsonObject(r + typed.filter { (k, v) -> v !is JsonNull || k in r }.mapValues { (k, v) -> mergeRaw(r[k], v) })
+            }
             raw is JsonArray && typed is JsonArray -> JsonArray(typed.mapIndexed { i, v -> mergeRaw(raw.getOrNull(i), v) })
             else -> typed
         }

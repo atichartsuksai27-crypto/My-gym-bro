@@ -28,13 +28,58 @@ data class Program(
     val startDate: String? = null,
     val planId: String? = null,
     val createdAt: String? = null,
+    /** วัน cardio ตามแผน + นาทีรายวัน (แผนเก่าใช้ cardioMinutes ค่าเดียวทั้งสัปดาห์) */
+    val cardioDays: List<String> = emptyList(),
+    val cardioMinByDay: Map<String, Double> = emptyMap(),
+    val cardioMinutes: Double? = null,
+    val exp: String? = null,
+    val sex: String? = null,
+    /** สถานะกรอบแผน Progression & Goal (program.pg ของเว็บ) */
+    val pg: PgState? = null,
+)
+
+@Serializable
+data class PgAdjustment(
+    val date: String,
+    val fromKcal: Double? = null,
+    val toKcal: Double? = null,
+    val fromTdee: Double? = null,
+    val toTdee: Double? = null,
+)
+
+@Serializable
+data class PgState(
+    val evalFrom: String? = null,
+    val confirmedAt: String? = null,
+    val baseDirection: String? = null,
+    val adjustments: List<PgAdjustment> = emptyList(),
 )
 
 @Serializable
 data class SetEntry(val weight: Double? = null, val reps: Double? = null)
 
+/** อาการหลังฝึกรายท่า — level: ok / mild / injury / emergency (วิเคราะห์จากข้อความฝั่งเว็บ) */
 @Serializable
-data class ExerciseLog(val sets: List<SetEntry?> = emptyList(), val done: Boolean = false)
+data class Symptom(val text: String = "", val level: String? = null, val name: String? = null)
+
+@Serializable
+data class ExerciseLog(val sets: List<SetEntry?> = emptyList(), val done: Boolean = false, val symptom: Symptom? = null)
+
+@Serializable
+data class CardioLog(val minutes: Double? = null)
+
+@Serializable
+data class StressLog(val level: Double? = null, val note: String? = null)
+
+@Serializable
+data class DayPart(val label: String = "", val missed: Boolean = false)
+
+@Serializable
+data class DayEnergy(val kcal: Double? = null, val tdee: Double? = null, val ex: Double? = null)
+
+/** snapshot ตอนระบบล็อกวันตอนเที่ยงคืน — ใช้แทนแผนปัจจุบันเพราะแผนอาจเปลี่ยนไปแล้ว */
+@Serializable
+data class DayFinal(val parts: List<DayPart>? = null, val energy: DayEnergy? = null)
 
 @Serializable
 data class Nutrition(
@@ -60,6 +105,11 @@ data class DailyLog(
     val nutrition: Nutrition = Nutrition(),
     val sleep: Sleep = Sleep(),
     val updatedAt: String? = null,
+    val cardio: CardioLog? = null,
+    val stress: StressLog? = null,
+    val final: DayFinal? = null,
+    /** วันว่างที่ระบบล็อกให้เองตอนเที่ยงคืน (ไม่มีข้อมูลจริง) */
+    val stub: Boolean = false,
 )
 
 data class DayItem(val group: String, val key: String, val done: Boolean)

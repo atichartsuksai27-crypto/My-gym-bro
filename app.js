@@ -560,8 +560,10 @@ function computeTDEE(a){
    TDEE สูง, เพิ่มกล้ามเนื้อ = min(TDEE×pct, TDEE+cap) กันยัด surplus บวมเกินไป
    เส้นทางที่หลักการไม่ได้ระบุไว้ (Q4a/Q5b ยังไม่ตอบ หรือตอบ "ไม่แน่ใจให้ระบบแนะนำ")
    คงค่า multiplier เดิมไว้แบบไม่มีเพดานแยก — ไม่ fabricate กฎที่แหล่งอ้างอิงไม่ได้เขียนไว้ */
-/* exKcal = แคลที่เผาจากการออกกำลังกายตามแผนต่อวัน (เฉลี่ยทั้งสัปดาห์) — ใช้เฉพาะเป้า "รักษาสุขภาพทั่วไป":
-   TDEE ของระบบไม่รวมการฝึก เป้า maintenance ที่ = TDEE เฉย ๆ จึงขาดเท่ากับแคลที่ฝึก (F-02) */
+/* exKcal = แคลที่เผาจากการออกกำลังกายตามแผนต่อวัน (เฉลี่ยทั้งสัปดาห์) — TDEE ของระบบไม่รวมการฝึก
+   เป้าที่คิดจาก TDEE เฉย ๆ จึงขาดเพิ่มเท่าแคลที่ฝึกโดยไม่ตั้งใจ (F-02) เป้ารักษาสุขภาพ/Recomp/เพิ่มกล้ามจึงคิดจาก
+   "พลังงานที่ใช้รวมการฝึก" = TDEE + exKcal (เปอร์เซ็นต์/เพดานเดิมใช้กับฐานนี้) ส่วนลดไขมันคิดจาก TDEE เดิม
+   เพราะการฝึกเป็นส่วนหนึ่งของ deficit ที่ตั้งใจ (แถบไขมันก็นับแบบนี้) */
 function computeCalorieTarget(tdee, a, exKcal){
   var goal = a.Q1;
   var floor = a.Q9==='ชาย' ? 1500 : (a.Q9==='หญิง' ? 1200 : null);
@@ -569,6 +571,8 @@ function computeCalorieTarget(tdee, a, exKcal){
     return {kcal:null, floored:false, floor:floor, direction:'ข้อมูลไม่ครบ — กรอกเพศ/อายุ/ส่วนสูง/น้ำหนัก/กิจกรรมให้ครบก่อน'};
   }
   var target, directionLabel;
+  var ex = exKcal>0 ? Math.round(exKcal) : 0, base = tdee + ex;
+  var exNote = ex ? ' · ฐาน = TDEE + แคลฝึก ~'+ex+' kcal' : '';
   if(goal==='ลดไขมัน'){
     if(a.Q4a==='เข้มข้น'){
       target = Math.max(tdee*0.75, tdee-1000);
@@ -582,32 +586,30 @@ function computeCalorieTarget(tdee, a, exKcal){
     }
   } else if(goal==='เพิ่มกล้ามเนื้อ'){
     if(a.Q5b==='ได้ (เน้นสร้างกล้ามให้เร็ว)'){
-      target = Math.min(tdee*1.15, tdee+500);
-      directionLabel = 'เพิ่มกล้ามเนื้อ (รับไขมันได้ — เพิ่ม 15% แต่ไม่เกิน +500 kcal)';
+      target = Math.min(base*1.15, base+500);
+      directionLabel = 'เพิ่มกล้ามเนื้อ (รับไขมันได้ — เพิ่ม 15% แต่ไม่เกิน +500 kcal'+exNote+')';
     } else if(a.Q5b==='ไม่ได้ (อยากคุมไขมันไปด้วย)'){
-      target = Math.min(tdee*1.08, tdee+300);
-      directionLabel = 'เพิ่มกล้ามเนื้อ (คุมไขมัน — เพิ่ม 8% แต่ไม่เกิน +300 kcal)';
+      target = Math.min(base*1.08, base+300);
+      directionLabel = 'เพิ่มกล้ามเนื้อ (คุมไขมัน — เพิ่ม 8% แต่ไม่เกิน +300 kcal'+exNote+')';
     } else {
-      target = tdee*1.10; // ยังไม่ตอบ Q5b — หลักการยังไม่ระบุเพดานแยก
-      directionLabel = 'เพิ่มกล้ามเนื้อ (surplus 10%)';
+      target = base*1.10; // ยังไม่ตอบ Q5b — หลักการยังไม่ระบุเพดานแยก
+      directionLabel = 'เพิ่มกล้ามเนื้อ (surplus 10%'+exNote+')';
     }
   } else if(goal==='Recomposition (ลด+เพิ่มพร้อมกัน)'){
     /* Recomp = กินขาดเล็กน้อยหรือใกล้เคียงพอดี + โปรตีนสูง + ฝึกเวท — ไม่กินเกิน
-       TDEE ของระบบยังไม่รวมการออกกำลังกาย วันฝึกจึงขาดเพิ่มอีกเท่าแคลที่เผาจากการฝึก
-       หักขั้นต่ำไว้ที่เป้าเองด้วย เพื่อให้ยังขาดอยู่แม้ฝึกน้อยวัน */
+       เปอร์เซ็นต์ที่หักคิดจากพลังงานที่ใช้รวมการฝึก (base) ไม่ใช่ TDEE เฉย ๆ ไม่งั้นวันฝึกขาดซ้ำสองชั้น (−5% กลายเป็น ~−10%) */
     if(a.Q6==='ห่างมาก'){
-      target = Math.max(tdee*0.92, tdee-300);
-      directionLabel = 'Recomposition (ห่างเป้ามาก — หัก 8% แต่ไม่เกิน 300 kcal)';
+      target = Math.max(base*0.92, base-300);
+      directionLabel = 'Recomposition (ห่างเป้ามาก — หัก 8% แต่ไม่เกิน 300 kcal'+exNote+')';
     } else if(a.Q6==='ใกล้เป้าหมายแล้ว'){
-      target = tdee*1.0; // ไขมันใกล้เป้าแล้ว — กินพอดี TDEE ส่วนที่ขาดมาจากการฝึก
-      directionLabel = 'Recomposition (ใกล้เป้าแล้ว — เท่า TDEE ส่วนที่ขาดมาจากการฝึก)';
+      target = base*1.0; // ไขมันใกล้เป้าแล้ว — กินพอดีพลังงานที่ใช้
+      directionLabel = 'Recomposition (ใกล้เป้าแล้ว — เท่าพลังงานที่ใช้รวมการฝึก'+exNote+')';
     } else {
-      target = Math.max(tdee*0.95, tdee-200); // "ห่างปานกลาง" หรือยังไม่ตอบ Q6
-      directionLabel = 'Recomposition (ห่างปานกลาง — หัก 5% แต่ไม่เกิน 200 kcal)';
+      target = Math.max(base*0.95, base-200); // "ห่างปานกลาง" หรือยังไม่ตอบ Q6
+      directionLabel = 'Recomposition (ห่างปานกลาง — หัก 5% แต่ไม่เกิน 200 kcal'+exNote+')';
     }
   } else {
-    var ex = exKcal>0 ? Math.round(exKcal) : 0;
-    target = tdee + ex;
+    target = base;
     directionLabel = ex ? 'รักษาน้ำหนัก (maintenance — TDEE + แคลจากการฝึกตามแผน ~'+ex+' kcal)' : 'รักษาน้ำหนัก (maintenance)';
   }
   // ด่านสุดท้ายเสมอตามหลักการ: Final Target = max(Target, Floor) — เช็คหลังคำนวณ
@@ -636,7 +638,7 @@ function computeTargets(a){
   var w = parseFloat(a.Q12);
   var hasWeight = w>0;
   var tdee = computeTDEE(a); // null ถ้าข้อมูลไม่ครบ/ไม่ถูกต้อง — ไม่ fabricate ค่า
-  var cal = computeCalorieTarget(tdee, a, a.Q1==='รักษาสุขภาพทั่วไป' && hasWeight ? plannedExFromAnswers(a, w) : 0);
+  var cal = computeCalorieTarget(tdee, a, a.Q1!=='ลดไขมัน' && hasWeight ? plannedExFromAnswers(a, w) : 0);
   var macro = computeMacro(cal.kcal, hasWeight?w:null);
   var water = hasWeight ? Math.min(4.0, Math.max(1.5, Math.round(w*0.035*10)/10)) : null;
   var already = WATER_NOW[a.Q43];
@@ -1148,7 +1150,7 @@ function targetsOf(program){
 var PG_WINDOW = 28;      // วันย้อนหลังที่ใช้หาแนวโน้มน้ำหนักและสมดุลพลังงาน (น้ำ/ไกลโคเจน/รอบเดือนทำให้ช่วงสั้นแกว่ง)
 var PG_MIN_SPAN = 21;    // ต้องชั่งน้ำหนักห่างกันอย่างน้อยกี่วันถึงจะคำนวณแนวโน้ม
 var PG_ADJ_MAX = 150;    // ปรับเป้าแคลอรี่ได้ครั้งละไม่เกินเท่านี้ kcal
-var PG_TDEE_MIN_BMR = 1.1; // TDEE ที่ระบบตั้งใหม่ต้องไม่ต่ำกว่า BMR × ค่านี้
+var PG_TDEE_MIN_BMR = 1.2; // TDEE ที่ระบบตั้งใหม่ต้องไม่ต่ำกว่า BMR × ค่านี้ (= ตัวคูณกิจกรรมต่ำสุด "นั่งโต๊ะ" ของระบบ)
 var PG_STR_WINDOW = 28;  // วันย้อนหลังที่ใช้หาแนวโน้มความแข็งแรง
 var PG_EARLY_DAYS = 21;  // 3 สัปดาห์แรกของรอบ น้ำ/ไกลโคเจนทำให้น้ำหนักเปลี่ยนเร็วผิดปกติได้ — ยังไม่ตัดสินว่าผิดปกติ
 /* น้ำหนักที่ควรเพิ่มต่อเดือนช่วงเพิ่มกล้าม (% น้ำหนักตัว) ตามประสบการณ์ มือใหม่ → นักกีฬา (แนวทางของ Helms et al.) */
@@ -1548,7 +1550,7 @@ function pgRecommend(p, ev){
   // ปรับแคลอรี่เฉพาะเมื่อสัญญาณ "น้ำหนัก" ผิดปกติจริง (หรือหลุดกรอบเล็กน้อยต่อเนื่องหลายสัปดาห์) — ไม่ปรับจากความแข็งแรง/สัญญาณพลังงานเดี่ยว ๆ
   var weightOff = ev.weight.level==='anomaly' || (ev.persisted && ev.weight.level==='watch');
   if(weightOff && en.implied!=null && t.kcal!=null){
-    // TDEE ที่คำนวณย้อนจากข้อมูลจริงห้ามต่ำกว่า BMR × 1.1 (ต่ำกว่านั้นมักแปลว่าบันทึกการกินไม่ครบ ไม่ใช่เผาผลาญจริง)
+    // TDEE ที่คำนวณย้อนจากข้อมูลจริงห้ามต่ำกว่า BMR × 1.2 (ต่ำกว่านั้นมักแปลว่าบันทึกการกินไม่ครบ ไม่ใช่เผาผลาญจริง)
     var bmrNow = pgBMR(p, ev.refKg), impliedUse = en.implied;
     if(bmrNow!=null) impliedUse = Math.max(impliedUse, bmrNow*PG_TDEE_MIN_BMR + en.exAct);
     var want = impliedUse + ev.plan.c*FAT_KCAL_PER_KG/7;
@@ -4177,7 +4179,8 @@ function planUpdateBanner(p){
 function recompTargetUpdate(p){
   if(!p || p.goal!=='Recomposition (ลด+เพิ่มพร้อมกัน)' || p.recompTargetSeen || !p.targets || p.targets.tdee==null) return null;
   if((pgState(p).adjustments||[]).length) return null;
-  var cal = computeCalorieTarget(p.targets.tdee, {Q1:p.goal, Q6:(state.answers||{}).Q6, Q9:pgSex(p)});
+  var kg0 = p.startWeight || bodyweightAsOf(todayISO()) || parseFloat((state.answers||{}).Q12);
+  var cal = computeCalorieTarget(p.targets.tdee, {Q1:p.goal, Q6:(state.answers||{}).Q6, Q9:pgSex(p)}, kg0>0 ? pgPlannedExPerDay(p, kg0) : 0);
   var kcal = cal.kcal!=null ? Math.round(cal.kcal) : null;
   return (kcal && p.targets.kcal!=null && kcal < p.targets.kcal) ? {kcal:kcal, direction:cal.direction, floored:cal.floored} : null;
 }

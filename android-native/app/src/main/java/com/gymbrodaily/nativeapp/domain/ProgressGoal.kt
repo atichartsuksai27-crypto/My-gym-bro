@@ -27,7 +27,7 @@ private val TH_MONTHS = listOf("ม.ค.", "ก.พ.", "มี.ค.", "เม.�
 const val PG_WINDOW = 28
 const val PG_MIN_SPAN = 21
 const val PG_ADJ_MAX = 150
-const val PG_TDEE_MIN_BMR = 1.1
+const val PG_TDEE_MIN_BMR = 1.2
 const val PG_STR_WINDOW = 28
 const val PG_EARLY_DAYS = 21
 val PG_GAIN_PCT_MONTH = listOf(listOf(1.0, 1.5), listOf(0.75, 1.25), listOf(0.5, 1.0), listOf(0.25, 0.5))
@@ -652,7 +652,7 @@ object ProgressGoal {
         // ปรับแคลอรี่เฉพาะเมื่อสัญญาณ "น้ำหนัก" ผิดปกติจริง (หรือหลุดกรอบเล็กน้อยต่อเนื่องหลายสัปดาห์)
         val weightOff = ev.weight.level == PgLevel.ANOMALY || (ev.persisted && ev.weight.level == PgLevel.WATCH)
         if (weightOff && implied != null && tg.kcal != null) {
-            // TDEE ที่คำนวณย้อนจากข้อมูลจริงห้ามต่ำกว่า BMR × 1.1
+            // TDEE ที่คำนวณย้อนจากข้อมูลจริงห้ามต่ำกว่า BMR × 1.2
             val bmrNow = bmr(t, ev.refKg)
             val impliedUse = if (bmrNow != null) max(implied, bmrNow * PG_TDEE_MIN_BMR + en.exAct!!) else implied
             val w = impliedUse + ev.plan.c * FAT_KCAL_PER_KG / 7

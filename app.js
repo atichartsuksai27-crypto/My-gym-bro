@@ -1032,7 +1032,15 @@ function intensityEligible(ex){
   return !!ex && TIMED_PATTERNS.indexOf(ex.pattern)===-1 && SMALL_PATTERNS.indexOf(ex.pattern)===-1 && WARMUP_WEIGHTED.indexOf(ex.equip)>-1;
 }
 function isIntense(ex){ return intensityEligible(ex) && ex.intensity==='intense'; }
-function planIntense(slot, ex){ return intensityEligible(ex) && (state.plan.intensity||{})[slot]==='intense'; }
+/* แบบเข้มข้น (จนหมดแรง ด้วยน้ำหนักสูง) ปิดสำหรับมือใหม่ และคนที่ระบุอาการบาดเจ็บ/โรคประจำตัว/ข้อจำกัดทางร่างกาย (รวมหัวใจ-หลอดเลือด)
+   คืนเหตุผลที่ปิด หรือ null ถ้าใช้ได้ — แผนที่เคยเลือกเข้มข้นไว้ก่อนหน้านี้ไม่ถูกแก้ย้อนหลัง */
+function intenseBlockReason(a){
+  if(!a) return null;
+  if(a.Q16==='มือใหม่') return 'คุณระบุว่าเป็นมือใหม่ — เริ่มจากแบบทั่วไปจนฟอร์มนิ่งก่อน';
+  if(a.Q25==='มี' && (a.Q26||[]).length) return 'คุณระบุอาการบาดเจ็บ/โรคประจำตัว ('+a.Q26.join(', ')+') — แบบเข้มข้นใช้น้ำหนักสูงจนหมดแรง เสี่ยงเกินไป';
+  return null;
+}
+function planIntense(slot, ex){ return intensityEligible(ex) && !intenseBlockReason(state.answers) && (state.plan.intensity||{})[slot]==='intense'; }
 function setsRepsFor(slot, ex, a){
   var base = slotBase(slot);
   if(TIMED_PATTERNS.indexOf(base)>-1) return (ex && ex.timed) ? '3 x 30-45 วิ' : '3 x 10-15';
@@ -1133,7 +1141,10 @@ function targetsOf(program){
    ระดับ: ข้อมูลไม่พอ → ตามแผน → เฝ้าระวัง → ผิดปกติ (ให้ผู้ใช้ตรวจข้อมูลที่บันทึก) → ควรปรับแผน (ผู้ใช้ยืนยันแล้วว่าข้อมูลถูก)
    ตัวเลขกรอบเป็นค่าประมาณจากแนวทางทั่วไป ไม่ใช่การรับประกันผล
    ============================================================ */
-var PG_WINDOW = 21;      // วันย้อนหลังที่ใช้หาแนวโน้มน้ำหนักและสมดุลพลังงาน
+var PG_WINDOW = 28;      // วันย้อนหลังที่ใช้หาแนวโน้มน้ำหนักและสมดุลพลังงาน (น้ำ/ไกลโคเจน/รอบเดือนทำให้ช่วงสั้นแกว่ง)
+var PG_MIN_SPAN = 21;    // ต้องชั่งน้ำหนักห่างกันอย่างน้อยกี่วันถึงจะคำนวณแนวโน้ม
+var PG_ADJ_MAX = 150;    // ปรับเป้าแคลอรี่ได้ครั้งละไม่เกินเท่านี้ kcal
+var PG_TDEE_MIN_BMR = 1.1; // TDEE ที่ระบบตั้งใหม่ต้องไม่ต่ำกว่า BMR × ค่านี้
 var PG_STR_WINDOW = 28;  // วันย้อนหลังที่ใช้หาแนวโน้มความแข็งแรง
 var PG_EARLY_DAYS = 21;  // 3 สัปดาห์แรกของรอบ น้ำ/ไกลโคเจนทำให้น้ำหนักเปลี่ยนเร็วผิดปกติได้ — ยังไม่ตัดสินว่าผิดปกติ
 /* น้ำหนักที่ควรเพิ่มต่อเดือนช่วงเพิ่มกล้าม (% น้ำหนักตัว) ตามประสบการณ์ มือใหม่ → นักกีฬา (แนวทางของ Helms et al.) */
@@ -1224,7 +1235,7 @@ function pgAnchorKg(p){
 function pgLifts(p){
   var out = [], seen = {};
   (p.sessions||[]).forEach(function(s){ s.exercises.forEach(function(ex){
-    if(seen[ex.id] || ex.timeBased || WARMUP_WEIGHTED.indexOf(ex.equip)===-1) return;
+    if(seen[ex.id] || ex.timeBased || SMALL_PATTERNS.indexOf(ex.pattern)>-1 || WARMUP_WEIGHTED.indexOf(ex.equip)===-1) return;
     seen[ex.id] = true; out.push(ex);
   }); });
   return out;
@@ -1304,7 +1315,7 @@ function pgWeightSignal(p, ev){
   var s = {key:'weight', title:'น้ำหนักตัวเทียบกรอบแผน', level:'na', text:''};
   var plan = ev.plan, band = 'กรอบ '+pgRate(plan.lo)+' ถึง '+pgRate(plan.hi)+' กก./สัปดาห์';
   if(!ev.reg){
-    s.text = 'ต้องชั่งน้ำหนักอย่างน้อย 4 ครั้งในช่วง 10 วันขึ้นไปของรอบนี้ (ตอนนี้ '+ev.wpts.length+' ครั้ง) · '+band;
+    s.text = 'ต้องชั่งน้ำหนักอย่างน้อย 4 ครั้งในช่วง '+PG_MIN_SPAN+' วันขึ้นไปของรอบนี้ (ตอนนี้ '+ev.wpts.length+' ครั้ง) · '+band;
     return s;
   }
   var rate = ev.reg.b*7, kg = ev.refKg;
@@ -1330,7 +1341,7 @@ function pgWeightSignal(p, ev){
 function pgEnergySignal(p, ev){
   var s = {key:'energy', title:'การกินที่บันทึก เทียบกับน้ำหนักที่เปลี่ยนจริง', level:'na', text:''};
   var t = targetsOf(p), adh = ev.adh, need = Math.max(7, Math.ceil(adh.days*0.7));
-  if(!ev.reg){ s.text = 'ต้องมีแนวโน้มน้ำหนักก่อน (ชั่งอย่างน้อย 4 ครั้งในช่วง 10 วันขึ้นไป)'; return s; }
+  if(!ev.reg){ s.text = 'ต้องมีแนวโน้มน้ำหนักก่อน (ชั่งอย่างน้อย 4 ครั้งในช่วง '+PG_MIN_SPAN+' วันขึ้นไป)'; return s; }
   if(adh.kcal.length < need){ s.text = 'ต้องกรอกแคลอรี่อย่างน้อย '+need+' จาก '+adh.days+' วันในช่วงประเมิน (ตอนนี้ '+adh.kcal.length+' วัน)'; return s; }
   if(t.tdee==null){ s.text = 'คำนวณ TDEE ไม่ได้ — ข้อมูลแบบสอบถามไม่ครบ'; return s; }
   var exAct = pgExerciseKcal(ev.refKg, adh.sessDone, pgSessMin(p), adh.cardioMin)/adh.days;
@@ -1372,7 +1383,7 @@ function pgStrengthSignal(p, ev, ctx){
   if(!s.lifts.length){ s.text = 'ต้องบันทึกน้ำหนัก × ครั้งของท่าที่ใช้น้ำหนัก อย่างน้อย 3 ครั้งต่อท่าในช่วง 14 วันขึ้นไป · '+bandTxt; return s; }
   var bad = s.lifts.filter(function(l){ return l.level!=='ok'; });
   var anom = s.lifts.filter(function(l){ return l.level==='anomaly'; });
-  var lvl = (anom.length>=2 || (anom.length && anom.length*2 >= s.lifts.length)) ? 'anomaly'
+  var lvl = (anom.length>=2 && anom.length*5 >= s.lifts.length*2) ? 'anomaly'
     : (bad.length && bad.length*3 >= s.lifts.length ? 'watch' : 'ok');
   var head = s.lifts.length+' ท่าที่มีข้อมูล เฉลี่ย '+pgPct(mean(s.lifts.map(function(l){ return l.pct; })))+' ต่อ 4 สัปดาห์';
   var worst = bad.slice().sort(function(a, b){ return a.pct - b.pct; });
@@ -1382,11 +1393,11 @@ function pgStrengthSignal(p, ev, ctx){
   for(var iso=from; iso<ev.asOf; iso=nextISO(iso)){ if(sessionKeyFor(p, iso)){ sp++; if(sessionDone(p, iso)) sd++; } }
   if(sp && sd/sp < 0.75){
     s.why = 'follow';
-    s.text = head+' — ต่ำกว่า'+bandTxt+' ('+names+') แต่เข้าฝึกได้ '+Math.round(sd/sp*100)+'% (เกณฑ์ 75%) ผลจึงยังไม่นับว่าแผนผิดปกติ';
+    s.text = head+' — บางท่าต่ำกว่า'+bandTxt+' ('+names+') แต่เข้าฝึกได้ '+Math.round(sd/sp*100)+'% (เกณฑ์ 75%) ผลจึงยังไม่นับว่าแผนผิดปกติ';
     return s;
   }
   s.level = lvl;
-  s.text = head+' — ต่ำกว่า'+bandTxt+' ('+names+') ทั้งที่เข้าฝึก '+(sp ? Math.round(sd/sp*100) : 0)+'%';
+  s.text = head+' — บางท่าต่ำกว่า'+bandTxt+' ('+names+') ทั้งที่เข้าฝึก '+(sp ? Math.round(sd/sp*100) : 0)+'%';
   return s;
 }
 /* จุดที่ระบบเห็นเองจากตัวข้อมูลว่าอาจบันทึกไม่ครบ/ไม่แม่น */
@@ -1463,13 +1474,15 @@ function pgEvaluate(p, asOf, ctx){
     .map(function(s){ return {x:daysBetween(ws, s.date), y:s.kg, date:s.date}; });
   var span = wpts.length>1 ? wpts[wpts.length-1].x - wpts[0].x : 0;
   var ev = {asOf:asOf, anchor:anchor, elapsed:daysBetween(anchor, asOf), ws:ws, refKg:refKg,
-            plan:pgWeightPlan(p, refKg), adh:adh, wpts:wpts, reg:(wpts.length>=4 && span>=10) ? linreg(wpts) : null};
+            plan:pgWeightPlan(p, refKg), adh:adh, wpts:wpts, reg:(wpts.length>=4 && span>=PG_MIN_SPAN) ? linreg(wpts) : null};
   ev.weight = pgWeightSignal(p, ev);
   ev.energy = pgEnergySignal(p, ev);
   ev.strength = pgStrengthSignal(p, ev, ctx);
   ev.signals = [ev.weight, ev.energy, ev.strength];
   // "ตามแผน" ต้องมาจากผลลัพธ์จริง (น้ำหนัก/ความแข็งแรง) — ข้อความสอดคล้องของข้อมูลยกระดับได้เฉพาะตอนพบปัญหา
-  ev.level = pgWorse(pgWorse(ev.weight.level, ev.strength.level), ev.energy.level==='ok' ? 'na' : ev.energy.level);
+  // ความแข็งแรงใช้เป็นคำแนะนำ (deload) เท่านั้น: ดันระดับรวมได้สูงสุดแค่ "เฝ้าระวัง" ไม่ทำให้ขึ้นผิดปกติ/ควรปรับแผน/ปรับแคลอรี่
+  var strLevel = ev.strength.level==='anomaly' ? 'watch' : ev.strength.level;
+  ev.level = pgWorse(pgWorse(ev.weight.level, strLevel), ev.energy.level==='ok' ? 'na' : ev.energy.level);
   // เป้าลดไขมัน/เพิ่มกล้าม น้ำหนักคือผลหลัก — ถ้ายังประเมินน้ำหนักไม่ได้เพราะทำตามแผนไม่ถึง ไม่ขึ้นว่า "ตามแผน" จากความแข็งแรงอย่างเดียว
   if(ev.level==='ok' && ev.weight.why==='follow' && (p.goal==='ลดไขมัน' || p.goal==='เพิ่มกล้ามเนื้อ')) ev.level = 'na';
   ev.issues = pgDataIssues(p, ev);
@@ -1495,7 +1508,7 @@ function pgCurrent(p){
   ev.history = pgHistory(p, ctx).filter(function(x){ return x.date < today; });
   ev.run = 0;
   for(var i=ev.history.length-1; i>=0 && PG_LEVELS[ev.history[i].level].n >= 2; i--) ev.run++;
-  if(ev.level==='watch' && ev.run >= 3){ ev.level = 'anomaly'; ev.persisted = true; }
+  if(ev.level==='watch' && ev.run >= 3 && (pgOff(ev.weight) || pgOff(ev.energy))){ ev.level = 'anomaly'; ev.persisted = true; }
   ev.confirmed = !!pg.confirmedAt && pg.confirmedAt >= ev.anchor && daysBetween(pg.confirmedAt, today) <= 28;
   if(ev.level==='anomaly' && ev.confirmed) ev.level = 'adjust';
   return ev;
@@ -1504,14 +1517,19 @@ function pgOff(s){ return s.level==='watch' || s.level==='anomaly'; }
 /* คำแนะนำปรับแผน: เป้าแคลอรี่ใหม่ = พลังงานที่ใช้จริง ± ส่วนต่างที่ต้องการตามกรอบ ปรับทีละไม่เกิน 300 kcal ไม่ต่ำกว่าขั้นต่ำปลอดภัย */
 function pgRecommend(p, ev){
   var t = targetsOf(p), en = ev.energy, out = {kcal:null, text:[]};
-  if((pgOff(ev.weight) || pgOff(en)) && en.implied!=null && t.kcal!=null){
-    var want = en.implied + ev.plan.c*FAT_KCAL_PER_KG/7;
+  // ปรับแคลอรี่เฉพาะเมื่อสัญญาณ "น้ำหนัก" ผิดปกติจริง (หรือหลุดกรอบเล็กน้อยต่อเนื่องหลายสัปดาห์) — ไม่ปรับจากความแข็งแรง/สัญญาณพลังงานเดี่ยว ๆ
+  var weightOff = ev.weight.level==='anomaly' || (ev.persisted && ev.weight.level==='watch');
+  if(weightOff && en.implied!=null && t.kcal!=null){
+    // TDEE ที่คำนวณย้อนจากข้อมูลจริงห้ามต่ำกว่า BMR × 1.1 (ต่ำกว่านั้นมักแปลว่าบันทึกการกินไม่ครบ ไม่ใช่เผาผลาญจริง)
+    var bmrNow = pgBMR(p, ev.refKg), impliedUse = en.implied;
+    if(bmrNow!=null) impliedUse = Math.max(impliedUse, bmrNow*PG_TDEE_MIN_BMR + en.exAct);
+    var want = impliedUse + ev.plan.c*FAT_KCAL_PER_KG/7;
     var floor = pgSex(p)==='ชาย' ? 1500 : 1200;
-    var kcal = Math.max(floor, Math.round(Math.min(t.kcal + 300, Math.max(t.kcal - 300, want))/10)*10);
+    var kcal = Math.max(floor, Math.round(Math.min(t.kcal + PG_ADJ_MAX, Math.max(t.kcal - PG_ADJ_MAX, want))/10)*10);
     out.floor = floor; out.want = Math.round(want); out.belowFloor = want < floor;
     if(Math.abs(kcal - t.kcal) >= 50){
       out.kcal = kcal; out.capped = Math.abs(want - kcal) > 10;
-      out.tdee = Math.round(en.implied - en.exAct);
+      out.tdee = Math.round(impliedUse - en.exAct);
     }
     if(out.belowFloor) out.text.push('แคลอรี่ที่ต้องใช้เพื่อให้ได้ตามกรอบต่ำกว่าขั้นต่ำที่ปลอดภัย ('+fmtKcal(floor)+' kcal) — ระบบจะไม่ตั้งเป้าต่ำกว่านั้น ให้เพิ่มการเคลื่อนไหว/cardio แทน หรือยอมให้ลดช้าลง และถ้าลดได้น้อยมากต่อเนื่องควรปรึกษาแพทย์');
   }
@@ -3120,7 +3138,7 @@ function fatBarHTML(p){
 
 /* ---------- กรอบแผน Progression & Goal (หน้าความคืบหน้า) ---------- */
 var PG_SUMMARY = {
-  na:'ระบบจะเริ่มประเมินเองเมื่อข้อมูลพอ — ชั่งน้ำหนักอย่างน้อย 4 ครั้ง และบันทึกการกิน/การฝึกต่อเนื่องราว 2 สัปดาห์',
+  na:'ระบบจะเริ่มประเมินเองเมื่อข้อมูลพอ — ชั่งน้ำหนักอย่างน้อย 4 ครั้ง และบันทึกการกิน/การฝึกต่อเนื่องราว 3 สัปดาห์',
   ok:'ผลลัพธ์จริงเป็นไปตามกรอบของแผน — ทำแบบนี้ต่อไป',
   watch:'เริ่มเห็นสัญญาณว่าผลอาจไม่ตรงกรอบ ยังไม่ต้องเปลี่ยนอะไร ระบบติดตามต่อให้ทุกวัน',
   anomaly:'คุณทำตามแผนแล้ว แต่ผลลัพธ์ไม่เป็นไปตามกรอบ — ก่อนปรับแผน ช่วยตรวจว่าข้อมูลที่บันทึกครบและถูกต้องจริง',
@@ -3308,7 +3326,7 @@ function pgCheckHTML(p, ev){
   var checks = pgChecksFor(p);
   var ticked = checks.filter(function(c){ return track.pgChecks[c.k]; }).length;
   var reset = track.pgResetAsk
-    ? '<div class="pg-confirm">เริ่มรอบประเมินใหม่ตั้งแต่วันนี้? ข้อมูลเดิมยังอยู่ครบ แต่ระบบจะไม่ใช้ข้อมูลก่อนวันนี้ในการประเมิน และจะประเมินใหม่เมื่อมีข้อมูลพอ (~2 สัปดาห์)'+
+    ? '<div class="pg-confirm">เริ่มรอบประเมินใหม่ตั้งแต่วันนี้? ข้อมูลเดิมยังอยู่ครบ แต่ระบบจะไม่ใช้ข้อมูลก่อนวันนี้ในการประเมิน และจะประเมินใหม่เมื่อมีข้อมูลพอ (~3-4 สัปดาห์)'+
         '<div class="pg-actions"><button type="button" class="btn sm primary" data-act="pg-reset-go">ยืนยัน เริ่มเก็บข้อมูลใหม่</button><button type="button" class="btn sm" data-act="pg-reset">ยกเลิก</button></div></div>'
     : '<button type="button" class="btn sm" data-act="pg-reset">พบว่าบันทึกไม่ครบ/ไม่ถูก — เริ่มเก็บข้อมูลใหม่</button>';
   return '<div class="pg-check">'+
@@ -3330,14 +3348,14 @@ function pgAdjustHTML(p, ev){
   if(rec.kcal!=null){
     html += '<div class="pg-rec"><b>ปรับเป้าแคลอรี่: '+fmtKcal(t.kcal)+' → '+fmtKcal(rec.kcal)+' kcal/วัน</b><br>'+
       'จากข้อมูลจริง ร่างกายใช้พลังงานประมาณ '+fmtKcal(Math.round(ev.energy.implied))+' kcal/วัน — ถ้าจะให้ผลตามกรอบ ('+pgRate(ev.plan.c)+' กก./สัปดาห์) ควรกินประมาณ '+fmtKcal(rec.want)+' kcal'+
-      (rec.capped ? ' · ระบบปรับทีละไม่เกิน 300 kcal เพื่อความปลอดภัย แล้วค่อยประเมินรอบถัดไป' : '')+'</div>'+
+      (rec.capped ? ' · ระบบปรับทีละไม่เกิน '+PG_ADJ_MAX+' kcal เพื่อความปลอดภัย แล้วค่อยประเมินรอบถัดไป' : '')+'</div>'+
       '<button type="button" class="btn sm primary" data-act="pg-apply">ใช้เป้าใหม่ '+fmtKcal(rec.kcal)+' kcal</button>';
   }
   if(rec.text.length) html += pgListHTML(rec.text);
   if(rec.kcal==null && !rec.text.length) html += '<p class="pg-note">ยังไม่มีตัวเลขพอให้ระบบเสนอเป้าใหม่ — ปรับวันฝึก/ท่าได้ที่หน้า “แผนของฉัน” หรือถามโค้ช</p>';
   return html+'<div class="pg-actions"><button type="button" class="btn sm" data-act="nav" data-view="plan">ไปหน้าแผนของฉัน</button>'+
     '<button type="button" class="btn sm ghost" data-act="pg-unconfirm">กลับไปตรวจข้อมูลอีกครั้ง</button></div>'+
-    '<p class="hint">ยืนยันข้อมูลเมื่อ '+esc(shortDateTH(pgState(p).confirmedAt))+' · หลังปรับเป้า ระบบเริ่มรอบประเมินใหม่และติดตามผลต่ออีก 2-3 สัปดาห์</p></div>';
+    '<p class="hint">ยืนยันข้อมูลเมื่อ '+esc(shortDateTH(pgState(p).confirmedAt))+' · หลังปรับเป้า ระบบเริ่มรอบประเมินใหม่และติดตามผลต่ออีก 3-4 สัปดาห์</p></div>';
 }
 function pgDetailsHTML(p, ev){
   var t = targetsOf(p), adh = ev.adh, en = ev.energy, rows = [];
@@ -4244,7 +4262,7 @@ function resultsHTML(){
     var setsReps = setsRepsFor(pattern, sel.picked, a);
     var intense = planIntense(pattern, sel.picked);
     var rest = restFor({pattern:base, equip:sel.picked.equip, timeBased:!!sel.picked.timed, intensity:intense?'intense':'normal'});
-    var intToggle = intensityEligible(sel.picked)
+    var intToggle = (intensityEligible(sel.picked) && !intenseBlockReason(a))
       ? '<div class="int-toggle" role="group" aria-label="ความเข้มข้นของท่านี้">'+
           '<button type="button" class="opt'+(intense?'':' sel')+'" data-act="intensity" data-pattern="'+pattern+'" data-val="normal" aria-pressed="'+!intense+'">ทั่วไป</button>'+
           '<button type="button" class="opt'+(intense?' sel':'')+'" data-act="intensity" data-pattern="'+pattern+'" data-val="intense" aria-pressed="'+intense+'">เข้มข้น</button></div>'
@@ -4276,7 +4294,7 @@ function resultsHTML(){
   var anyIntense = false, anyEligible = false;
   splitDef.sessions.forEach(function(se){ se.patterns.forEach(function(pt){
     var pk = selectionFor(pt, a).picked;
-    if(intensityEligible(pk)) anyEligible = true;
+    if(intensityEligible(pk) && !intenseBlockReason(a)) anyEligible = true;
     if(planIntense(pt, pk)) anyIntense = true;
   }); });
   var intensityBar = anyEligible
@@ -4284,6 +4302,10 @@ function resultsHTML(){
         '<button type="button" class="opt" data-act="intensity-all" data-val="normal">ทั่วไปทั้งหมด</button>'+
         '<button type="button" class="opt" data-act="intensity-all" data-val="intense">เข้มข้นทั้งหมด</button></div>'+
       '<p class="hint">ทั่วไป = จำนวนเซ็ต/ครั้งตามเป้าหมาย พักตามปกติ · เข้มข้น = 2 เซ็ต × 4-8 ครั้ง ใช้น้ำหนักมากขึ้นจนหมดแรงภายใน 4-8 ครั้ง พักเซ็ตละ 3-5 นาที</p>'
+    : '';
+  var intenseBlocked = intenseBlockReason(a);
+  var intenseBlockNote = (intenseBlocked && splitDef.sessions.some(function(se){ return se.patterns.some(function(pt){ return intensityEligible(selectionFor(pt, a).picked); }); }))
+    ? '<div class="banner info"><div class="ic">ℹ️</div><div><b>ปิดตัวเลือกแบบเข้มข้น</b> — '+esc(intenseBlocked)+'</div></div>'
     : '';
   var intenseBanner = anyIntense
     ? '<div class="banner warn"><div class="ic">⚠️</div><div><b>คุณเลือกแบบเข้มข้นไว้</b> — '+INTENSE_WARNING+
@@ -4342,7 +4364,7 @@ function resultsHTML(){
 
     '<div class="section-title">รายละเอียดเซสชัน</div>'+
     '<div class="tier-legend">'+TIER_ORDER.map(function(tt){ return '<div class="item"><b>Tier '+tt+'</b> '+TIER_LABEL[tt]+'</div>'; }).join('')+'</div>'+
-    intensityBar + intenseBanner +
+    intensityBar + intenseBlockNote + intenseBanner +
     sessionBlocks+
 
     (track.editing ? renderStartSetup() :

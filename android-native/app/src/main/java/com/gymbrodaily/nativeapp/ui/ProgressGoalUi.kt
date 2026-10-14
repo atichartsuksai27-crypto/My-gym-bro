@@ -47,6 +47,7 @@ import com.gymbrodaily.nativeapp.data.FatSeen
 import com.gymbrodaily.nativeapp.data.TrackStore
 import com.gymbrodaily.nativeapp.domain.FAT_KCAL_PER_KG
 import com.gymbrodaily.nativeapp.domain.Generator
+import com.gymbrodaily.nativeapp.domain.PG_ADJ_MAX
 import com.gymbrodaily.nativeapp.domain.PG_GAIN_PCT_MONTH
 import com.gymbrodaily.nativeapp.domain.PG_STR_WINDOW
 import com.gymbrodaily.nativeapp.domain.PG_WINDOW
@@ -585,7 +586,7 @@ private fun PgCheck(t: TrackData, ev: PgEval, today: String, store: TrackStore) 
         if (!resetAsk) {
             OutlinedButton(onClick = { resetAsk = true }) { Text("พบว่าบันทึกไม่ครบ/ไม่ถูก — เริ่มเก็บข้อมูลใหม่") }
         } else {
-            Text("เริ่มรอบประเมินใหม่ตั้งแต่วันนี้? ข้อมูลเดิมยังอยู่ครบ แต่ระบบจะไม่ใช้ข้อมูลก่อนวันนี้ในการประเมิน และจะประเมินใหม่เมื่อมีข้อมูลพอ (~2 สัปดาห์)", fontSize = 13.5.sp, lineHeight = 19.sp)
+            Text("เริ่มรอบประเมินใหม่ตั้งแต่วันนี้? ข้อมูลเดิมยังอยู่ครบ แต่ระบบจะไม่ใช้ข้อมูลก่อนวันนี้ในการประเมิน และจะประเมินใหม่เมื่อมีข้อมูลพอ (~3-4 สัปดาห์)", fontSize = 13.5.sp, lineHeight = 19.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {
                     resetAsk = false; ticked = emptySet()
@@ -616,7 +617,7 @@ private fun PgAdjust(t: TrackData, ev: PgEval, today: String, store: TrackStore)
             Text("ปรับเป้าแคลอรี่: ${ProgressGoal.fmtKcal(tg.kcal)} → ${ProgressGoal.fmtKcal(k)} kcal/วัน", fontWeight = FontWeight.Bold)
             Hint(
                 "จากข้อมูลจริง ร่างกายใช้พลังงานประมาณ ${ProgressGoal.fmtKcal(jsRound(ev.energy.implied!!))} kcal/วัน — ถ้าจะให้ผลตามกรอบ (${ProgressGoal.rate(ev.plan.c)} กก./สัปดาห์) ควรกินประมาณ ${ProgressGoal.fmtKcal(rec.want)} kcal" +
-                    if (rec.capped) " · ระบบปรับทีละไม่เกิน 300 kcal เพื่อความปลอดภัย แล้วค่อยประเมินรอบถัดไป" else "",
+                    if (rec.capped) " · ระบบปรับทีละไม่เกิน $PG_ADJ_MAX kcal เพื่อความปลอดภัย แล้วค่อยประเมินรอบถัดไป" else "",
                 color = GB.text2,
             )
             Button(onClick = { applyNewTarget(store, t, ev, today) }) { Text("ใช้เป้าใหม่ ${ProgressGoal.fmtKcal(k)} kcal") }
@@ -625,7 +626,7 @@ private fun PgAdjust(t: TrackData, ev: PgEval, today: String, store: TrackStore)
         if (rec.kcal == null && rec.text.isEmpty()) Hint("ยังไม่มีตัวเลขพอให้ระบบเสนอเป้าใหม่ — ปรับวันฝึก/ท่าได้ที่หน้า “แผนของฉัน” หรือถามโค้ช")
         TextButton(onClick = { store.patchProgram { withPg(it, mapOf("confirmedAt" to JsonNull)) } }) { Text("กลับไปตรวจข้อมูลอีกครั้ง") }
         t.program.pg?.confirmedAt?.let {
-            Hint("ยืนยันข้อมูลเมื่อ ${ProgressGoal.shortDateTH(it)} · หลังปรับเป้า ระบบเริ่มรอบประเมินใหม่และติดตามผลต่ออีก 2-3 สัปดาห์")
+            Hint("ยืนยันข้อมูลเมื่อ ${ProgressGoal.shortDateTH(it)} · หลังปรับเป้า ระบบเริ่มรอบประเมินใหม่และติดตามผลต่ออีก 3-4 สัปดาห์")
         }
     }
 }

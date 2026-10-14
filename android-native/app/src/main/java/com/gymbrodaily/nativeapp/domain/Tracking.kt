@@ -36,6 +36,10 @@ data class Program(
     val sex: String? = null,
     /** สถานะกรอบแผน Progression & Goal (program.pg ของเว็บ) */
     val pg: PgState? = null,
+    /** ขั้นน้ำหนักที่อุปกรณ์ของผู้ใช้เพิ่มได้จริงรายท่า (exId → กก.) */
+    val equipSteps: Map<String, Double> = emptyMap(),
+    /** วันว่างตอนสร้างแผน — null = แผนรุ่นก่อนมีระบบเลือกวัน (ทุกวันว่างเป็นวันฝึก) */
+    val availableDays: List<String>? = null,
 )
 
 @Serializable
@@ -62,8 +66,21 @@ data class SetEntry(val weight: Double? = null, val reps: Double? = null)
 @Serializable
 data class Symptom(val text: String = "", val level: String? = null, val name: String? = null)
 
+/** การปรับจากครั้งก่อนที่ใช้กับวันนั้น (prog ของเว็บ) — reverted = ผู้ใช้กด "ไม่ไหว — กลับไปค่าเดิม" */
 @Serializable
-data class ExerciseLog(val sets: List<SetEntry?> = emptyList(), val done: Boolean = false, val symptom: Symptom? = null)
+data class ProgRec(val kind: String? = null, val from: Double? = null, val to: Double? = null, val reverted: Boolean = false)
+
+@Serializable
+data class ExerciseLog(
+    val sets: List<SetEntry?> = emptyList(),
+    val done: Boolean = false,
+    val symptom: Symptom? = null,
+    /** ติ๊ก warm-up set รายเซ็ต (ข้อมูลเท่านั้น ไม่นับความครบ) */
+    val warmup: List<Boolean?> = emptyList(),
+    /** แรงเหลือหลังเล่น: more / ok / hard */
+    val feel: String? = null,
+    val prog: ProgRec? = null,
+)
 
 @Serializable
 data class CardioLog(val minutes: Double? = null)

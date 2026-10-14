@@ -22,7 +22,7 @@ class ProgressGoalParityTest {
     @Test
     fun progressMatchesJs() {
         val cases = loadGolden("progress.json")
-        assertEquals(160, cases.size)
+        assertEquals(220, cases.size)
         cases.forEachIndexed { i, c ->
             val o = c.jsonObject
             val today = o["today"]!!.jsonPrimitive.content

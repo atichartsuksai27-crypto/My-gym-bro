@@ -323,7 +323,10 @@ var PG = ev('({fatTug:fatTug, pgCurrent:pgCurrent, pgRecommend:pgRecommend, pgSu
 var PG_GOALS = ["ลดไขมัน","เพิ่มกล้ามเนื้อ","Recomposition (ลด+เพิ่มพร้อมกัน)","รักษาสุขภาพทั่วไป"];
 var STRESS_NOTES = ['', 'งานเยอะ', 'นอนไม่พอ เพราะลูกป่วยทั้งคืน และต้องตื่นเช้าไปประชุมงานที่สำนักงานใหญ่อีก', 'เรื่องเงิน'];
 var progressCases = [];
-for(var pc = 0; pc < 160; pc++){
+/* 160 เคสสุ่ม + 60 เคสบังคับ (เป้าลดไขมัน น้ำหนักไปทางตรงข้ามแผน ทำตามแผนดี ยืนยันข้อมูลแล้ว) ให้ทางปรับแผน/แนะนำแคลอรี่ถูกทดสอบจริง */
+var PROGRESS_RANDOM = 160, PROGRESS_FORCED = 60;
+for(var pc = 0; pc < PROGRESS_RANDOM + PROGRESS_FORCED; pc++){
+  var forced = pc >= PROGRESS_RANDOM;
   var pa = randomAnswers();
   pa.Q2 = subset(DAYS, 0.5 + rnd() * 0.4);
   if(!pa.Q2.length) pa.Q2 = ['จันทร์', 'พฤหัสบดี'];
@@ -335,7 +338,8 @@ for(var pc = 0; pc < 160; pc++){
   var pTodayD = new RealDate(pToday + 'T12:00:00');
   var pOff = function(n){ var d = new RealDate(pTodayD.getTime()); d.setDate(d.getDate() + n); return isoOf(d); };
   var span = 10 + Math.floor(rnd() * 110);
-  pp.goal = pick(PG_GOALS);
+  if(forced) span = 50 + Math.floor(rnd() * 60);
+  pp.goal = forced ? 'ลดไขมัน' : pick(PG_GOALS);
   pp.startDate = pOff(-span);
   pp.planId = 'pg' + pc;
   pp.cardioDays = subset(DAYS, 0.25);
@@ -355,6 +359,7 @@ for(var pc = 0; pc < 160; pc++){
   var trend = pick([-0.12, -0.07, -0.03, 0, 0.02, 0.05, 0.1]);
   var pW = pick([0.15, 0.45, 0.85]), pK = pick([0.3, 0.75, 0.95]), pS = pick([0.4, 0.8, 1]);
   var kcalMode = pick(['real', 'real', 'target', 'repeat']);
+  if(forced){ trend = pick([0.03, 0.05, 0.08]); pW = 0.85; pK = 0.95; pS = 1; kcalMode = 'real'; pp.pg = {confirmedAt: pOff(-3)}; if(rnd() < 0.5) pp.pg.evalFrom = pOff(-span + 2); }
   var growth = pick([0, 0.2, 0.6]);
   var plogs = {}, pweights = {};
   var exIdx = 0;

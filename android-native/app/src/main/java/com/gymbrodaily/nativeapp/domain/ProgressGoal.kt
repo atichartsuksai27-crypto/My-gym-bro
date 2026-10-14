@@ -20,10 +20,14 @@ import kotlin.math.sqrt
 const val FAT_KCAL_PER_KG = 7700
 private val FAT_BAR_GOALS = listOf("ลดไขมัน", "Recomposition (ลด+เพิ่มพร้อมกัน)")
 private val WARMUP_WEIGHTED = listOf("barbell", "dumbbell", "machine", "cable")
+private val SMALL_PATTERNS = listOf("latraise", "reardelt", "calf")
 private const val CARDIO_DEFAULT_MIN = 30.0
 private val TH_MONTHS = listOf("ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.")
 
-const val PG_WINDOW = 21
+const val PG_WINDOW = 28
+const val PG_MIN_SPAN = 21
+const val PG_ADJ_MAX = 150
+const val PG_TDEE_MIN_BMR = 1.1
 const val PG_STR_WINDOW = 28
 const val PG_EARLY_DAYS = 21
 val PG_GAIN_PCT_MONTH = listOf(listOf(1.0, 1.5), listOf(0.75, 1.25), listOf(0.5, 1.0), listOf(0.25, 0.5))
@@ -284,7 +288,7 @@ object ProgressGoal {
         val out = mutableListOf<PlanExercise>()
         p.sessions.forEach { s ->
             s.exercises.forEach { ex ->
-                if (ex.id in seen || ex.timeBased || ex.equip !in WARMUP_WEIGHTED) return@forEach
+                if (ex.id in seen || ex.timeBased || ex.pattern in SMALL_PATTERNS || ex.equip !in WARMUP_WEIGHTED) return@forEach
                 seen += ex.id; out += ex
             }
         }
@@ -376,7 +380,7 @@ object ProgressGoal {
         val band = "กรอบ ${rate(plan.lo)} ถึง ${rate(plan.hi)} กก./สัปดาห์"
         val reg = ev.reg
         if (reg == null) {
-            s.text = "ต้องชั่งน้ำหนักอย่างน้อย 4 ครั้งในช่วง 10 วันขึ้นไปของรอบนี้ (ตอนนี้ ${ev.wpts.size} ครั้ง) · $band"
+            s.text = "ต้องชั่งน้ำหนักอย่างน้อย 4 ครั้งในช่วง $PG_MIN_SPAN วันขึ้นไปของรอบนี้ (ตอนนี้ ${ev.wpts.size} ครั้ง) · $band"
             return s
         }
         val r = reg.b * 7
@@ -406,7 +410,7 @@ object ProgressGoal {
         val adh = ev.adh
         val need = max(7, ceil(adh.days * 0.7).toInt())
         val reg = ev.reg
-        if (reg == null) { s.text = "ต้องมีแนวโน้มน้ำหนักก่อน (ชั่งอย่างน้อย 4 ครั้งในช่วง 10 วันขึ้นไป)"; return s }
+        if (reg == null) { s.text = "ต้องมีแนวโน้มน้ำหนักก่อน (ชั่งอย่างน้อย 4 ครั้งในช่วง $PG_MIN_SPAN วันขึ้นไป)"; return s }
         if (adh.kcal.size < need) { s.text = "ต้องกรอกแคลอรี่อย่างน้อย $need จาก ${adh.days} วันในช่วงประเมิน (ตอนนี้ ${adh.kcal.size} วัน)"; return s }
         if (tg.tdee == null) { s.text = "คำนวณ TDEE ไม่ได้ — ข้อมูลแบบสอบถามไม่ครบ"; return s }
         val exAct = exerciseKcal(ev.refKg, adh.sessDone, sessMin(t.program), adh.cardioMin) / adh.days
@@ -457,7 +461,7 @@ object ProgressGoal {
         }
         val bad = s.lifts.filter { it.level != PgLevel.OK }
         val anom = s.lifts.filter { it.level == PgLevel.ANOMALY }
-        val lvl = if (anom.size >= 2 || (anom.isNotEmpty() && anom.size * 2 >= s.lifts.size)) PgLevel.ANOMALY
+        val lvl = if (anom.size >= 2 && anom.size * 5 >= s.lifts.size * 2) PgLevel.ANOMALY
         else if (bad.isNotEmpty() && bad.size * 3 >= s.lifts.size) PgLevel.WATCH else PgLevel.OK
         val head = "${s.lifts.size} ท่าที่มีข้อมูล เฉลี่ย ${pctTxt(mean(s.lifts.map { it.pct })!!)} ต่อ 4 สัปดาห์"
         val worst = bad.sortedBy { it.pct }
@@ -476,11 +480,11 @@ object ProgressGoal {
         }
         if (sp != 0 && sd.toDouble() / sp < 0.75) {
             s.why = "follow"
-            s.text = "$head — ต่ำกว่า$bandTxt ($names) แต่เข้าฝึกได้ ${jsRound(sd.toDouble() / sp * 100).toLong()}% (เกณฑ์ 75%) ผลจึงยังไม่นับว่าแผนผิดปกติ"
+            s.text = "$head — บางท่าต่ำกว่า$bandTxt ($names) แต่เข้าฝึกได้ ${jsRound(sd.toDouble() / sp * 100).toLong()}% (เกณฑ์ 75%) ผลจึงยังไม่นับว่าแผนผิดปกติ"
             return s
         }
         s.level = lvl
-        s.text = "$head — ต่ำกว่า$bandTxt ($names) ทั้งที่เข้าฝึก ${if (sp != 0) jsRound(sd.toDouble() / sp * 100).toLong() else 0}%"
+        s.text = "$head — บางท่าต่ำกว่า$bandTxt ($names) ทั้งที่เข้าฝึก ${if (sp != 0) jsRound(sd.toDouble() / sp * 100).toLong() else 0}%"
         return s
     }
 
@@ -572,12 +576,14 @@ object ProgressGoal {
         val adh = adherence(t, ws, addDays(asOf, -1))
         val wpts = ctx.series.filter { it.date >= ws && it.date <= asOf }.map { WPoint(daysBetween(ws, it.date), it.kg, it.date) }
         val span = if (wpts.size > 1) wpts.last().x - wpts.first().x else 0
-        val reg = if (wpts.size >= 4 && span >= 10) linreg(wpts.map { it.x.toDouble() to it.y }) else null
+        val reg = if (wpts.size >= 4 && span >= PG_MIN_SPAN) linreg(wpts.map { it.x.toDouble() to it.y }) else null
         val ev = PgEval(asOf, anchor, daysBetween(anchor, asOf), ws, refKg, weightPlan(t, refKg), adh, wpts, reg)
         ev.weight = weightSignal(t, ev)
         ev.energy = energySignal(t, ev)
         ev.strength = strengthSignal(t, ev, ctx)
-        ev.level = worse(worse(ev.weight.level, ev.strength.level), if (ev.energy.level == PgLevel.OK) PgLevel.NA else ev.energy.level)
+        // ความแข็งแรงเป็นคำแนะนำ (deload) เท่านั้น: ดันระดับรวมได้สูงสุดแค่ "เฝ้าระวัง"
+        val strLevel = if (ev.strength.level == PgLevel.ANOMALY) PgLevel.WATCH else ev.strength.level
+        ev.level = worse(worse(ev.weight.level, strLevel), if (ev.energy.level == PgLevel.OK) PgLevel.NA else ev.energy.level)
         if (ev.level == PgLevel.OK && ev.weight.why == "follow" && (p.goal == "ลดไขมัน" || p.goal == "เพิ่มกล้ามเนื้อ")) ev.level = PgLevel.NA
         ev.issues = dataIssues(t, ev)
         ev.causes = causes(t, ev)
@@ -604,7 +610,7 @@ object ProgressGoal {
         var run = 0
         for (i in ev.history.indices.reversed()) { if (ev.history[i].level.n >= 2) run++ else break }
         ev.run = run
-        if (ev.level == PgLevel.WATCH && ev.run >= 3) { ev.level = PgLevel.ANOMALY; ev.persisted = true }
+        if (ev.level == PgLevel.WATCH && ev.run >= 3 && (off(ev.weight) || off(ev.energy))) { ev.level = PgLevel.ANOMALY; ev.persisted = true }
         val ca = pg.confirmedAt
         ev.confirmed = ca != null && ca >= ev.anchor && daysBetween(ca, today) <= 28
         if (ev.level == PgLevel.ANOMALY && ev.confirmed) ev.level = PgLevel.ADJUST
@@ -619,14 +625,19 @@ object ProgressGoal {
         val text = mutableListOf<String>()
         var kcal: Int? = null; var floorV: Int? = null; var want: Int? = null; var belowFloor = false; var capped = false; var tdee: Int? = null
         val implied = en.implied
-        if ((off(ev.weight) || off(en)) && implied != null && tg.kcal != null) {
-            val w = implied + ev.plan.c * FAT_KCAL_PER_KG / 7
+        // ปรับแคลอรี่เฉพาะเมื่อสัญญาณ "น้ำหนัก" ผิดปกติจริง (หรือหลุดกรอบเล็กน้อยต่อเนื่องหลายสัปดาห์)
+        val weightOff = ev.weight.level == PgLevel.ANOMALY || (ev.persisted && ev.weight.level == PgLevel.WATCH)
+        if (weightOff && implied != null && tg.kcal != null) {
+            // TDEE ที่คำนวณย้อนจากข้อมูลจริงห้ามต่ำกว่า BMR × 1.1
+            val bmrNow = bmr(t, ev.refKg)
+            val impliedUse = if (bmrNow != null) max(implied, bmrNow * PG_TDEE_MIN_BMR + en.exAct!!) else implied
+            val w = impliedUse + ev.plan.c * FAT_KCAL_PER_KG / 7
             val fl = if (sex(t) == "ชาย") 1500 else 1200
-            val k = max(fl.toDouble(), jsRound(min(tg.kcal + 300.0, max(tg.kcal - 300.0, w)) / 10) * 10).toInt()
+            val k = max(fl.toDouble(), jsRound(min(tg.kcal + PG_ADJ_MAX.toDouble(), max(tg.kcal - PG_ADJ_MAX.toDouble(), w)) / 10) * 10).toInt()
             floorV = fl; want = jsRound(w).toInt(); belowFloor = w < fl
             if (abs(k - tg.kcal) >= 50) {
                 kcal = k; capped = abs(w - k) > 10
-                tdee = jsRound(implied - en.exAct!!).toInt()
+                tdee = jsRound(impliedUse - en.exAct!!).toInt()
             }
             if (belowFloor) text += "แคลอรี่ที่ต้องใช้เพื่อให้ได้ตามกรอบต่ำกว่าขั้นต่ำที่ปลอดภัย (${fmtKcal(fl)} kcal) — ระบบจะไม่ตั้งเป้าต่ำกว่านั้น ให้เพิ่มการเคลื่อนไหว/cardio แทน หรือยอมให้ลดช้าลง และถ้าลดได้น้อยมากต่อเนื่องควรปรึกษาแพทย์"
         }
@@ -642,7 +653,7 @@ object ProgressGoal {
 
     /* ---------- ข้อความสรุปที่หน้า "ความคืบหน้า" ---------- */
     private val SUMMARY = mapOf(
-        PgLevel.NA to "ระบบจะเริ่มประเมินเองเมื่อข้อมูลพอ — ชั่งน้ำหนักอย่างน้อย 4 ครั้ง และบันทึกการกิน/การฝึกต่อเนื่องราว 2 สัปดาห์",
+        PgLevel.NA to "ระบบจะเริ่มประเมินเองเมื่อข้อมูลพอ — ชั่งน้ำหนักอย่างน้อย 4 ครั้ง และบันทึกการกิน/การฝึกต่อเนื่องราว 3 สัปดาห์",
         PgLevel.OK to "ผลลัพธ์จริงเป็นไปตามกรอบของแผน — ทำแบบนี้ต่อไป",
         PgLevel.WATCH to "เริ่มเห็นสัญญาณว่าผลอาจไม่ตรงกรอบ ยังไม่ต้องเปลี่ยนอะไร ระบบติดตามต่อให้ทุกวัน",
         PgLevel.ANOMALY to "คุณทำตามแผนแล้ว แต่ผลลัพธ์ไม่เป็นไปตามกรอบ — ก่อนปรับแผน ช่วยตรวจว่าข้อมูลที่บันทึกครบและถูกต้องจริง",

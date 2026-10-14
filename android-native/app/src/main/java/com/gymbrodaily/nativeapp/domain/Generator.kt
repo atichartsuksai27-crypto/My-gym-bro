@@ -40,6 +40,8 @@ data class PlanExercise(
     val equip: String = "",
     val setsReps: String = "",
     val timeBased: Boolean = false,
+    /** "intense" = แบบเข้มข้น (2 x 4-8 จนหมดแรง) — เลือกตอนสร้างแผนบนเว็บ */
+    val intensity: String? = null,
 )
 
 @Serializable

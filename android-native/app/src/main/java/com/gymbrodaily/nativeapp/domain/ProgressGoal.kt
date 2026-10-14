@@ -177,7 +177,10 @@ object ProgressGoal {
     /* ---------- แถบไขมัน ---------- */
     fun fatBarEnabled(p: Program?) = p != null && p.goal in FAT_BAR_GOALS
 
-    fun exerciseKcal(kg: Double, sessions: Int, sessMin: Double, cardioMin: Double) = (sessions * sessMin * 2.5 + cardioMin * 4) * 3.5 * kg / 200
+    /** แคลที่เผาเพิ่มจากการฝึกเหนือ TDEE — MET สุทธิ: เวท 3.5 (เซสชันรวมพัก ~4.5–5 MET หักกิจกรรมประจำวัน), cardio 4 ตรงกับเว็บ */
+    const val EX_NET_MET_LIFT = 3.5
+    const val EX_NET_MET_CARDIO = 4.0
+    fun exerciseKcal(kg: Double, sessions: Int, sessMin: Double, cardioMin: Double) = (sessions * sessMin * EX_NET_MET_LIFT + cardioMin * EX_NET_MET_CARDIO) * 3.5 * kg / 200
     fun sessMin(p: Program): Double = (Questions.Q3_MIN[p.minutesEstimate] ?: 52).toDouble()
     fun cardioWeek(p: Program): Double = p.cardioDays.sumOf { cardioMinFor(p, it) }
     fun plannedExPerDay(p: Program, kg: Double): Int = jsRound(exerciseKcal(kg, p.days.size, sessMin(p), cardioWeek(p)) / 7).toInt()
@@ -278,16 +281,26 @@ object ProgressGoal {
 
     class Ffm(val ffm: Double, val bfPct: Double, val src: String)
 
-    /** มวลไร้ไขมันสำหรับตรวจ energy availability: % ไขมันที่กรอก (Q14) > ค่ากลางรูปร่างที่เลือก (Q0) > ค่าทั่วไปตามเพศ */
-    fun ffm(t: TrackData, kg: Double): Ffm? {
-        val a = t.answers
+    /** มวลไร้ไขมันสำหรับตรวจ energy availability: % ไขมันที่กรอก (Q14) > ค่ากลางรูปร่างที่เลือก (Q0)
+     *  > ประมาณจาก BMI/อายุ/เพศ (Deurenberg 1991, จำกัด 5–60%) > ค่าทั่วไปตามเพศ — ตรงกับเว็บ */
+    fun ffm(t: TrackData, kg: Double): Ffm? = ffmFromAnswers(t.answers, kg, sex(t))
+
+    /** ใช้ได้ทั้งตอนตั้งเป้าครั้งแรก (Generator.computeCalorieTarget) และตอนประเมินแผน */
+    fun ffmFromAnswers(a: Answers, kg: Double, sex: String?): Ffm? {
         val q14 = a.parseFloat("Q14_val")
         val pct: Double; val src: String
         val band = a.str("Q0")?.let { k -> Questions.BODYFAT_BANDS.firstOrNull { it.key == k } }
         val m = band?.let { Regex("""^(\d+)-(\d+)""").find(it.pct) }
         if (a.str("Q14") == "ทราบ (กรอกตัวเลข)" && q14 >= 3 && q14 <= 60) { pct = q14; src = "ที่คุณกรอก" }
         else if (m != null) { pct = (m.groupValues[1].toInt() + m.groupValues[2].toInt()) / 2.0; src = "ประมาณจากรูปร่างที่เลือก" }
-        else { pct = if (sex(t) == "หญิง") 30.0 else 20.0; src = "ค่าทั่วไปตามเพศ (ไม่ได้ระบุ % ไขมัน)" }
+        else {
+            val hM = a.parseFloat("Q11") / 100
+            val age = a.parseFloat("Q10")
+            if (hM > 0 && age > 0 && (sex == "ชาย" || sex == "หญิง")) {
+                pct = min(60.0, max(5.0, 1.2 * kg / (hM * hM) + 0.23 * age - (if (sex == "ชาย") 10.8 else 0.0) - 5.4))
+                src = "ประมาณจาก BMI/อายุ/เพศ (ไม่ได้ระบุ % ไขมัน)"
+            } else { pct = if (sex == "หญิง") 30.0 else 20.0; src = "ค่าทั่วไปตามเพศ (ไม่ได้ระบุ % ไขมัน)" }
+        }
         return Calculations.calculateFFM(kg, pct)?.let { Ffm(it, pct, src) }
     }
 

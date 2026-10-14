@@ -36,17 +36,23 @@ test('1320.25 x 1.375 -> 1815.34375', function(){
 });
 
 console.log('Activity factor mapping (PART 2) — one central table');
-test('all five levels present with the exact spec values', function(){
-  assert.strictEqual(C.ACTIVITY_FACTORS.sedentary, 1.20);
-  assert.strictEqual(C.ACTIVITY_FACTORS.lightly_active, 1.375);
-  assert.strictEqual(C.ACTIVITY_FACTORS.moderately_active, 1.55);
-  assert.strictEqual(C.ACTIVITY_FACTORS.very_active, 1.725);
-  assert.strictEqual(C.ACTIVITY_FACTORS.extremely_active, 1.90);
+test('non-exercise activity levels use FAO/WHO PAL values', function(){
+  assert.strictEqual(C.ACTIVITY_FACTORS.sedentary, 1.40);
+  assert.strictEqual(C.ACTIVITY_FACTORS.lightly_active, 1.55);
+  assert.strictEqual(C.ACTIVITY_FACTORS.moderately_active, 1.75);
+  assert.deepStrictEqual(Object.keys(C.ACTIVITY_FACTORS).sort(), ['lightly_active','moderately_active','sedentary']);
 });
-test('Q36 answers map through the central table (unchanged values)', function(){
-  assert.strictEqual(C.activityFactorFromQ36('นั่งโต๊ะเป็นหลัก'), 1.20);
-  assert.strictEqual(C.activityFactorFromQ36('ยืน-เดินเยอะ'), 1.375);
-  assert.strictEqual(C.activityFactorFromQ36('ใช้แรงงาน'), 1.55);
+test('Q36 answers map through the central table', function(){
+  assert.strictEqual(C.activityFactorFromQ36('นั่งโต๊ะเป็นหลัก'), 1.40);
+  assert.strictEqual(C.activityFactorFromQ36('ยืน-เดินเยอะ'), 1.55);
+  assert.strictEqual(C.activityFactorFromQ36('ใช้แรงงาน'), 1.75);
+});
+test('desk-job TDEE (exercise excluded) lands near the USDA sedentary estimate', function(){
+  // ชาย 30 ปี 180 ซม. 80 กก. → USDA sedentary ~2,400 · หญิง 30 ปี 165 ซม. 60 กก. → ~1,800
+  var m = C.calculateTDEE(C.calculateBMR(80, 180, 30, 'ชาย'), C.activityFactorFromQ36('นั่งโต๊ะเป็นหลัก'));
+  var f = C.calculateTDEE(C.calculateBMR(60, 165, 30, 'หญิง'), C.activityFactorFromQ36('นั่งโต๊ะเป็นหลัก'));
+  assert.ok(m > 2300 && m < 2600, 'male '+m);
+  assert.ok(f > 1700 && f < 1950, 'female '+f);
 });
 test('unknown Q36 answer -> null (no silent default)', function(){
   assert.strictEqual(C.activityFactorFromQ36('อะไรก็ไม่รู้'), null);

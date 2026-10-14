@@ -10,13 +10,12 @@ package com.gymbrodaily.nativeapp.domain
    ============================================================ */
 object Calculations {
 
-    /** Activity Factor — mapping กลางชุดเดียวของทั้งระบบ */
+    /** Activity Factor — mapping กลางชุดเดียวของทั้งระบบ: กิจกรรมประจำวันนอกเวลาออกกำลังกาย (TDEE ไม่รวมการฝึก)
+     *  ค่า PAL ของ FAO/WHO/UNU (2004) — นั่งโต๊ะ 1.40 (ขอบล่าง sedentary), ยืน-เดินเยอะ 1.55, ใช้แรงงาน 1.75 (ขอบล่าง active) ตรงกับ calculations.js */
     val ACTIVITY_FACTORS: Map<String, Double> = mapOf(
-        "sedentary" to 1.20,
-        "lightly_active" to 1.375,
-        "moderately_active" to 1.55,
-        "very_active" to 1.725,
-        "extremely_active" to 1.90,
+        "sedentary" to 1.40,
+        "lightly_active" to 1.55,
+        "moderately_active" to 1.75,
     )
 
     /** คำตอบ Q36 → ระดับกิจกรรมกลางข้างบน */

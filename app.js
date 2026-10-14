@@ -561,9 +561,12 @@ function computeTDEE(a){
    เส้นทางที่หลักการไม่ได้ระบุไว้ (Q4a/Q5b ยังไม่ตอบ หรือตอบ "ไม่แน่ใจให้ระบบแนะนำ")
    คงค่า multiplier เดิมไว้แบบไม่มีเพดานแยก — ไม่ fabricate กฎที่แหล่งอ้างอิงไม่ได้เขียนไว้ */
 /* exKcal = แคลที่เผาจากการออกกำลังกายตามแผนต่อวัน (เฉลี่ยทั้งสัปดาห์) — TDEE ของระบบไม่รวมการฝึก
-   เป้าที่คิดจาก TDEE เฉย ๆ จึงขาดเพิ่มเท่าแคลที่ฝึกโดยไม่ตั้งใจ (F-02) เป้ารักษาสุขภาพ/Recomp/เพิ่มกล้ามจึงคิดจาก
-   "พลังงานที่ใช้รวมการฝึก" = TDEE + exKcal (เปอร์เซ็นต์/เพดานเดิมใช้กับฐานนี้) ส่วนลดไขมันคิดจาก TDEE เดิม
-   เพราะการฝึกเป็นส่วนหนึ่งของ deficit ที่ตั้งใจ (แถบไขมันก็นับแบบนี้) */
+   เป้าที่คิดจาก TDEE เฉย ๆ จึงขาดเพิ่มเท่าแคลที่ฝึกโดยไม่ตั้งใจ (F-02) ทุกเป้าหมายจึงคิดจาก
+   "พลังงานที่ใช้รวมการฝึก" = TDEE + exKcal (เปอร์เซ็นต์/เพดานใช้กับฐานนี้) — รวมลดไขมันด้วย:
+   เดิมลดไขมันคิดจาก TDEE เฉย ๆ แล้วหัก % ซ้ำ ทำให้ขาดจริง = % ที่ป้ายบอก + แคลฝึก (เช่นป้าย 20% แต่ขาดจริง ~28%)
+   พื้นขั้นต่ำมีสองชั้น เอาค่าที่สูงกว่า: (1) ตามเพศ 1,500/1,200 (2) energy availability (IOC RED-S) —
+   แคลที่กิน − แคลฝึกตามแผน ต้องไม่ต่ำกว่า 30 (ลดไขมัน) / 35 (เป้าอื่น) kcal ต่อ กก. มวลไร้ไขมัน
+   แต่พื้น EA ไม่เกินพลังงานที่ใช้รวมการฝึก (ไม่บังคับให้กินเกินในเป้าที่ตั้งใจให้ขาด) — ต้องมี Q12 ใน a ถึงจะคิดพื้น EA */
 function computeCalorieTarget(tdee, a, exKcal){
   var goal = a.Q1;
   var floor = a.Q9==='ชาย' ? 1500 : (a.Q9==='หญิง' ? 1200 : null);
@@ -575,14 +578,14 @@ function computeCalorieTarget(tdee, a, exKcal){
   var exNote = ex ? ' · ฐาน = TDEE + แคลฝึก ~'+ex+' kcal' : '';
   if(goal==='ลดไขมัน'){
     if(a.Q4a==='เข้มข้น'){
-      target = Math.max(tdee*0.75, tdee-1000);
-      directionLabel = 'ลดไขมัน (เข้มข้น — หัก 25% แต่ไม่เกิน 1,000 kcal)';
+      target = Math.max(base*0.75, base-1000);
+      directionLabel = 'ลดไขมัน (เข้มข้น — หัก 25% แต่ไม่เกิน 1,000 kcal'+exNote+')';
     } else if(a.Q4a==='ค่อยเป็นค่อยไป'){
-      target = Math.max(tdee*0.85, tdee-500);
-      directionLabel = 'ลดไขมัน (ค่อยเป็นค่อยไป — หัก 15% แต่ไม่เกิน 500 kcal)';
+      target = Math.max(base*0.85, base-500);
+      directionLabel = 'ลดไขมัน (ค่อยเป็นค่อยไป — หัก 15% แต่ไม่เกิน 500 kcal'+exNote+')';
     } else {
-      target = tdee*0.80; // "ไม่แน่ใจให้ระบบแนะนำ"/ยังไม่ตอบ — หลักการยังไม่ระบุเพดานแยก
-      directionLabel = 'ลดไขมัน (deficit 20%)';
+      target = base*0.80; // "ไม่แน่ใจให้ระบบแนะนำ"/ยังไม่ตอบ — หลักการยังไม่ระบุเพดานแยก
+      directionLabel = 'ลดไขมัน (deficit 20%'+exNote+')';
     }
   } else if(goal==='เพิ่มกล้ามเนื้อ'){
     if(a.Q5b==='ได้ (เน้นสร้างกล้ามให้เร็ว)'){
@@ -612,10 +615,19 @@ function computeCalorieTarget(tdee, a, exKcal){
     target = base;
     directionLabel = ex ? 'รักษาน้ำหนัก (maintenance — TDEE + แคลจากการฝึกตามแผน ~'+ex+' kcal)' : 'รักษาน้ำหนัก (maintenance)';
   }
+  var kg = parseFloat(a.Q12), ffm = kg>0 ? ffmFromAnswers(a, kg, a.Q9) : null, eaNote = '';
+  if(ffm){
+    var minEA = goal==='ลดไขมัน' ? GymBroCalc.EA_MIN_CUT : GymBroCalc.EA_MIN_NON_CUT;
+    var eaFloor = Math.min(GymBroCalc.minIntakeForEA(minEA, ex, ffm.ffm), base);
+    if(floor==null || eaFloor > floor){
+      floor = eaFloor;
+      eaNote = ' · ปรับขึ้นให้ energy availability ไม่ต่ำกว่า '+minEA+' kcal/กก. มวลไร้ไขมัน (FFM ~'+fmt1(ffm.ffm)+' กก. — '+ffm.src+')';
+    }
+  }
   // ด่านสุดท้ายเสมอตามหลักการ: Final Target = max(Target, Floor) — เช็คหลังคำนวณ
   // เปอร์เซ็นต์+เพดานข้างบนเสร็จหมดแล้วเท่านั้น ไม่ผูกกับทิศทาง (deficit/surplus) อีกต่อไป
   var floored = floor!=null && target < floor;
-  return {kcal: floored?floor:target, floored:floored, floor:floor, direction:directionLabel};
+  return {kcal: floored?floor:target, floored:floored, floor:floor, direction:directionLabel+(floored?eaNote:'')};
 }
 function computeMacro(kcal, weightKg){
   var proteinG = (weightKg>0) ? Math.round(2.0*weightKg) : null;
@@ -638,7 +650,7 @@ function computeTargets(a){
   var w = parseFloat(a.Q12);
   var hasWeight = w>0;
   var tdee = computeTDEE(a); // null ถ้าข้อมูลไม่ครบ/ไม่ถูกต้อง — ไม่ fabricate ค่า
-  var cal = computeCalorieTarget(tdee, a, a.Q1!=='ลดไขมัน' && hasWeight ? plannedExFromAnswers(a, w) : 0);
+  var cal = computeCalorieTarget(tdee, a, hasWeight ? plannedExFromAnswers(a, w) : 0);
   var macro = computeMacro(cal.kcal, hasWeight?w:null);
   var water = hasWeight ? Math.min(4.0, Math.max(1.5, Math.round(w*0.035*10)/10)) : null;
   var already = WATER_NOW[a.Q43];
@@ -1096,8 +1108,8 @@ function warmupSummary(program, iso){
 }
 /* ---------- แถบไขมัน (ชักเย่อ): พลังงานที่ใช้จริง − แคลที่กินจริง สะสมรายวัน ครบ ±7,700 kcal = ไขมัน ∓1 กก. แล้วเริ่มที่ 0 ใหม่ ----------
    พลังงานที่ใช้ = TDEE (BMR × ลักษณะงาน ไม่รวมการออกกำลังกาย) + แคลที่เผาจากการฝึก/cardio ที่ทำจริงวันนั้น
-   เป้าแคลอรี่ของแผนลดไขมัน/Recomp ตั้งจาก TDEE นี้ กินตามเป้าในวันฝึกจึงขาดเท่ากับแคลที่เผาจากการฝึก ไม่ใช่ 0
-   (เป้ารักษาสุขภาพบวกแคลฝึกตามแผนเข้าไปแล้ว จึงไม่ขาดโดยไม่ตั้งใจ — ดู computeCalorieTarget)
+   เป้าแคลอรี่ทุกเป้าหมายตั้งจาก TDEE + แคลฝึกตามแผน (เฉลี่ยต่อวัน) — กินตามเป้าและฝึกตามแผนจึงขาด/เกินเฉลี่ยตามที่ตั้งใจพอดี
+   (วันฝึกขาดมากกว่า วันพักขาดน้อยกว่า — ดู computeCalorieTarget)
    1 กก. ไขมันในร่างกาย ≈ 7,700 kcal (เนื้อเยื่อไขมันมีไขมันจริง ~85% × 9 kcal/g) นับเฉพาะวันที่จบแล้ว (ก่อนวันนี้) และกรอกแคลอรี่ไว้ */
 var FAT_KCAL_PER_KG = 7700;
 var FAT_BAR_GOALS = ['ลดไขมัน', 'Recomposition (ลด+เพิ่มพร้อมกัน)'];
@@ -1150,7 +1162,7 @@ function targetsOf(program){
 var PG_WINDOW = 28;      // วันย้อนหลังที่ใช้หาแนวโน้มน้ำหนักและสมดุลพลังงาน (น้ำ/ไกลโคเจน/รอบเดือนทำให้ช่วงสั้นแกว่ง)
 var PG_MIN_SPAN = 21;    // ต้องชั่งน้ำหนักห่างกันอย่างน้อยกี่วันถึงจะคำนวณแนวโน้ม
 var PG_ADJ_MAX = 150;    // ปรับเป้าแคลอรี่ได้ครั้งละไม่เกินเท่านี้ kcal
-var PG_TDEE_MIN_BMR = 1.2; // TDEE ที่ระบบตั้งใหม่ต้องไม่ต่ำกว่า BMR × ค่านี้ (= ตัวคูณกิจกรรมต่ำสุด "นั่งโต๊ะ" ของระบบ)
+var PG_TDEE_MIN_BMR = 1.2; // TDEE ที่ระบบตั้งใหม่จากข้อมูลจริงต้องไม่ต่ำกว่า BMR × ค่านี้ (ต่ำกว่าค่าตั้งต้น "นั่งโต๊ะ" 1.4 ได้ เพราะบางคนเคลื่อนไหวน้อยกว่าค่าเฉลี่ยจริง)
 var PG_STR_WINDOW = 28;  // วันย้อนหลังที่ใช้หาแนวโน้มความแข็งแรง
 var PG_EARLY_DAYS = 21;  // 3 สัปดาห์แรกของรอบ น้ำ/ไกลโคเจนทำให้น้ำหนักเปลี่ยนเร็วผิดปกติได้ — ยังไม่ตัดสินว่าผิดปกติ
 /* น้ำหนักที่ควรเพิ่มต่อเดือนช่วงเพิ่มกล้าม (% น้ำหนักตัว) ตามประสบการณ์ มือใหม่ → นักกีฬา (แนวทางของ Helms et al.) */
@@ -1195,7 +1207,11 @@ function sessionDone(p, iso){
 }
 /* แคลที่เผาเพิ่มจากการออกกำลังกาย (สุทธิ หักการเผาผลาญขณะพักแล้ว): เวท ~3.5 MET, cardio ~5 MET
    kcal/นาที = (MET−1) × 3.5 × น้ำหนักตัว / 200 — TDEE ของระบบคิดจากลักษณะงานอย่างเดียว จึงต้องบวกส่วนนี้เพิ่มตอนคาดการณ์ */
-function pgExerciseKcal(kg, sessions, sessMin, cardioMin){ return (sessions*sessMin*2.5 + cardioMin*4)*3.5*kg/200; }
+/* แคลที่เผาเพิ่มจากการฝึก (เหนือ TDEE ที่รวมกิจกรรมประจำวันแล้ว) = MET สุทธิ × 3.5 × kg / 200 ต่อนาที
+   เวทเทรนนิ่งทั้งเซสชัน (รวมพักระหว่างเซ็ต) ~4.5–5 MET (Compendium 2024) หักกิจกรรมประจำวันที่ TDEE นับไว้แล้ว ~1–1.5 → สุทธิ 3.5
+   (เดิม 2.5 ต่ำเกินจริง) cardio สุทธิ 4 คงเดิม */
+var EX_NET_MET_LIFT = 3.5, EX_NET_MET_CARDIO = 4;
+function pgExerciseKcal(kg, sessions, sessMin, cardioMin){ return (sessions*sessMin*EX_NET_MET_LIFT + cardioMin*EX_NET_MET_CARDIO)*3.5*kg/200; }
 function pgSessMin(p){ return Q3_MIN[p.minutesEstimate] || 52; }
 function pgCardioWeek(p){ return (p.cardioDays||[]).reduce(function(s, d){ return s + cardioMinFor(p, d); }, 0); }
 function pgPlannedExPerDay(p, kg){ return Math.round(pgExerciseKcal(kg, (p.days||[]).length, pgSessMin(p), pgCardioWeek(p))/7); }
@@ -1205,16 +1221,26 @@ function plannedExFromAnswers(a, kg){
   return pgPlannedExPerDay({days:planTrainDays(a), minutesEstimate:a.Q3||'45-60 นาที', cardioDays:cd,
     cardioMinByDay:minsForDays(state.plan.cardioMinByDay, cd)}, kg);
 }
-/* มวลไร้ไขมัน (FFM) สำหรับตรวจ energy availability: % ไขมันที่ผู้ใช้กรอก (Q14) > ค่ากลางของรูปร่างที่เลือก (Q0) > ค่าทั่วไปตามเพศ
-   ใช้ค่าไขมันต่ำสุดที่เป็นไปได้ไม่ได้ — ค่าทั่วไปตามเพศเป็นแค่ค่าประมาณ จึงบอกแหล่งที่มาให้ผู้ใช้เห็นเสมอ */
-function pgFFM(p, kg){
-  var a = state.answers || {}, pct = null, src = null;
+/* มวลไร้ไขมัน (FFM) สำหรับตรวจ energy availability: % ไขมันที่ผู้ใช้กรอก (Q14) > ค่ากลางของรูปร่างที่เลือก (Q0)
+   > ประมาณจาก BMI/อายุ/เพศ (Deurenberg 1991: 1.2×BMI + 0.23×อายุ − 10.8×ชาย − 5.4 จำกัด 5–60%) > ค่าทั่วไปตามเพศ
+   ค่าทั่วไปตามเพศ (20/30%) ใช้กับคนน้ำหนักมากไม่ได้ — FFM จะสูงเกินจริงมากจนพื้น EA ดันเป้าลดไขมันแทบไม่ขาด
+   ใช้ค่าไขมันต่ำสุดที่เป็นไปได้ไม่ได้ — ค่าประมาณทุกแบบบอกแหล่งที่มาให้ผู้ใช้เห็นเสมอ */
+function pgFFM(p, kg){ return ffmFromAnswers(state.answers || {}, kg, pgSex(p)); }
+/* ใช้ได้ทั้งตอนตั้งเป้าครั้งแรก (computeCalorieTarget — ยังไม่มีแผน) และตอนประเมินแผน (pgFFM) */
+function ffmFromAnswers(a, kg, sex){
+  var pct = null, src = null;
   var q14 = parseFloat(a.Q14_val);
   if(a.Q14==='ทราบ (กรอกตัวเลข)' && q14>=3 && q14<=60){ pct = q14; src = 'ที่คุณกรอก'; }
   else {
     var m = /^(\d+)-(\d+)/.exec(a.Q0 ? (BODYFAT_BANDS.filter(function(b){ return b.key===a.Q0; })[0] || {pct:''}).pct : '');
     if(m){ pct = (parseInt(m[1], 10) + parseInt(m[2], 10))/2; src = 'ประมาณจากรูปร่างที่เลือก'; }
-    else { pct = pgSex(p)==='หญิง' ? 30 : 20; src = 'ค่าทั่วไปตามเพศ (ไม่ได้ระบุ % ไขมัน)'; }
+    else {
+      var hM = parseFloat(a.Q11)/100, age = parseFloat(a.Q10);
+      if(hM>0 && age>0 && (sex==='ชาย' || sex==='หญิง')){
+        pct = Math.min(60, Math.max(5, 1.2*kg/(hM*hM) + 0.23*age - (sex==='ชาย' ? 10.8 : 0) - 5.4));
+        src = 'ประมาณจาก BMI/อายุ/เพศ (ไม่ได้ระบุ % ไขมัน)';
+      } else { pct = sex==='หญิง' ? 30 : 20; src = 'ค่าทั่วไปตามเพศ (ไม่ได้ระบุ % ไขมัน)'; }
+    }
   }
   var ffm = GymBroCalc.calculateFFM(kg, pct);
   return ffm ? {ffm:ffm, bfPct:pct, src:src} : null;
@@ -2897,7 +2923,7 @@ function renderToday(){
       '<button type="button" class="btn" data-act="nav" data-view="progress">ความคืบหน้า</button>'+
     '</div></div>';
 
-  html += oldScheduleBanner(p) + scheduleClashBanner(p) + planUpdateBanner(p) + recompTargetBanner(p) + fatAlertHTML(p) + pgAlertHTML(p);
+  html += oldScheduleBanner(p) + scheduleClashBanner(p) + planUpdateBanner(p) + calcTargetBanner(p) + recompTargetBanner(p) + fatAlertHTML(p) + pgAlertHTML(p);
   html += '<div class="today-grid"><div class="stack">'+dayEditor(iso)+'</div>'+
     '<aside class="rail">'+
       '<div class="prog-card"><div class="prog-top"><h3>ความคืบหน้าวันนี้</h3><span class="n mono">'+counts.done+'/'+counts.total+'</span></div>'+
@@ -3785,7 +3811,7 @@ function renderPlan(){
       '<button type="button" class="btn" data-act="edit-plan">แก้ไขแผน / ทำแบบสอบถามใหม่</button>'+
       '<button type="button" class="btn" data-act="edit-start">ตั้งวันเริ่มใหม่</button>'+
     '</div></div>';
-  html += oldScheduleBanner(p) + scheduleClashBanner(p) + planUpdateBanner(p) + recompTargetBanner(p) + schedEditorPanelHTML();
+  html += oldScheduleBanner(p) + scheduleClashBanner(p) + planUpdateBanner(p) + calcTargetBanner(p) + recompTargetBanner(p) + schedEditorPanelHTML();
   if(!track.schedDraft && track.saveStatus==='บันทึกวันฝึกแล้ว ✓') html += '<div class="banner info"><div class="ic">✓</div><div>บันทึกวันฝึกแล้ว</div></div>';
 
   if(track.editing){
@@ -4178,6 +4204,7 @@ function planUpdateBanner(p){
    และข้ามแผนที่ปรับเป้าตามผลจริงจาก Progression & Goal ไปแล้ว */
 function recompTargetUpdate(p){
   if(!p || p.goal!=='Recomposition (ลด+เพิ่มพร้อมกัน)' || p.recompTargetSeen || !p.targets || p.targets.tdee==null) return null;
+  if((p.calcV||0) >= CALC_VERSION || calcTargetUpdate(p)) return null; // สูตรรุ่นใหม่รวมหลัก Recomp นี้แล้ว — ใช้แบนเนอร์ calcTarget แทน
   if((pgState(p).adjustments||[]).length) return null;
   var kg0 = p.startWeight || bodyweightAsOf(todayISO()) || parseFloat((state.answers||{}).Q12);
   var cal = computeCalorieTarget(p.targets.tdee, {Q1:p.goal, Q6:(state.answers||{}).Q6, Q9:pgSex(p)}, kg0>0 ? pgPlannedExPerDay(p, kg0) : 0);
@@ -4191,6 +4218,46 @@ function recompTargetBanner(p){
     'เป้าของคุณจะเปลี่ยนจาก '+fmtKcal(p.targets.kcal)+' เป็น <b>'+fmtKcal(u.kcal)+' kcal/วัน</b> โปรตีนเท่าเดิม '+
     '<button type="button" class="linkbtn" data-act="recomp-apply">ใช้เป้าใหม่ →</button> · '+
     '<button type="button" class="linkbtn" data-act="recomp-skip">คงเป้าเดิม</button></div></div>';
+}
+/* สูตรเป้าแคลอรี่รุ่นที่ CALC_VERSION (ตัวคูณกิจกรรม FAO/WHO + ลดไขมันคิดจากฐานรวมการฝึก + พื้น energy availability)
+   แผนที่สร้างก่อนหน้านี้ล็อกเป้าเดิมไว้ จึงเสนอให้กดใช้เอง ไม่เปลี่ยนเงียบๆ — ข้ามแผนที่ปรับเป้าตามผลจริงแล้ว (ข้อมูลจริงแม่นกว่าสูตร)
+   คิดจากคำตอบแบบสอบถามปัจจุบัน + เป้าหมาย/เพศ/วันฝึกของแผน + น้ำหนักล่าสุด */
+var CALC_VERSION = 2;
+function calcTargetUpdate(p){
+  if(!p || !p.targets || (p.calcV||0) >= CALC_VERSION || p.calcTargetSeen) return null;
+  if((pgState(p).adjustments||[]).length) return null;
+  var a0 = state.answers || {}, a = {};
+  Object.keys(a0).forEach(function(k){ a[k] = a0[k]; });
+  var kg = bodyweightAsOf(todayISO()) || p.startWeight || parseFloat(a0.Q12);
+  if(!(kg>0)) return null;
+  a.Q1 = p.goal; a.Q9 = pgSex(p); a.Q12 = kg;
+  var tdee = computeTDEE(a);
+  if(tdee==null || isNaN(tdee)) return null;
+  var cal = computeCalorieTarget(tdee, a, pgPlannedExPerDay(p, kg));
+  if(cal.kcal==null || isNaN(cal.kcal)) return null;
+  var kcal = Math.round(cal.kcal);
+  if(p.targets.kcal!=null && Math.abs(kcal - p.targets.kcal) < 50) return null;
+  return {kcal:kcal, tdee:Math.round(tdee), direction:cal.direction, floored:cal.floored};
+}
+function calcTargetBanner(p){
+  var u = calcTargetUpdate(p);
+  if(!u) return '';
+  return '<div class="banner info"><div class="ic">ⓘ</div><div>ปรับสูตรคำนวณเป้าแคลอรี่ใหม่ (พลังงานในชีวิตประจำวันใช้ค่าที่สมจริงขึ้น และนับแคลจากการฝึกตามแผนในทุกเป้าหมาย) — '+
+    'เป้าของคุณจะเปลี่ยนจาก '+fmtKcal(p.targets.kcal)+' เป็น <b>'+fmtKcal(u.kcal)+' kcal/วัน</b> (TDEE ไม่รวมการฝึก '+fmtKcal(p.targets.tdee)+' → '+fmtKcal(u.tdee)+') โปรตีนเท่าเดิม '+
+    '<button type="button" class="linkbtn" data-act="calc-apply">ใช้เป้าใหม่ →</button> · '+
+    '<button type="button" class="linkbtn" data-act="calc-skip">คงเป้าเดิม</button></div></div>';
+}
+function calcApply(){
+  var p = track.program, u = calcTargetUpdate(p);
+  if(!u) return;
+  var t = p.targets, nt = {}, today = todayISO();
+  Object.keys(t).forEach(function(k){ nt[k] = t[k]; });
+  var macro = computeMacro(u.kcal, t.proteinG ? t.proteinG/2 : bodyweightAsOf(today)); // คงเป้าโปรตีนเดิม (2 ก./กก.)
+  nt.kcal = u.kcal; nt.tdee = u.tdee; nt.kcalDirection = u.direction; nt.kcalFloored = u.floored;
+  nt.fatG = macro.fatG; nt.carbG = macro.carbG; nt.macroClamped = macro.clamped;
+  p.targets = nt;
+  p.calcV = CALC_VERSION;
+  pgSave({evalFrom:today}); // เป้าเปลี่ยน — กรอบแผนเริ่มประเมินรอบใหม่จากวันนี้
 }
 function recompApply(){
   var p = track.program, u = recompTargetUpdate(p);
@@ -4812,6 +4879,8 @@ document.addEventListener("click", function(ev){
     return;
   }
   if(act==='pg-apply'){ pgApply(); return; }
+  if(act==='calc-apply'){ calcApply(); return; }
+  if(act==='calc-skip'){ if(track.program){ track.program.calcTargetSeen = true; persistProgram(); } render(); return; }
   if(act==='recomp-apply'){ recompApply(); return; }
   if(act==='recomp-skip'){ if(track.program){ track.program.recompTargetSeen = true; persistProgram(); } render(); return; }
   if(act==='progress-ex'){ track.progressEx = el.getAttribute('data-ex'); render(); return; }
@@ -4875,6 +4944,7 @@ document.addEventListener("click", function(ev){
       snap.startDate = val;
       snap.planId = Date.now().toString(36);
       snap.createdAt = new Date().toISOString();
+      snap.calcV = CALC_VERSION; // เป้าแคลอรี่ของแผนนี้คิดด้วยสูตรรุ่นปัจจุบันแล้ว — ไม่ต้องเสนอ calcTargetBanner
     }
     track.program = snap;
     var ok = persistProgram();

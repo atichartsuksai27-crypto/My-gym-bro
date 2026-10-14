@@ -126,8 +126,8 @@ object Generator {
     }
 
     /** เป้าแคลอรี่ตามเป้าหมาย + เพดานสัมบูรณ์ แล้วบังคับพื้นขั้นต่ำตามเพศเป็นด่านสุดท้าย */
-    /** exKcal = แคลฝึกตามแผนต่อวัน — TDEE ไม่รวมการฝึก เป้าที่คิดจาก TDEE เฉย ๆ จะขาดเพิ่มเท่าแคลที่ฝึกโดยไม่ตั้งใจ (F-02)
-     *  รักษาสุขภาพ/Recomp/เพิ่มกล้ามจึงคิดจาก base = TDEE + exKcal ส่วนลดไขมันคิดจาก TDEE เดิม (การฝึกเป็นส่วนของ deficit ที่ตั้งใจ) */
+    /** exKcal = แคลฝึกตามแผนต่อวัน — TDEE ไม่รวมการฝึก ทุกเป้าหมาย (รวมลดไขมัน) จึงคิดจาก base = TDEE + exKcal
+     *  พื้น = max(ตามเพศ, energy availability 30 ลดไขมัน / 35 เป้าอื่น kcal/กก. FFM + แคลฝึก แต่ไม่เกิน base) — ตรงกับเว็บ */
     fun computeCalorieTarget(tdee: Double?, a: Answers, exKcal: Int = 0): CalorieTarget {
         val sex = a.str("Q9")
         val floor = if (sex == "ชาย") 1500.0 else if (sex == "หญิง") 1200.0 else null
@@ -141,9 +141,9 @@ object Generator {
         val exNote = if (ex != 0) " · ฐาน = TDEE + แคลฝึก ~$ex kcal" else ""
         when (a.str("Q1")) {
             "ลดไขมัน" -> when (a.str("Q4a")) {
-                "เข้มข้น" -> { target = max(tdee * 0.75, tdee - 1000); direction = "ลดไขมัน (เข้มข้น — หัก 25% แต่ไม่เกิน 1,000 kcal)" }
-                "ค่อยเป็นค่อยไป" -> { target = max(tdee * 0.85, tdee - 500); direction = "ลดไขมัน (ค่อยเป็นค่อยไป — หัก 15% แต่ไม่เกิน 500 kcal)" }
-                else -> { target = tdee * 0.80; direction = "ลดไขมัน (deficit 20%)" }
+                "เข้มข้น" -> { target = max(base * 0.75, base - 1000); direction = "ลดไขมัน (เข้มข้น — หัก 25% แต่ไม่เกิน 1,000 kcal$exNote)" }
+                "ค่อยเป็นค่อยไป" -> { target = max(base * 0.85, base - 500); direction = "ลดไขมัน (ค่อยเป็นค่อยไป — หัก 15% แต่ไม่เกิน 500 kcal$exNote)" }
+                else -> { target = base * 0.80; direction = "ลดไขมัน (deficit 20%$exNote)" }
             }
             "เพิ่มกล้ามเนื้อ" -> when (a.str("Q5b")) {
                 "ได้ (เน้นสร้างกล้ามให้เร็ว)" -> { target = min(base * 1.15, base + 500); direction = "เพิ่มกล้ามเนื้อ (รับไขมันได้ — เพิ่ม 15% แต่ไม่เกิน +500 kcal$exNote)" }
@@ -161,8 +161,20 @@ object Generator {
                 direction = if (ex != 0) "รักษาน้ำหนัก (maintenance — TDEE + แคลจากการฝึกตามแผน ~$ex kcal)" else "รักษาน้ำหนัก (maintenance)"
             }
         }
-        val floored = floor != null && target < floor
-        return CalorieTarget(if (floored) floor else target, floored, floor, direction)
+        var floorV = floor
+        var eaNote = ""
+        val kg = a.parseFloat("Q12")
+        val ffm = if (kg > 0) ProgressGoal.ffmFromAnswers(a, kg, sex) else null
+        if (ffm != null) {
+            val minEA = if (a.str("Q1") == "ลดไขมัน") Calculations.EA_MIN_CUT else Calculations.EA_MIN_NON_CUT
+            val eaFloor = min(Calculations.minIntakeForEA(minEA, ex.toDouble(), ffm.ffm)!!, base)
+            if (floorV == null || eaFloor > floorV) {
+                floorV = eaFloor
+                eaNote = " · ปรับขึ้นให้ energy availability ไม่ต่ำกว่า ${minEA.toInt()} kcal/กก. มวลไร้ไขมัน (FFM ~${Tracking.fmt1(ffm.ffm)} กก. — ${ffm.src})"
+            }
+        }
+        val floored = floorV != null && target < floorV
+        return CalorieTarget(if (floored) floorV else target, floored, floorV, if (floored) direction + eaNote else direction)
     }
 
     fun computeMacro(kcal: Double?, weightKg: Double?): Macro {
@@ -189,7 +201,7 @@ object Generator {
         val w = a.parseFloat("Q12")
         val hasWeight = w > 0
         val tdee = computeTDEE(a)
-        val cal = computeCalorieTarget(tdee, a, if (a.str("Q1") != "ลดไขมัน" && hasWeight) plannedExFromAnswers(a, w) else 0)
+        val cal = computeCalorieTarget(tdee, a, if (hasWeight) plannedExFromAnswers(a, w) else 0)
         val macro = computeMacro(cal.kcal, if (hasWeight) w else null)
         var water = if (hasWeight) min(4.0, max(1.5, jsRound(w * 0.035 * 10) / 10)) else null
         val already = a.str("Q43")?.let { Catalog.WATER_NOW[it] }

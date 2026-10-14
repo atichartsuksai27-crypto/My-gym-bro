@@ -22,17 +22,16 @@ class CalculationsTest {
     }
 
     @Test fun activityFactors() {
-        assertEquals(1.20, C.ACTIVITY_FACTORS["sedentary"]!!, 0.0)
-        assertEquals(1.375, C.ACTIVITY_FACTORS["lightly_active"]!!, 0.0)
-        assertEquals(1.55, C.ACTIVITY_FACTORS["moderately_active"]!!, 0.0)
-        assertEquals(1.725, C.ACTIVITY_FACTORS["very_active"]!!, 0.0)
-        assertEquals(1.90, C.ACTIVITY_FACTORS["extremely_active"]!!, 0.0)
+        assertEquals(1.40, C.ACTIVITY_FACTORS["sedentary"]!!, 0.0)
+        assertEquals(1.55, C.ACTIVITY_FACTORS["lightly_active"]!!, 0.0)
+        assertEquals(1.75, C.ACTIVITY_FACTORS["moderately_active"]!!, 0.0)
+        assertEquals(3, C.ACTIVITY_FACTORS.size)
     }
 
     @Test fun q36Mapping() {
-        assertEquals(1.20, C.activityFactorFromQ36("นั่งโต๊ะเป็นหลัก")!!, 0.0)
-        assertEquals(1.375, C.activityFactorFromQ36("ยืน-เดินเยอะ")!!, 0.0)
-        assertEquals(1.55, C.activityFactorFromQ36("ใช้แรงงาน")!!, 0.0)
+        assertEquals(1.40, C.activityFactorFromQ36("นั่งโต๊ะเป็นหลัก")!!, 0.0)
+        assertEquals(1.55, C.activityFactorFromQ36("ยืน-เดินเยอะ")!!, 0.0)
+        assertEquals(1.75, C.activityFactorFromQ36("ใช้แรงงาน")!!, 0.0)
         assertNull(C.activityFactorFromQ36("อะไรก็ไม่รู้"))
         assertNull(C.activityFactorFromQ36(null))
         assertNull(C.getActivityFactor("super_active"))

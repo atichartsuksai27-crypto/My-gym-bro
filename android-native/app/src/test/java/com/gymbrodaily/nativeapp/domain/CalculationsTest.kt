@@ -21,6 +21,21 @@ class CalculationsTest {
         assertEquals(1815.34375, C.calculateTDEE(1320.25, 1.375)!!, 0.0)
     }
 
+    @Test fun katchMcArdle() {
+        assertEquals(1838.8, C.calculateBMRKatchMcArdle(80.0, 15.0)!!, 1e-9)
+        assertNull(C.calculateBMRKatchMcArdle(80.0, 2.9))
+        assertNull(C.calculateBMRKatchMcArdle(80.0, 60.1))
+        assertNull(C.calculateBMRKatchMcArdle(0.0, 15.0))
+    }
+
+    @Test fun profileBmrUsesKatchOnlyWhenTyped() {
+        assertEquals(1780.0, C.calculateBMRForProfile(80.0, 180.0, 30.0, "ชาย", null)!!, 0.0)
+        assertEquals(1838.8, C.calculateBMRForProfile(80.0, 180.0, 30.0, "ชาย", 15.0)!!, 1e-9)
+        assertEquals(1780.0, C.calculateBMRForProfile(80.0, 180.0, 30.0, "ชาย", 99.0)!!, 0.0)
+        assertNull(C.calculateBMRForProfile(80.0, 0.0, 30.0, "ชาย", 15.0))
+        assertNull(C.calculateBMRForProfile(80.0, 180.0, 30.0, "other", 15.0))
+    }
+
     @Test fun activityFactors() {
         assertEquals(1.40, C.ACTIVITY_FACTORS["sedentary"]!!, 0.0)
         assertEquals(1.55, C.ACTIVITY_FACTORS["lightly_active"]!!, 0.0)

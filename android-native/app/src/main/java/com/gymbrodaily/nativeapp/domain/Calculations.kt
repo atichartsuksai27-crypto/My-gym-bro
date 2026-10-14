@@ -38,6 +38,22 @@ object Calculations {
         return if (sex == "ชาย") base + 5 else base - 161
     }
 
+    const val KATCH_BF_MIN = 3.0
+    const val KATCH_BF_MAX = 60.0
+
+    /** Katch-McArdle: BMR = 370 + 21.6 × มวลไร้ไขมัน — ใช้เมื่อผู้ใช้กรอก % ไขมันเอง (3–60%) เท่านั้น ตรงกับ calculations.js */
+    fun calculateBMRKatchMcArdle(weightKg: Double, bodyFatPct: Double): Double? {
+        if (!(weightKg > 0) || !(bodyFatPct >= KATCH_BF_MIN && bodyFatPct <= KATCH_BF_MAX)) return null
+        return 370 + 21.6 * (weightKg * (1 - bodyFatPct / 100))
+    }
+
+    /** จุดเข้าเดียวสำหรับ BMR ของโปรไฟล์: ข้อมูลพื้นฐานต้องครบก่อน (ไม่งั้น null) แล้วใช้ Katch-McArdle ถ้ามี bodyFatPct ที่กรอกเอง ไม่งั้น Mifflin */
+    fun calculateBMRForProfile(weightKg: Double, heightCm: Double, age: Double, sex: String?, bodyFatPct: Double?): Double? {
+        val mifflin = calculateBMR(weightKg, heightCm, age, sex) ?: return null
+        if (bodyFatPct == null) return mifflin
+        return calculateBMRKatchMcArdle(weightKg, bodyFatPct) ?: mifflin
+    }
+
     /** TDEE = BMR × Activity Factor */
     fun calculateTDEE(bmr: Double?, activityFactor: Double?): Double? {
         if (bmr == null || !(bmr > 0)) return null

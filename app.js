@@ -544,12 +544,19 @@ function sanityIssues(a){
    สูตรจริงอยู่ใน calculations.js (GymBroCalc) จุดเดียวของทั้งระบบ — ที่นี่เป็นแค่
    adapter ที่แปลงคำตอบแบบสอบถาม (Q9/Q10/Q11/Q12/Q36) ไปเป็น input ของสูตร
    ห้ามเขียนสูตร BMR/TDEE ซ้ำที่ไฟล์นี้หรือที่อื่นเด็ดขาด */
+/* % ไขมันที่ผู้ใช้ "กรอกเอง" (Q14) เท่านั้น — ไม่นับค่าที่ประมาณจากรูปร่าง (Q0)/BMI → null ถ้าไม่ได้กรอก
+   ใช้เลือก Katch-McArdle แทน Mifflin ใน GymBroCalc.calculateBMRForProfile */
+function typedBodyFatPct(a){
+  var v = parseFloat(a.Q14_val);
+  return (a.Q14==='ทราบ (กรอกตัวเลข)' && v>=3 && v<=60) ? v : null;
+}
 function computeTDEE(a){
-  var bmr = GymBroCalc.calculateBMR({
+  var bmr = GymBroCalc.calculateBMRForProfile({
     weightKg: a.Q12,   // น้ำหนักตัว (kg)
     heightCm: a.Q11,   // ส่วนสูง (cm)
     age: a.Q10,        // อายุ (ปี)
-    sex: a.Q9          // 'ชาย' | 'หญิง'
+    sex: a.Q9,         // 'ชาย' | 'หญิง'
+    bodyFatPct: typedBodyFatPct(a) // กรอกเอง → Katch-McArdle, ไม่งั้น Mifflin
   });
   var factor = GymBroCalc.activityFactorFromQ36(a.Q36); // null ถ้า Q36 ยังไม่ตอบ/ไม่รู้จัก
   return GymBroCalc.calculateTDEE({bmr: bmr, activityFactor: factor}); // null ถ้าข้อมูลไม่ครบ
@@ -1247,7 +1254,7 @@ function ffmFromAnswers(a, kg, sex){
 }
 function pgBMR(p, kg){
   var a = state.answers || {};
-  return GymBroCalc.calculateBMR({weightKg:kg, heightCm:a.Q11, age:a.Q10, sex:pgSex(p)});
+  return GymBroCalc.calculateBMRForProfile({weightKg:kg, heightCm:a.Q11, age:a.Q10, sex:pgSex(p), bodyFatPct:typedBodyFatPct(a)});
 }
 /* กรอบน้ำหนัก (กก./สัปดาห์, ลบ = ลด) ถ้าทำตามแผน
    รักษาสุขภาพ: ศูนย์กลางที่ 0 ± 0.2% น้ำหนักตัว/สัปดาห์ (ไม่อิงเป้าแคลอรี่ จึงไม่พาเป้าไปทางลดไขมัน)

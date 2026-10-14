@@ -120,7 +120,7 @@ object Generator {
 
     /** adapter แปลงคำตอบไปเป็น input ของสูตรใน Calculations — ห้ามเขียนสูตรซ้ำที่นี่ */
     fun computeTDEE(a: Answers): Double? {
-        val bmr = Calculations.calculateBMR(a.number("Q12"), a.number("Q11"), a.number("Q10"), a.str("Q9"))
+        val bmr = Calculations.calculateBMRForProfile(a.number("Q12"), a.number("Q11"), a.number("Q10"), a.str("Q9"), ProgressGoal.typedBodyFatPct(a))
         val factor = Calculations.activityFactorFromQ36(a.str("Q36"))
         return Calculations.calculateTDEE(bmr, factor)
     }

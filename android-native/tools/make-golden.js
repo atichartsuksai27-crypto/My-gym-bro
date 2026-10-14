@@ -181,6 +181,9 @@ seed = 4242001;
 for(var ti = 0; ti < 600; ti++){
   var ta = randomAnswers();
   if(ti % 3 === 0) ta.Q1 = 'รักษาสุขภาพทั่วไป'; // เป้านี้คือจุดที่แก้ — ให้มีเคสมากพอ
+  // Katch-McArdle ใช้เฉพาะ % ไขมันที่กรอกเอง: กำหนดตายตัวตามลำดับเคส (ไม่ใช้ตัวสุ่ม เพื่อไม่ให้เคสเดิมเปลี่ยน) รวมค่านอกช่วง 3-60
+  if(ti % 4 === 1){ ta.Q14 = 'ทราบ (กรอกตัวเลข)'; ta.Q14_val = [8, 12, 18, 25, 35, 45, 2, 70][(ti >> 2) % 8]; }
+  else if(ti % 4 === 2){ ta.Q14 = 'ไม่ทราบ'; ta.Q14_val = 15; } // ไม่ได้กรอกเอง → ต้องไม่ใช้ Katch แม้มีตัวเลขค้าง
   var tPlan = randomPlan();
   tPlan.trainDays = DAYS.filter(function(d){ return (ta.Q2 || []).indexOf(d) > -1; });
   setState({plan: tPlan});
@@ -194,10 +197,11 @@ for(var j = 0; j < 300; j++){
   var w = numLike(-10, 200), h = numLike(-10, 230), age = numLike(-5, 100);
   var sex = pick(['ชาย','หญิง','other',undefined]);
   var q36 = pick(['นั่งโต๊ะเป็นหลัก','ยืน-เดินเยอะ','ใช้แรงงาน','???',undefined]);
-  var bmr = C.calculateBMR({weightKg:w, heightCm:h, age:age, sex:sex});
+  var bf = [null, null, null, 10, 18, 25, 40, 2, 65, 3, 60][j % 11]; // กำหนดตายตัว (ไม่ใช้ตัวสุ่ม) รวมขอบ 3/60 และนอกช่วง
+  var bmr = C.calculateBMRForProfile({weightKg:w, heightCm:h, age:age, sex:sex, bodyFatPct:bf});
   var f = C.activityFactorFromQ36(q36);
   calcCases.push({
-    input: plain({weightKg:w===undefined?null:w, heightCm:h===undefined?null:h, age:age===undefined?null:age, sex:sex===undefined?null:sex, q36:q36===undefined?null:q36}),
+    input: plain({weightKg:w===undefined?null:w, heightCm:h===undefined?null:h, age:age===undefined?null:age, sex:sex===undefined?null:sex, q36:q36===undefined?null:q36, bodyFatPct:bf}),
     expected: plain({bmr: bmr, factor: f, tdee: C.calculateTDEE({bmr:bmr, activityFactor:f})})
   });
 }

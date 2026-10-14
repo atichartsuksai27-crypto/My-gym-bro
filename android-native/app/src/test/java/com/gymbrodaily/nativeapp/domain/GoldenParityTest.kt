@@ -106,9 +106,10 @@ class GoldenParityTest {
     fun calculationsMatchJs() {
         loadGolden("calculations.json").forEachIndexed { i, c ->
             val input = c.jsonObject["input"]!!.jsonObject
-            val bmr = Calculations.calculateBMR(
+            val bf = input["bodyFatPct"]?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.let { jsNumber(it) }
+            val bmr = Calculations.calculateBMRForProfile(
                 jsNumber(input["weightKg"]), jsNumber(input["heightCm"]), jsNumber(input["age"]),
-                input["sex"].stringOrNullJs(),
+                input["sex"].stringOrNullJs(), bf,
             )
             val factor = Calculations.activityFactorFromQ36(input["q36"].stringOrNullJs())
             val actual = buildJsonObject {

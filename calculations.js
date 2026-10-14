@@ -77,6 +77,29 @@ function calculateBMR(a, b, c, d){
 }
 
 /* ------------------------------------------------------------
+   calculateBMRKatchMcArdle — BMR = 370 + 21.6 × มวลไร้ไขมัน (กก.)
+   แม่นกว่า Mifflin สำหรับคนที่มีกล้ามเยอะ/ไขมันต่ำ เพราะ Mifflin ใช้น้ำหนักรวมโดยไม่แยกกล้ามกับไขมัน
+   ใช้เฉพาะเมื่อผู้ใช้ "กรอก % ไขมันเอง" (3–60%) — % ที่ประมาณจากรูปร่าง/BMI กว้างเกินไป อาจเพี้ยนกว่า Mifflin
+   คืน null ถ้าข้อมูลไม่ถูกต้อง
+   ------------------------------------------------------------ */
+var KATCH_BF_MIN = 3, KATCH_BF_MAX = 60;
+function calculateBMRKatchMcArdle(weightKg, bodyFatPct){
+  weightKg = Number(weightKg); bodyFatPct = Number(bodyFatPct);
+  if(!(weightKg>0) || !(bodyFatPct>=KATCH_BF_MIN && bodyFatPct<=KATCH_BF_MAX)) return null;
+  return 370 + 21.6 * (weightKg * (1 - bodyFatPct/100));
+}
+/* จุดเข้าเดียวสำหรับ BMR ของโปรไฟล์ผู้ใช้: ข้อมูลพื้นฐานต้องครบก่อน (ไม่งั้น null เหมือนเดิม)
+   แล้วใช้ Katch-McArdle ถ้ามี bodyFatPct ที่ผู้ใช้กรอกเอง ไม่งั้น Mifflin-St Jeor
+   รับ object {weightKg, heightCm, age, sex, bodyFatPct}  bodyFatPct ว่าง/null = ไม่ได้กรอก */
+function calculateBMRForProfile(p){
+  var mifflin = calculateBMR(p);
+  if(mifflin==null) return null;
+  if(p.bodyFatPct==null || p.bodyFatPct==='') return mifflin;
+  var katch = calculateBMRKatchMcArdle(p.weightKg, p.bodyFatPct);
+  return katch==null ? mifflin : katch;
+}
+
+/* ------------------------------------------------------------
    calculateTDEE — TDEE = BMR × Activity Factor (PART 2)
    รับได้ทั้ง object ({bmr, activityFactor}) และ positional (bmr, activityFactor)
    คืน null ถ้า bmr หรือ activityFactor ไม่ถูกต้อง
@@ -125,6 +148,8 @@ function minIntakeForEA(minEA, exerciseKcal, ffmKg){
 
 global.GymBroCalc = {
   calculateBMR: calculateBMR,
+  calculateBMRKatchMcArdle: calculateBMRKatchMcArdle,
+  calculateBMRForProfile: calculateBMRForProfile,
   calculateTDEE: calculateTDEE,
   calculateFFM: calculateFFM,
   calculateEnergyAvailability: calculateEnergyAvailability,

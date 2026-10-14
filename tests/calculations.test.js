@@ -35,6 +35,35 @@ test('1320.25 x 1.375 -> 1815.34375', function(){
   assert.strictEqual(C.calculateTDEE({bmr:1320.25, activityFactor:1.375}), 1815.34375);
 });
 
+console.log('Katch-McArdle — only when body fat is typed in');
+test('BMR = 370 + 21.6 x FFM', function(){
+  // 80 กก. ไขมัน 15% → FFM 68 → 370 + 1468.8
+  assert.ok(Math.abs(C.calculateBMRKatchMcArdle(80, 15) - 1838.8) < 1e-9);
+});
+test('out-of-range or missing body fat -> null', function(){
+  assert.strictEqual(C.calculateBMRKatchMcArdle(80, 2.9), null);
+  assert.strictEqual(C.calculateBMRKatchMcArdle(80, 60.1), null);
+  assert.strictEqual(C.calculateBMRKatchMcArdle(0, 15), null);
+  assert.strictEqual(C.calculateBMRKatchMcArdle(80, null), null);
+});
+test('profile BMR: typed body fat -> Katch, otherwise Mifflin', function(){
+  var base = {weightKg:80, heightCm:180, age:30, sex:'ชาย'};
+  assert.strictEqual(C.calculateBMRForProfile(base), 1780);
+  assert.strictEqual(C.calculateBMRForProfile({weightKg:80, heightCm:180, age:30, sex:'ชาย', bodyFatPct:null}), 1780);
+  assert.strictEqual(C.calculateBMRForProfile({weightKg:80, heightCm:180, age:30, sex:'ชาย', bodyFatPct:''}), 1780);
+  assert.ok(Math.abs(C.calculateBMRForProfile({weightKg:80, heightCm:180, age:30, sex:'ชาย', bodyFatPct:15}) - 1838.8) < 1e-9);
+});
+test('profile BMR: invalid body fat falls back to Mifflin; incomplete profile stays null', function(){
+  assert.strictEqual(C.calculateBMRForProfile({weightKg:80, heightCm:180, age:30, sex:'ชาย', bodyFatPct:99}), 1780);
+  assert.strictEqual(C.calculateBMRForProfile({weightKg:80, age:30, sex:'ชาย', bodyFatPct:15}), null);
+  assert.strictEqual(C.calculateBMRForProfile({weightKg:80, heightCm:180, age:30, sex:'other', bodyFatPct:15}), null);
+});
+test('Katch is higher for a lean lifter and lower for a high-fat user than Mifflin', function(){
+  var lean = {weightKg:80, heightCm:180, age:30, sex:'ชาย'}, fat = {weightKg:120, heightCm:175, age:40, sex:'ชาย'};
+  assert.ok(C.calculateBMRForProfile(Object.assign({bodyFatPct:10}, lean)) > C.calculateBMR(lean));
+  assert.ok(C.calculateBMRForProfile(Object.assign({bodyFatPct:40}, fat)) < C.calculateBMR(fat));
+});
+
 console.log('Activity factor mapping (PART 2) — one central table');
 test('non-exercise activity levels use FAO/WHO PAL values', function(){
   assert.strictEqual(C.ACTIVITY_FACTORS.sedentary, 1.40);

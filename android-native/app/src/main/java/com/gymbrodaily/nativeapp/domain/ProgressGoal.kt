@@ -246,8 +246,14 @@ object ProgressGoal {
         return LinReg(a, b, if (n > 2) sqrt(sse / (n - 2) / sxx) else 0.0, n)
     }
 
+    /** % ไขมันที่ผู้ใช้กรอกเอง (Q14) เท่านั้น — ไม่นับค่าที่ประมาณจากรูปร่าง/BMI → null ถ้าไม่ได้กรอก (ตรงกับ typedBodyFatPct ของเว็บ) */
+    fun typedBodyFatPct(a: Answers): Double? {
+        val v = a.parseFloat("Q14_val")
+        return if (a.str("Q14") == "ทราบ (กรอกตัวเลข)" && v >= 3 && v <= 60) v else null
+    }
+
     fun bmr(t: TrackData, kg: Double): Double? =
-        Calculations.calculateBMR(kg, t.answers.number("Q11"), t.answers.number("Q10"), sex(t))
+        Calculations.calculateBMRForProfile(kg, t.answers.number("Q11"), t.answers.number("Q10"), sex(t), typedBodyFatPct(t.answers))
 
     fun weightPlan(t: TrackData, kg: Double): PgPlan {
         val p = t.program

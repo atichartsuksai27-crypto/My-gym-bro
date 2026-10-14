@@ -92,9 +92,42 @@ function calculateTDEE(a, b){
   return bmr * activityFactor;
 }
 
+/* ------------------------------------------------------------
+   Energy availability (EA) — เกณฑ์ IOC RED-S: EA = (แคลที่กิน − แคลจากการออกกำลังกาย) / มวลไร้ไขมัน (FFM, กก.)
+   ต่ำกว่า ~30 kcal/กก. FFM เสี่ยงประจำเดือนผิดปกติ/มวลกระดูกลด/ฮอร์โมนเสีย; 45 = สมดุลพลังงานปกติ
+   EA_MIN_CUT = พื้นระหว่างลดไขมัน, EA_MIN_NON_CUT = พื้นสำหรับเป้าที่ไม่ได้ตั้งใจให้ขาด (รักษา/Recomp/เพิ่มกล้าม)
+   คืน null ถ้าข้อมูลไม่ครบ/ไม่ถูกต้อง — ไม่คืน 0 กลบ error
+   ------------------------------------------------------------ */
+var EA_MIN_CUT = 30, EA_MIN_NON_CUT = 35;
+function calculateFFM(weightKg, bodyFatPct){
+  weightKg = Number(weightKg); bodyFatPct = Number(bodyFatPct);
+  if(!(weightKg>0) || !(bodyFatPct>=0 && bodyFatPct<100)) return null;
+  return weightKg * (1 - bodyFatPct/100);
+}
+function calculateEnergyAvailability(a, b, c){
+  var intakeKcal, exerciseKcal, ffmKg;
+  if(a && typeof a==='object'){ intakeKcal = a.intakeKcal; exerciseKcal = a.exerciseKcal; ffmKg = a.ffmKg; }
+  else { intakeKcal = a; exerciseKcal = b; ffmKg = c; }
+  if(intakeKcal==null || intakeKcal==='') return null; // Number(null) = 0 จะกลายเป็น "กิน 0 kcal" เงียบ ๆ
+  intakeKcal = Number(intakeKcal); exerciseKcal = Number(exerciseKcal) || 0; ffmKg = Number(ffmKg);
+  if(!(intakeKcal>=0) || !(ffmKg>0)) return null;
+  return (intakeKcal - exerciseKcal) / ffmKg;
+}
+/* แคลต่ำสุดที่กินได้โดย EA ไม่ต่ำกว่า minEA (ใช้ตัดสินก่อนลดเป้า) */
+function minIntakeForEA(minEA, exerciseKcal, ffmKg){
+  minEA = Number(minEA); exerciseKcal = Number(exerciseKcal) || 0; ffmKg = Number(ffmKg);
+  if(!(minEA>0) || !(ffmKg>0)) return null;
+  return minEA*ffmKg + exerciseKcal;
+}
+
 global.GymBroCalc = {
   calculateBMR: calculateBMR,
   calculateTDEE: calculateTDEE,
+  calculateFFM: calculateFFM,
+  calculateEnergyAvailability: calculateEnergyAvailability,
+  minIntakeForEA: minIntakeForEA,
+  EA_MIN_CUT: EA_MIN_CUT,
+  EA_MIN_NON_CUT: EA_MIN_NON_CUT,
   getActivityFactor: getActivityFactor,
   activityFactorFromQ36: activityFactorFromQ36,
   ACTIVITY_FACTORS: ACTIVITY_FACTORS,

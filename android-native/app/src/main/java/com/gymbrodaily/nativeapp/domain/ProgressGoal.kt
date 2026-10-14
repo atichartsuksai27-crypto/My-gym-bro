@@ -127,7 +127,11 @@ data class PgRecommendation(
     val belowFloor: Boolean = false,
     val capped: Boolean = false,
     val tdee: Int? = null,
+    /** เป้าที่จะลดถูกจำกัดเพราะ energy availability ต่ำกว่าพื้น (null = ไม่ถูกจำกัด) */
+    val eaBlocked: EaBlocked? = null,
 )
+
+data class EaBlocked(val minEA: Double, val ea: Double, val wouldBe: Int, val minKcal: Double, val ffm: Double, val src: String)
 
 object ProgressGoal {
 
@@ -259,12 +263,32 @@ object ProgressGoal {
                 lo = max(c - w, min(c, -kg * 0.01))
                 hi = c + w
             }
+            // รักษาน้ำหนัก = ไม่เปลี่ยน ไม่ว่าเป้าแคลอรี่ที่ตั้งไว้จะตรงสมดุลหรือไม่ (F-02) — ถ้าเป้าคลาด น้ำหนักจะหลุดกรอบแล้วระบบเสนอให้ปรับเข้าหา
+            "รักษาสุขภาพทั่วไป" -> {
+                c = 0.0
+                lo = -kg * 0.002; hi = kg * 0.002
+            }
             else -> {
                 c = energy ?: 0.0
                 lo = c - kg * 0.002; hi = c + kg * 0.002
             }
         }
         return PgPlan(c, lo, hi, ex)
+    }
+
+    class Ffm(val ffm: Double, val bfPct: Double, val src: String)
+
+    /** มวลไร้ไขมันสำหรับตรวจ energy availability: % ไขมันที่กรอก (Q14) > ค่ากลางรูปร่างที่เลือก (Q0) > ค่าทั่วไปตามเพศ */
+    fun ffm(t: TrackData, kg: Double): Ffm? {
+        val a = t.answers
+        val q14 = a.parseFloat("Q14_val")
+        val pct: Double; val src: String
+        val band = a.str("Q0")?.let { k -> Questions.BODYFAT_BANDS.firstOrNull { it.key == k } }
+        val m = band?.let { Regex("""^(\d+)-(\d+)""").find(it.pct) }
+        if (a.str("Q14") == "ทราบ (กรอกตัวเลข)" && q14 >= 3 && q14 <= 60) { pct = q14; src = "ที่คุณกรอก" }
+        else if (m != null) { pct = (m.groupValues[1].toInt() + m.groupValues[2].toInt()) / 2.0; src = "ประมาณจากรูปร่างที่เลือก" }
+        else { pct = if (sex(t) == "หญิง") 30.0 else 20.0; src = "ค่าทั่วไปตามเพศ (ไม่ได้ระบุ % ไขมัน)" }
+        return Calculations.calculateFFM(kg, pct)?.let { Ffm(it, pct, src) }
     }
 
     fun strengthBand(t: TrackData): List<Double> {
@@ -623,7 +647,7 @@ object ProgressGoal {
         val tg = Tracking.targetsOf(t)
         val en = ev.energy
         val text = mutableListOf<String>()
-        var kcal: Int? = null; var floorV: Int? = null; var want: Int? = null; var belowFloor = false; var capped = false; var tdee: Int? = null
+        var eaBlocked: EaBlocked? = null; var kcal: Int? = null; var floorV: Int? = null; var want: Int? = null; var belowFloor = false; var capped = false; var tdee: Int? = null
         val implied = en.implied
         // ปรับแคลอรี่เฉพาะเมื่อสัญญาณ "น้ำหนัก" ผิดปกติจริง (หรือหลุดกรอบเล็กน้อยต่อเนื่องหลายสัปดาห์)
         val weightOff = ev.weight.level == PgLevel.ANOMALY || (ev.persisted && ev.weight.level == PgLevel.WATCH)
@@ -633,8 +657,26 @@ object ProgressGoal {
             val impliedUse = if (bmrNow != null) max(implied, bmrNow * PG_TDEE_MIN_BMR + en.exAct!!) else implied
             val w = impliedUse + ev.plan.c * FAT_KCAL_PER_KG / 7
             val fl = if (sex(t) == "ชาย") 1500 else 1200
-            val k = max(fl.toDouble(), jsRound(min(tg.kcal + PG_ADJ_MAX.toDouble(), max(tg.kcal - PG_ADJ_MAX.toDouble(), w)) / 10) * 10).toInt()
+            var k = max(fl.toDouble(), jsRound(min(tg.kcal + PG_ADJ_MAX.toDouble(), max(tg.kcal - PG_ADJ_MAX.toDouble(), w)) / 10) * 10).toInt()
             floorV = fl; want = jsRound(w).toInt(); belowFloor = w < fl
+            /* energy availability (IOC RED-S): ก่อนลดเป้าทุกครั้ง แคลที่กิน − แคลฝึกตามแผน ต้องไม่ต่ำกว่า 30 (ลดไขมัน) / 35 (เป้าอื่น) kcal/กก. FFM
+               ถ้าเป้าใหม่ต่ำกว่านั้น จำกัดการลด (ไม่ดันขึ้นเหนือเป้าเดิมเอง) แล้วบอกเหตุผล */
+            val ffm = ffm(t, ev.refKg)
+            if (ffm != null && k < tg.kcal) {
+                val minEA = if (t.program.goal == "ลดไขมัน") Calculations.EA_MIN_CUT else Calculations.EA_MIN_NON_CUT
+                val exDay = ev.plan.exPerDay.toDouble()
+                val minKcal = ceil(Calculations.minIntakeForEA(minEA, exDay, ffm.ffm)!! / 10) * 10
+                val eaNew = Calculations.calculateEnergyAvailability(k.toDouble(), exDay, ffm.ffm)!!
+                if (k < minKcal) {
+                    val wouldBe = k
+                    eaBlocked = EaBlocked(minEA, eaNew, wouldBe, minKcal, jsRound(ffm.ffm * 10) / 10, ffm.src)
+                    k = max(k.toDouble(), min(minKcal, tg.kcal.toDouble())).toInt()
+                    text += (if (k < tg.kcal) "จำกัดการลดเป้าแคลอรี่ไว้ที่ ${fmtKcal(k)} kcal" else "ไม่ลดเป้าแคลอรี่") +
+                        ": ถ้ากิน ${fmtKcal(wouldBe)} kcal และฝึกตามแผน (~${ev.plan.exPerDay} kcal/วัน) energy availability จะเหลือ ~${fmt1(eaNew)}" +
+                        " kcal/กก. มวลไร้ไขมัน (FFM ~${fmt1(ffm.ffm)} กก. — ${ffm.src}) ต่ำกว่าเกณฑ์ขั้นต่ำ ${minEA.toInt()} — เสี่ยงประจำเดือนผิดปกติ มวลกระดูกลด ฮอร์โมนเสียสมดุล และเสียกล้ามเนื้อ (RED-S) " +
+                        "ยอมให้ผลช้าลงหรือคงเป้าเดิมไว้ดีกว่า และถ้าน้ำหนักลดทั้งที่กินตามเป้า ควรปรึกษาแพทย์/นักกำหนดอาหาร"
+                }
+            }
             if (abs(k - tg.kcal) >= 50) {
                 kcal = k; capped = abs(w - k) > 10
                 tdee = jsRound(impliedUse - en.exAct!!).toInt()
@@ -648,7 +690,7 @@ object ProgressGoal {
         }
         ev.causes.forEach { text += "แก้ปัจจัยนี้ก่อน: $it" }
         if (stressSummary(ev)?.flag == true) text += "จัดการความเครียดควบคู่ไปด้วย: นอนให้ถึงเป้า เดินเบา ๆ หรือยืดเหยียด 10-20 นาที วันที่เครียดมากให้ฝึกตามแผนโดยไม่เพิ่มน้ำหนัก — ถ้าเครียดมากต่อเนื่องหลายสัปดาห์ควรคุยกับผู้เชี่ยวชาญ (สายด่วนสุขภาพจิต 1323)"
-        return PgRecommendation(kcal, text, floorV, want, belowFloor, capped, tdee)
+        return PgRecommendation(kcal, text, floorV, want, belowFloor, capped, tdee, eaBlocked)
     }
 
     /* ---------- ข้อความสรุปที่หน้า "ความคืบหน้า" ---------- */

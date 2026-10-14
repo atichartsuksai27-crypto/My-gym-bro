@@ -21,6 +21,7 @@ class GoldenParityTest {
         assertEquals(1500, loadGolden("generator.json").size)
         assertEquals(300, loadGolden("calculations.json").size)
         assertEquals(300, loadGolden("benchmarks.json").size)
+        assertEquals(600, loadGolden("targets.json").size)
     }
 
     /** กันเทสต์ผ่านแบบหลอกๆ — ตัวเทียบต้องจับความต่างได้จริง */
@@ -198,7 +199,27 @@ class GoldenParityTest {
                 put("adjacencyWarning", Generator.weekdayAdjacencyWarning(a.list("Q2")))
                 put("snapshot", goldenJson.encodeToJsonElement(Generator.buildPlanSnapshot(a, plan)))
             }
-            assertJsonEquivalent(expected, actual, "generator[$i]")
+            // เป้าแคลอรี่/มาโครเทียบแยกที่ targetsMatchJs (generator.json คงเป็นเวอร์ชันเว็บเก่า — ดู make-golden.js)
+            assertJsonEquivalent(withoutTargets(expected), withoutTargets(actual), "generator[$i]")
         }
+    }
+
+    private fun withoutTargets(o: JsonObject): JsonObject = JsonObject(
+        o.filterKeys { it != "targets" }.mapValues { (k, v) ->
+            if (k == "snapshot" && v is JsonObject) JsonObject(v.filterKeys { it != "targets" }) else v
+        },
+    )
+
+    /** เป้าแคลอรี่ตามเป้าหมาย (รวม F-02: maintenance = TDEE + แคลฝึกตามแผน) ต้องตรงกับเว็บ */
+    @Test
+    fun targetsMatchJs() {
+        val cases = loadGolden("targets.json")
+        var maintenance = 0
+        cases.forEachIndexed { i, c ->
+            val a = Answers(c.jsonObject["answers"]!!.jsonObject)
+            if (a.str("Q1") == "รักษาสุขภาพทั่วไป") maintenance++
+            assertJsonEquivalent(c.jsonObject["expected"]!!, goldenJson.encodeToJsonElement(Generator.computeTargets(a)), "targets[$i]")
+        }
+        assertTrue("ต้องมีเคส maintenance พอ", maintenance >= 150)
     }
 }

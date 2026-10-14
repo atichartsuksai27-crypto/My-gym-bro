@@ -126,7 +126,8 @@ object Generator {
     }
 
     /** เป้าแคลอรี่ตามเป้าหมาย + เพดานสัมบูรณ์ แล้วบังคับพื้นขั้นต่ำตามเพศเป็นด่านสุดท้าย */
-    fun computeCalorieTarget(tdee: Double?, a: Answers): CalorieTarget {
+    /** exKcal = แคลฝึกตามแผนต่อวัน — ใช้เฉพาะเป้า "รักษาสุขภาพทั่วไป" (TDEE ไม่รวมการฝึก เป้า = TDEE เฉย ๆ จะขาดเท่ากับแคลที่ฝึก, F-02) */
+    fun computeCalorieTarget(tdee: Double?, a: Answers, exKcal: Int = 0): CalorieTarget {
         val sex = a.str("Q9")
         val floor = if (sex == "ชาย") 1500.0 else if (sex == "หญิง") 1200.0 else null
         if (tdee == null || tdee.isNaN()) {
@@ -145,12 +146,17 @@ object Generator {
                 "ไม่ได้ (อยากคุมไขมันไปด้วย)" -> { target = min(tdee * 1.08, tdee + 300); direction = "เพิ่มกล้ามเนื้อ (คุมไขมัน — เพิ่ม 8% แต่ไม่เกิน +300 kcal)" }
                 else -> { target = tdee * 1.10; direction = "เพิ่มกล้ามเนื้อ (surplus 10%)" }
             }
+            // Recomp = กินขาดเล็กน้อยหรือพอดี TDEE (ไม่รวมการฝึก) วันฝึกจึงขาดเพิ่มจากแคลที่เผา — ตรงกับเว็บ
             "Recomposition (ลด+เพิ่มพร้อมกัน)" -> when (a.str("Q6")) {
                 "ห่างมาก" -> { target = max(tdee * 0.92, tdee - 300); direction = "Recomposition (ห่างเป้ามาก — หัก 8% แต่ไม่เกิน 300 kcal)" }
-                "ใกล้เป้าหมายแล้ว" -> { target = min(tdee * 1.03, tdee + 150); direction = "Recomposition (ใกล้เป้าแล้ว — เพิ่ม 3% แต่ไม่เกิน +150 kcal)" }
-                else -> { target = tdee * 1.0; direction = "Recomposition (ห่างปานกลาง — maintenance)" }
+                "ใกล้เป้าหมายแล้ว" -> { target = tdee * 1.0; direction = "Recomposition (ใกล้เป้าแล้ว — เท่า TDEE ส่วนที่ขาดมาจากการฝึก)" }
+                else -> { target = max(tdee * 0.95, tdee - 200); direction = "Recomposition (ห่างปานกลาง — หัก 5% แต่ไม่เกิน 200 kcal)" }
             }
-            else -> { target = tdee * 1.0; direction = "รักษาน้ำหนัก (maintenance)" }
+            else -> {
+                val ex = if (exKcal > 0) exKcal else 0
+                target = tdee + ex
+                direction = if (ex != 0) "รักษาน้ำหนัก (maintenance — TDEE + แคลจากการฝึกตามแผน ~$ex kcal)" else "รักษาน้ำหนัก (maintenance)"
+            }
         }
         val floored = floor != null && target < floor
         return CalorieTarget(if (floored) floor else target, floored, floor, direction)
@@ -168,11 +174,19 @@ object Generator {
         return Macro(proteinG, fatG, jsRound(carbKcal / 4).toInt(), clamped)
     }
 
+/** แคลฝึกตามแผนต่อวัน ณ ตอนสร้างแผน — แผน native ฝึกทุกวันที่ว่าง (Q2) ไม่มี cardio (ยังไม่พอร์ตการเลือกวันฝึก/cardio ของเว็บ)
+        สูตรเดียวกับ ProgressGoal.plannedExPerDay จึงตรงกับที่ Progression & Goal ประเมินของแผนที่สร้างตามมา */
+    fun plannedExFromAnswers(a: Answers, kg: Double): Int {
+        val days = Catalog.DAYS.count { it in a.list("Q2") }
+        val sessMin = (Questions.Q3_MIN[a.strOr("Q3", "45-60 นาที")] ?: 52).toDouble()
+        return jsRound(ProgressGoal.exerciseKcal(kg, days, sessMin, 0.0) / 7).toInt()
+    }
+
     fun computeTargets(a: Answers): Targets {
         val w = a.parseFloat("Q12")
         val hasWeight = w > 0
         val tdee = computeTDEE(a)
-        val cal = computeCalorieTarget(tdee, a)
+        val cal = computeCalorieTarget(tdee, a, if (a.str("Q1") == "รักษาสุขภาพทั่วไป" && hasWeight) plannedExFromAnswers(a, w) else 0)
         val macro = computeMacro(cal.kcal, if (hasWeight) w else null)
         var water = if (hasWeight) min(4.0, max(1.5, jsRound(w * 0.035 * 10) / 10)) else null
         val already = a.str("Q43")?.let { Catalog.WATER_NOW[it] }

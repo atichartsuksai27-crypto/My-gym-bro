@@ -45,4 +45,26 @@ object Calculations {
         if (activityFactor == null || !(activityFactor > 0)) return null
         return bmr * activityFactor
     }
+
+    /* Energy availability (IOC RED-S) — พอร์ตจาก calculations.js: EA = (แคลที่กิน − แคลจากการออกกำลังกาย) / FFM (กก.)
+       EA_MIN_CUT = พื้นระหว่างลดไขมัน, EA_MIN_NON_CUT = พื้นสำหรับเป้าที่ไม่ได้ตั้งใจให้ขาด (รักษา/Recomp/เพิ่มกล้าม) */
+    const val EA_MIN_CUT = 30.0
+    const val EA_MIN_NON_CUT = 35.0
+
+    fun calculateFFM(weightKg: Double, bodyFatPct: Double): Double? {
+        if (!(weightKg > 0) || !(bodyFatPct >= 0 && bodyFatPct < 100)) return null
+        return weightKg * (1 - bodyFatPct / 100)
+    }
+
+    fun calculateEnergyAvailability(intakeKcal: Double?, exerciseKcal: Double?, ffmKg: Double?): Double? {
+        if (intakeKcal == null || !(intakeKcal >= 0) || ffmKg == null || !(ffmKg > 0)) return null
+        val ex = exerciseKcal?.takeIf { !it.isNaN() } ?: 0.0
+        return (intakeKcal - ex) / ffmKg
+    }
+
+    /** แคลต่ำสุดที่กินได้โดย EA ไม่ต่ำกว่า minEA */
+    fun minIntakeForEA(minEA: Double, exerciseKcal: Double?, ffmKg: Double?): Double? {
+        if (!(minEA > 0) || ffmKg == null || !(ffmKg > 0)) return null
+        return minEA * ffmKg + (exerciseKcal?.takeIf { !it.isNaN() } ?: 0.0)
+    }
 }

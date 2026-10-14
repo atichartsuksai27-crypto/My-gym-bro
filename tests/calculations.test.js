@@ -79,5 +79,26 @@ test('TDEE with null bmr or invalid activity factor -> null', function(){
   assert.strictEqual(C.calculateTDEE({bmr:1780, activityFactor:null}), null);
 });
 
+console.log('Energy availability — IOC RED-S (F-02)');
+test('FFM = weight x (1 - bf%)', function(){
+  assert.strictEqual(C.calculateFFM(60, 25), 45);
+  assert.strictEqual(C.calculateFFM(60, 100), null);
+  assert.strictEqual(C.calculateFFM(0, 20), null);
+});
+test('EA = (intake - exercise) / FFM', function(){
+  assert.strictEqual(C.calculateEnergyAvailability({intakeKcal:1450, exerciseKcal:200, ffmKg:50}), 25);
+  assert.strictEqual(C.calculateEnergyAvailability(2000, 0, 50), 40);
+});
+test('EA with missing/invalid FFM or intake -> null', function(){
+  assert.strictEqual(C.calculateEnergyAvailability({intakeKcal:1500, exerciseKcal:100, ffmKg:0}), null);
+  assert.strictEqual(C.calculateEnergyAvailability({intakeKcal:null, exerciseKcal:100, ffmKg:50}), null);
+});
+test('minIntakeForEA gives the intake that lands exactly on the threshold', function(){
+  var min = C.minIntakeForEA(C.EA_MIN_NON_CUT, 200, 45);
+  assert.strictEqual(min, 35*45 + 200);
+  assert.strictEqual(C.calculateEnergyAvailability(min, 200, 45), 35);
+  assert.ok(C.EA_MIN_CUT < C.EA_MIN_NON_CUT);
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

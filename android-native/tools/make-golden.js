@@ -170,6 +170,24 @@ for(var i = 0; i < GENERATOR_CASES; i++){
   });
 }
 
+/* ---------- targets cases (เป้าแคลอรี่/มาโคร แยกจาก generator.json) ----------
+   generator.json ตั้งใจคงเป็นเวอร์ชันเว็บเก่าไว้จนกว่า Kotlin จะพอร์ตการเลือกวันฝึก/rotation ครบ (ดูความจำโปรเจกต์)
+   ส่วนเป้าแคลอรี่เปลี่ยนแล้ว (F-02: maintenance = TDEE + แคลฝึกตามแผน) จึงแยกเป็นไฟล์นี้ที่ตรงกับเว็บปัจจุบัน
+   แผน native ฝึกทุกวันที่ว่าง (Q2) และไม่มี cardio — ตั้ง state.plan.trainDays = Q2 ให้ JS คิดจากชุดวันเดียวกัน
+   ใช้ seed แยก เพื่อไม่ขยับลำดับสุ่มของเคสอื่น */
+var targetCases = [];
+var savedSeed = seed;
+seed = 4242001;
+for(var ti = 0; ti < 600; ti++){
+  var ta = randomAnswers();
+  if(ti % 3 === 0) ta.Q1 = 'รักษาสุขภาพทั่วไป'; // เป้านี้คือจุดที่แก้ — ให้มีเคสมากพอ
+  var tPlan = randomPlan();
+  tPlan.trainDays = DAYS.filter(function(d){ return (ta.Q2 || []).indexOf(d) > -1; });
+  setState({plan: tPlan});
+  targetCases.push({answers: ta, expected: plain(A.computeTargets(ta))});
+}
+seed = savedSeed;
+
 /* ---------- calculations / benchmark cases ---------- */
 var calcCases = [];
 for(var j = 0; j < 300; j++){
@@ -436,6 +454,7 @@ fs.writeFileSync(path.join(OUT, 'progress.json'), JSON.stringify(progressCases))
 fs.writeFileSync(path.join(OUT, 'tracking.json'), JSON.stringify(trackingCases));
 fs.writeFileSync(path.join(OUT, 'questions.json'), JSON.stringify(questionCases));
 fs.writeFileSync(path.join(OUT, 'generator.json'), JSON.stringify(generatorCases));
+fs.writeFileSync(path.join(OUT, 'targets.json'), JSON.stringify(targetCases));
 fs.writeFileSync(path.join(OUT, 'calculations.json'), JSON.stringify(calcCases));
 fs.writeFileSync(path.join(OUT, 'benchmarks.json'), JSON.stringify(benchCases));
 fs.writeFileSync(path.join(OUT, 'catalog.json'), JSON.stringify([plain(A.catalog)]));

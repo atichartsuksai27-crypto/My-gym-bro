@@ -80,6 +80,12 @@ class ProgressGoalParityTest {
                 put("rec", buildJsonObject {
                     put("kcal", rec.kcal)
                     put("text", strs(rec.text))
+                    rec.eaBlocked?.let { e ->
+                        put("eaBlocked", buildJsonObject {
+                            put("minEA", e.minEA); put("ea", e.ea); put("wouldBe", e.wouldBe)
+                            put("minKcal", e.minKcal); put("ffm", e.ffm); put("src", e.src)
+                        })
+                    }
                     if (rec.floor != null) { put("floor", rec.floor); put("want", rec.want); put("belowFloor", rec.belowFloor) }
                     if (rec.kcal != null) { put("capped", rec.capped); put("tdee", rec.tdee) }
                 })

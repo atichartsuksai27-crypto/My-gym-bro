@@ -135,5 +135,53 @@ test('minIntakeForEA gives the intake that lands exactly on the threshold', func
   assert.ok(C.EA_MIN_CUT < C.EA_MIN_NON_CUT);
 });
 
+console.log('applyEaGuard — central EA gate (F-02)');
+test('pushes the target UP to minKcal (rounded up to 10) when EA is below the threshold', function(){
+  // FFM 45, training 200 → cut min = 30*45+200 = 1550; 1400 gives EA (1400-200)/45 = 26.67
+  var g = C.applyEaGuard(1400, 'ลดไขมัน', 200, 45);
+  assert.strictEqual(g.blocked, true);
+  assert.strictEqual(g.minKcal, 1550);
+  assert.strictEqual(g.kcal, 1550);
+  assert.ok(Math.abs(g.ea - 1200/45) < 1e-9, 'ea is of the INPUT kcal, before pushing');
+  assert.strictEqual(C.applyEaGuard(1305, 'ลดไขมัน', 203, 44.2).minKcal, 1530); // 30*44.2+203 = 1529 → 1530
+});
+test('leaves the target untouched when EA already passes (also when far above)', function(){
+  var ok = C.applyEaGuard(1550, 'ลดไขมัน', 200, 45);
+  assert.strictEqual(ok.blocked, false);
+  assert.strictEqual(ok.kcal, 1550);
+  assert.strictEqual(C.applyEaGuard(3200, 'รักษาสุขภาพทั่วไป', 200, 45).kcal, 3200); // never lowers
+});
+test('threshold is 30 for fat loss and 35 for every other goal', function(){
+  var cut = C.applyEaGuard(1700, 'ลดไขมัน', 200, 45), other = C.applyEaGuard(1700, 'รักษาสุขภาพทั่วไป', 200, 45);
+  assert.strictEqual(cut.minEA, 30);
+  assert.strictEqual(other.minEA, 35);
+  assert.strictEqual(cut.blocked, false);   // min 1550
+  assert.strictEqual(other.blocked, true);  // min 35*45+200 = 1775
+  assert.strictEqual(other.kcal, 1780);   // minKcal rounded up from 1775
+  ['Recomposition (ลด+เพิ่มพร้อมกัน)', 'เพิ่มกล้ามเนื้อ', undefined].forEach(function(goal){
+    assert.strictEqual(C.applyEaGuard(1700, goal, 200, 45).minEA, 35, String(goal));
+  });
+});
+test('maxKcal caps how far it pushes (never above the old target / the energy actually used)', function(){
+  var g = C.applyEaGuard(1400, 'ลดไขมัน', 200, 45, 1500);
+  assert.strictEqual(g.blocked, true);
+  assert.strictEqual(g.minKcal, 1550);
+  assert.strictEqual(g.kcal, 1500);
+  assert.strictEqual(C.applyEaGuard(1400, 'ลดไขมัน', 200, 45, 1300).kcal, 1400); // cap below input → never lowered
+});
+test('incomplete data returns null, never 0 or a silent pass', function(){
+  assert.strictEqual(C.applyEaGuard(null, 'ลดไขมัน', 200, 45), null);
+  assert.strictEqual(C.applyEaGuard('', 'ลดไขมัน', 200, 45), null);
+  assert.strictEqual(C.applyEaGuard(NaN, 'ลดไขมัน', 200, 45), null);
+  assert.strictEqual(C.applyEaGuard(1500, 'ลดไขมัน', 200, 0), null);
+  assert.strictEqual(C.applyEaGuard(1500, 'ลดไขมัน', 200, null), null);
+  assert.strictEqual(C.applyEaGuard(1500, 'ลดไขมัน', 200, undefined), null);
+});
+test('missing exercise kcal counts as 0 (not a failure)', function(){
+  var g = C.applyEaGuard(1200, 'ลดไขมัน', undefined, 45);
+  assert.strictEqual(g.minKcal, 1350);
+  assert.strictEqual(g.kcal, 1350);
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

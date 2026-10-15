@@ -18,6 +18,8 @@ data class Targets(
     val kcal: Int? = null,
     val kcalDirection: String = "",
     val kcalFloored: Boolean = false,
+    /** พื้น energy availability เป็นตัวดันเป้าขึ้นตอนสร้างแผน (ข้อความอธิบายอยู่ใน kcalDirection) */
+    val eaLimited: Boolean = false,
     val incomplete: Boolean = false,
     val proteinG: Int? = null,
     val fatG: Int? = null,
@@ -62,7 +64,7 @@ data class PlanSnapshot(
     val startWeight: Double?,
 )
 
-data class CalorieTarget(val kcal: Double?, val floored: Boolean, val floor: Double?, val direction: String)
+data class CalorieTarget(val kcal: Double?, val floored: Boolean, val floor: Double?, val direction: String, val eaLimited: Boolean = false)
 data class Macro(val proteinG: Int?, val fatG: Int?, val carbG: Int?, val clamped: Boolean)
 data class SafetyGate(val blocked: Boolean, val reason: String? = null)
 data class SplitFeasibility(val eligible: Boolean, val recommended: Boolean, val minDays: Int)
@@ -161,20 +163,26 @@ object Generator {
                 direction = if (ex != 0) "รักษาน้ำหนัก (maintenance — TDEE + แคลจากการฝึกตามแผน ~$ex kcal)" else "รักษาน้ำหนัก (maintenance)"
             }
         }
+        // ชั้นที่ 1: พื้นตามเพศ  ชั้นที่ 2: ด่าน energy availability กลาง (Calculations.applyEaGuard — ดันขึ้นอย่างเดียว ไม่เกิน base) — ตรงกับเว็บ
         var floorV = floor
-        var eaNote = ""
         val kg = a.parseFloat("Q12")
         val ffm = if (kg > 0) ProgressGoal.ffmFromAnswers(a, kg, sex) else null
-        if (ffm != null) {
-            val minEA = if (a.str("Q1") == "ลดไขมัน") Calculations.EA_MIN_CUT else Calculations.EA_MIN_NON_CUT
-            val eaFloor = min(Calculations.minIntakeForEA(minEA, ex.toDouble(), ffm.ffm)!!, base)
-            if (floorV == null || eaFloor > floorV) {
-                floorV = eaFloor
-                eaNote = " · ปรับขึ้นให้ energy availability ไม่ต่ำกว่า ${minEA.toInt()} kcal/กก. มวลไร้ไขมัน (FFM ~${Tracking.fmt1(ffm.ffm)} กก. — ${ffm.src})"
-            }
+        val afterSex = if (floorV != null && target < floorV) floorV else target
+        val guard = ffm?.let { Calculations.applyEaGuard(afterSex, a.str("Q1"), ex.toDouble(), it.ffm, base) }
+        val kcal = guard?.kcal ?: afterSex
+        val eaLimited = guard != null && guard.kcal > afterSex
+        if (guard != null) {
+            val eaFloor = min(guard.minKcal, base)
+            if (floorV == null || eaFloor > floorV) floorV = eaFloor
         }
-        val floored = floorV != null && target < floorV
-        return CalorieTarget(if (floored) floorV else target, floored, floorV, if (floored) direction + eaNote else direction)
+        var eaNote = ""
+        if (eaLimited && guard != null && ffm != null) {
+            val gap0 = jsRound(base - afterSex); val gap1 = jsRound(base - kcal)
+            eaNote = " · ปรับขึ้นให้ energy availability ไม่ต่ำกว่า ${guard.minEA.toInt()} kcal/กก. มวลไร้ไขมัน: ถ้ากินตามที่เลือก (${ProgressGoal.fmtKcal(jsRound(afterSex))} kcal) " +
+                "และฝึกตามแผน (~$ex kcal/วัน) EA จะเหลือ ~${Tracking.fmt1(guard.ea)} (FFM ~${Tracking.fmt1(ffm.ffm)} กก. — ${ffm.src}) จึงตั้งเป้าที่ ${ProgressGoal.fmtKcal(jsRound(kcal))}" +
+                " kcal (EA ~${Tracking.fmt1(Calculations.calculateEnergyAvailability(kcal, ex.toDouble(), ffm.ffm)!!)}) — ส่วนที่ขาดจริงจึงเหลือ ~${ProgressGoal.fmtKcal(max(0.0, gap1))} kcal/วัน เล็กกว่าที่เลือกไว้ (~${ProgressGoal.fmtKcal(max(0.0, gap0))})"
+        }
+        return CalorieTarget(kcal, kcal > target, floorV, direction + eaNote, eaLimited)
     }
 
     fun computeMacro(kcal: Double?, weightKg: Double?): Macro {
@@ -212,6 +220,7 @@ object Generator {
             kcal = cal.kcal?.let { jsRound(it).toInt() },
             kcalDirection = cal.direction,
             kcalFloored = cal.floored,
+            eaLimited = cal.eaLimited,
             incomplete = tdee == null,
             proteinG = macro.proteinG,
             fatG = macro.fatG,

@@ -189,6 +189,22 @@ for(var ti = 0; ti < 600; ti++){
   setState({plan: tPlan});
   targetCases.push({answers: ta, expected: plain(A.computeTargets(ta))});
 }
+/* P4: หญิง 24 ปี ฝึกมา 8 ปี TDEE ~1,753 ฝึก 5 วัน — เคสตายตัว (ไม่ใช้ตัวสุ่ม) ตรึงด่าน EA ตอนสร้างแผน:
+   ลดไขมันเข้มข้น (EA ผ่านเอง), รักษาน้ำหนัก (= TDEE + แคลฝึก), และเคสที่ EA ต่ำกว่า 30 จริง (กรอก % ไขมันต่ำ + ฝึกหนักทุกวัน) ต้องถูกดันขึ้น */
+(function(){
+  var p4 = {Q9:'หญิง', Q10:24, Q11:162.1, Q12:52, Q16:'นักกีฬา-เทรนมานาน', Q20:'ฟิตเนส-ยิม', Q22:'ครบมาก', Q36:'นั่งโต๊ะเป็นหลัก',
+    Q2:DAYS.slice(0, 5), Q3:'45-60 นาที', Q4a:'เข้มข้น', Q6:'ห่างปานกลาง', Q5b:'ได้ (เน้นสร้างกล้ามให้เร็ว)', Q37:7};
+  function mk(extra){ var a = JSON.parse(JSON.stringify(p4)); Object.keys(extra).forEach(function(k){ a[k] = extra[k]; }); return a; }
+  var heavy = {Q2:DAYS.slice(), Q3:'มากกว่า 60 นาที', Q14:'ทราบ (กรอกตัวเลข)', Q14_val:12};
+  [mk({Q1:'ลดไขมัน'}), mk({Q1:'รักษาสุขภาพทั่วไป'}), mk({Q1:'ลดไขมัน'}), mk({Q1:'Recomposition (ลด+เพิ่มพร้อมกัน)', Q6:'ห่างมาก'}), mk({Q1:'เพิ่มกล้ามเนื้อ'})]
+    .concat([mk(Object.assign({Q1:'ลดไขมัน'}, heavy)), mk(Object.assign({Q1:'Recomposition (ลด+เพิ่มพร้อมกัน)', Q6:'ห่างมาก'}, heavy))])
+    .forEach(function(a, i){
+      if(i === 2){ a.Q4a = 'ค่อยเป็นค่อยไป'; }
+      var tp = randomPlan(); tp.trainDays = DAYS.filter(function(d){ return (a.Q2 || []).indexOf(d) > -1; });
+      setState({plan: tp});
+      targetCases.push({answers: a, expected: plain(A.computeTargets(a))});
+    });
+})();
 seed = savedSeed;
 
 /* ---------- calculations / benchmark cases ---------- */

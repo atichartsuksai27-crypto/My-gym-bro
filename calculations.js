@@ -145,6 +145,30 @@ function minIntakeForEA(minEA, exerciseKcal, ffmKg){
   if(!(minEA>0) || !(ffmKg>0)) return null;
   return minEA*ffmKg + exerciseKcal;
 }
+/* ด่านกลางของ energy availability — ใช้ทั้งตอนสร้างแผน (computeCalorieTarget), ตอนเสนอเป้าใหม่ให้แผนเก่า (calorieTargetUpdate)
+   และตอนปรับเป้าตามผลจริง (pgRecommend) ไม่ให้สามที่เขียนสูตรซ้ำกันเอง
+   ดันเป้าขึ้นได้อย่างเดียว ห้ามลด: เป้าที่ EA ผ่านอยู่แล้ว (รวมเป้ารักษา/เพิ่มกล้ามที่สูงอยู่แล้ว) คืนเท่าเดิมเป๊ะ
+   เกณฑ์: ลดไขมัน = EA_MIN_CUT, เป้าอื่น = EA_MIN_NON_CUT
+   maxKcal (ไม่บังคับ) = เพดานที่ห้ามดันขึ้นไปเกิน — ตอนสร้างแผนคือพลังงานที่ใช้รวมการฝึก (ไม่บังคับให้กินเกินที่ใช้),
+   ตอนปรับเป้าคือเป้าเดิม; ไม่ส่ง = ดันถึง minKcal เต็ม ๆ
+   minKcal ปัดขึ้นเป็นหลัก 10 kcal (ค่าที่แสดงให้ผู้ใช้เห็น) — blocked = ก่อนดัน kcal ต่ำกว่า minKcal (ไม่ว่าดันได้จริงหรือไม่)
+   คืน {kcal, blocked, ea, minKcal, minEA} โดย ea = EA ของ kcal ที่ส่งเข้ามา (ก่อนดัน)
+   คืน null ถ้าข้อมูลไม่ครบ (kcal ว่าง/ไม่ใช่ตัวเลข, FFM ≤ 0) — ไม่คืน 0 หรือผ่านเงียบ ๆ */
+function applyEaGuard(kcal, goal, exPerDay, ffmKg, maxKcal){
+  if(kcal==null || kcal==='') return null;
+  kcal = Number(kcal);
+  if(!isFinite(kcal)) return null;
+  var minEA = goal==='ลดไขมัน' ? EA_MIN_CUT : EA_MIN_NON_CUT;
+  var raw = minIntakeForEA(minEA, exPerDay, ffmKg);
+  var ea = calculateEnergyAvailability(kcal, exPerDay, ffmKg);
+  if(raw==null || ea==null) return null;
+  var minKcal = Math.ceil(raw/10)*10, blocked = kcal < minKcal, out = kcal;
+  if(blocked){
+    var cap = (maxKcal!=null && maxKcal!=='' && isFinite(Number(maxKcal))) ? Number(maxKcal) : minKcal;
+    out = Math.max(kcal, Math.min(minKcal, cap));
+  }
+  return {kcal: out, blocked: blocked, ea: ea, minKcal: minKcal, minEA: minEA};
+}
 
 global.GymBroCalc = {
   calculateBMR: calculateBMR,
@@ -154,6 +178,7 @@ global.GymBroCalc = {
   calculateFFM: calculateFFM,
   calculateEnergyAvailability: calculateEnergyAvailability,
   minIntakeForEA: minIntakeForEA,
+  applyEaGuard: applyEaGuard,
   EA_MIN_CUT: EA_MIN_CUT,
   EA_MIN_NON_CUT: EA_MIN_NON_CUT,
   getActivityFactor: getActivityFactor,

@@ -1,7 +1,9 @@
 package com.gymbrodaily.nativeapp.domain
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** พอร์ตจาก tests/calculations.test.js ทีละข้อ */
@@ -64,5 +66,55 @@ class CalculationsTest {
         assertNull(C.calculateTDEE(null, 1.55))
         assertNull(C.calculateTDEE(1780.0, 0.0))
         assertNull(C.calculateTDEE(1780.0, null))
+    }
+
+    /* ---------- applyEaGuard — พอร์ตจาก tests/calculations.test.js (F-02) ---------- */
+
+    @Test fun eaGuardPushesUpToMinKcalWhenBelowThreshold() {
+        // FFM 45, ฝึก 200 → เกณฑ์ลดไขมัน = 30*45+200 = 1550; กิน 1400 → EA (1400-200)/45 = 26.67
+        val g = C.applyEaGuard(1400.0, "ลดไขมัน", 200.0, 45.0)!!
+        assertTrue(g.blocked)
+        assertEquals(1550.0, g.minKcal, 0.0)
+        assertEquals(1550.0, g.kcal, 0.0)
+        assertEquals(1200.0 / 45, g.ea, 1e-9) // EA ของค่าที่ส่งเข้ามา ก่อนดัน
+        assertEquals(1530.0, C.applyEaGuard(1305.0, "ลดไขมัน", 203.0, 44.2)!!.minKcal, 0.0) // 30*44.2+203 = 1529 → ปัดขึ้น 1530
+    }
+
+    @Test fun eaGuardLeavesPassingTargetsUntouchedAndNeverLowers() {
+        val ok = C.applyEaGuard(1550.0, "ลดไขมัน", 200.0, 45.0)!!
+        assertFalse(ok.blocked)
+        assertEquals(1550.0, ok.kcal, 0.0)
+        assertEquals(3200.0, C.applyEaGuard(3200.0, "รักษาสุขภาพทั่วไป", 200.0, 45.0)!!.kcal, 0.0)
+    }
+
+    @Test fun eaGuardThresholdIs30ForFatLossAnd35ForOtherGoals() {
+        val cut = C.applyEaGuard(1700.0, "ลดไขมัน", 200.0, 45.0)!!
+        val other = C.applyEaGuard(1700.0, "รักษาสุขภาพทั่วไป", 200.0, 45.0)!!
+        assertEquals(30.0, cut.minEA, 0.0)
+        assertEquals(35.0, other.minEA, 0.0)
+        assertFalse(cut.blocked) // เกณฑ์ 1550
+        assertTrue(other.blocked) // 35*45+200 = 1775 → 1780
+        assertEquals(1780.0, other.kcal, 0.0)
+        listOf("Recomposition (ลด+เพิ่มพร้อมกัน)", "เพิ่มกล้ามเนื้อ", null).forEach {
+            assertEquals(35.0, C.applyEaGuard(1700.0, it, 200.0, 45.0)!!.minEA, 0.0)
+        }
+    }
+
+    @Test fun eaGuardMaxKcalCapsThePush() {
+        val g = C.applyEaGuard(1400.0, "ลดไขมัน", 200.0, 45.0, 1500.0)!!
+        assertTrue(g.blocked)
+        assertEquals(1550.0, g.minKcal, 0.0)
+        assertEquals(1500.0, g.kcal, 0.0)
+        assertEquals(1400.0, C.applyEaGuard(1400.0, "ลดไขมัน", 200.0, 45.0, 1300.0)!!.kcal, 0.0) // เพดานต่ำกว่าค่าที่ส่งเข้ามา → ไม่ลด
+    }
+
+    @Test fun eaGuardIncompleteDataGivesNullNotZero() {
+        assertNull(C.applyEaGuard(null, "ลดไขมัน", 200.0, 45.0))
+        assertNull(C.applyEaGuard(Double.NaN, "ลดไขมัน", 200.0, 45.0))
+        assertNull(C.applyEaGuard(1500.0, "ลดไขมัน", 200.0, 0.0))
+        assertNull(C.applyEaGuard(1500.0, "ลดไขมัน", 200.0, null))
+        val noEx = C.applyEaGuard(1200.0, "ลดไขมัน", null, 45.0)!! // ไม่มีแคลฝึก = 0 ไม่ใช่ความล้มเหลว
+        assertEquals(1350.0, noEx.minKcal, 0.0)
+        assertEquals(1350.0, noEx.kcal, 0.0)
     }
 }

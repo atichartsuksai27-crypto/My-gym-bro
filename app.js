@@ -578,7 +578,7 @@ function computeCalorieTarget(tdee, a, exKcal){
   var goal = a.Q1;
   var floor = a.Q9==='ชาย' ? 1500 : (a.Q9==='หญิง' ? 1200 : null);
   if(tdee==null || isNaN(tdee)){
-    return {kcal:null, floored:false, floor:floor, direction:'ข้อมูลไม่ครบ — กรอกเพศ/อายุ/ส่วนสูง/น้ำหนัก/กิจกรรมให้ครบก่อน'};
+    return {kcal:null, floored:false, floor:floor, eaLimited:false, direction:'ข้อมูลไม่ครบ — กรอกเพศ/อายุ/ส่วนสูง/น้ำหนัก/กิจกรรมให้ครบก่อน'};
   }
   var target, directionLabel;
   var ex = exKcal>0 ? Math.round(exKcal) : 0, base = tdee + ex;
@@ -622,19 +622,25 @@ function computeCalorieTarget(tdee, a, exKcal){
     target = base;
     directionLabel = ex ? 'รักษาน้ำหนัก (maintenance — TDEE + แคลจากการฝึกตามแผน ~'+ex+' kcal)' : 'รักษาน้ำหนัก (maintenance)';
   }
-  var kg = parseFloat(a.Q12), ffm = kg>0 ? ffmFromAnswers(a, kg, a.Q9) : null, eaNote = '';
-  if(ffm){
-    var minEA = goal==='ลดไขมัน' ? GymBroCalc.EA_MIN_CUT : GymBroCalc.EA_MIN_NON_CUT;
-    var eaFloor = Math.min(GymBroCalc.minIntakeForEA(minEA, ex, ffm.ffm), base);
-    if(floor==null || eaFloor > floor){
-      floor = eaFloor;
-      eaNote = ' · ปรับขึ้นให้ energy availability ไม่ต่ำกว่า '+minEA+' kcal/กก. มวลไร้ไขมัน (FFM ~'+fmt1(ffm.ffm)+' กก. — '+ffm.src+')';
-    }
-  }
   // ด่านสุดท้ายเสมอตามหลักการ: Final Target = max(Target, Floor) — เช็คหลังคำนวณ
   // เปอร์เซ็นต์+เพดานข้างบนเสร็จหมดแล้วเท่านั้น ไม่ผูกกับทิศทาง (deficit/surplus) อีกต่อไป
-  var floored = floor!=null && target < floor;
-  return {kcal: floored?floor:target, floored:floored, floor:floor, direction:directionLabel+(floored?eaNote:'')};
+  // ชั้นที่ 1: พื้นตามเพศ  ชั้นที่ 2: ด่าน energy availability กลาง (GymBroCalc.applyEaGuard — ดันขึ้นอย่างเดียว ไม่เกิน base)
+  var kg = parseFloat(a.Q12), ffm = kg>0 ? ffmFromAnswers(a, kg, a.Q9) : null;
+  var afterSex = (floor!=null && target < floor) ? floor : target;
+  var guard = ffm ? GymBroCalc.applyEaGuard(afterSex, goal, ex, ffm.ffm, base) : null;
+  var kcal = guard ? guard.kcal : afterSex, eaLimited = !!guard && guard.kcal > afterSex, eaNote = '';
+  if(guard){
+    var eaFloor = Math.min(guard.minKcal, base);
+    if(floor==null || eaFloor > floor) floor = eaFloor;
+  }
+  if(eaLimited){
+    var gap0 = Math.round(base - afterSex), gap1 = Math.round(base - kcal);
+    eaNote = ' · ปรับขึ้นให้ energy availability ไม่ต่ำกว่า '+guard.minEA+' kcal/กก. มวลไร้ไขมัน: ถ้ากินตามที่เลือก ('+fmtKcal(Math.round(afterSex))+' kcal) '+
+      'และฝึกตามแผน (~'+ex+' kcal/วัน) EA จะเหลือ ~'+fmt1(guard.ea)+' (FFM ~'+fmt1(ffm.ffm)+' กก. — '+ffm.src+') จึงตั้งเป้าที่ '+fmtKcal(Math.round(kcal))+
+      ' kcal (EA ~'+fmt1(GymBroCalc.calculateEnergyAvailability(kcal, ex, ffm.ffm))+') — ส่วนที่ขาดจริงจึงเหลือ ~'+fmtKcal(Math.max(0, gap1))+' kcal/วัน เล็กกว่าที่เลือกไว้ (~'+fmtKcal(Math.max(0, gap0))+')';
+  }
+  var floored = kcal > target;
+  return {kcal: kcal, floored:floored, floor:floor, eaLimited:eaLimited, direction:directionLabel+(eaLimited?eaNote:'')};
 }
 function computeMacro(kcal, weightKg){
   var proteinG = (weightKg>0) ? Math.round(2.0*weightKg) : null;
@@ -671,6 +677,7 @@ function computeTargets(a){
     kcal: (cal.kcal==null||isNaN(cal.kcal)) ? null : Math.round(cal.kcal),
     kcalDirection: cal.direction,
     kcalFloored: cal.floored,
+    eaLimited: cal.eaLimited,
     incomplete: (tdee==null || isNaN(tdee)),
     proteinG: macro.proteinG, fatG: macro.fatG, carbG: macro.carbG, macroClamped: macro.clamped,
     waterL: water,
@@ -1594,12 +1601,10 @@ function pgRecommend(p, ev){
        ถ้าเป้าใหม่ต่ำกว่านั้น ไม่ลด (ไม่ดันขึ้นเหนือเป้าเดิมเอง) แล้วบอกเหตุผล */
     var ffm = pgFFM(p, ev.refKg);
     if(ffm && kcal < t.kcal){
-      var minEA = p.goal==='ลดไขมัน' ? GymBroCalc.EA_MIN_CUT : GymBroCalc.EA_MIN_NON_CUT;
-      var minKcal = Math.ceil(GymBroCalc.minIntakeForEA(minEA, ev.plan.exPerDay, ffm.ffm)/10)*10;
-      var eaNew = GymBroCalc.calculateEnergyAvailability(kcal, ev.plan.exPerDay, ffm.ffm);
-      if(kcal < minKcal){
-        var kept = Math.max(kcal, Math.min(minKcal, t.kcal));
-        out.eaBlocked = {minEA:minEA, ea:eaNew, wouldBe:kcal, minKcal:minKcal, ffm:Math.round(ffm.ffm*10)/10, src:ffm.src};
+      var g = GymBroCalc.applyEaGuard(kcal, p.goal, ev.plan.exPerDay, ffm.ffm, t.kcal); // เพดาน = เป้าเดิม (ไม่ดันขึ้นเหนือเป้าเดิมเอง)
+      if(g && g.blocked){
+        var kept = g.kcal, minEA = g.minEA, eaNew = g.ea;
+        out.eaBlocked = {minEA:minEA, ea:eaNew, wouldBe:kcal, minKcal:g.minKcal, ffm:Math.round(ffm.ffm*10)/10, src:ffm.src};
         kcal = kept;
         out.text.push((kept < t.kcal ? 'จำกัดการลดเป้าแคลอรี่ไว้ที่ '+fmtKcal(kept)+' kcal' : 'ไม่ลดเป้าแคลอรี่')+': ถ้ากิน '+fmtKcal(out.eaBlocked.wouldBe)+' kcal และฝึกตามแผน (~'+ev.plan.exPerDay+' kcal/วัน) energy availability จะเหลือ ~'+fmt1(eaNew)+
           ' kcal/กก. มวลไร้ไขมัน (FFM ~'+fmt1(ffm.ffm)+' กก. — '+ffm.src+') ต่ำกว่าเกณฑ์ขั้นต่ำ '+minEA+' — เสี่ยงประจำเดือนผิดปกติ มวลกระดูกลด ฮอร์โมนเสียสมดุล และเสียกล้ามเนื้อ (RED-S) '+

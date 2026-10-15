@@ -1,12 +1,15 @@
 package com.gymbrodaily.nativeapp.domain
 
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -21,7 +24,7 @@ class GoldenParityTest {
         assertEquals(1500, loadGolden("generator.json").size)
         assertEquals(300, loadGolden("calculations.json").size)
         assertEquals(300, loadGolden("benchmarks.json").size)
-        assertEquals(600, loadGolden("targets.json").size)
+        assertEquals(607, loadGolden("targets.json").size) // 600 สุ่ม + 7 เคส P4 ตายตัว
     }
 
     /** กันเทสต์ผ่านแบบหลอกๆ — ตัวเทียบต้องจับความต่างได้จริง */
@@ -222,5 +225,70 @@ class GoldenParityTest {
             assertJsonEquivalent(c.jsonObject["expected"]!!, goldenJson.encodeToJsonElement(Generator.computeTargets(a)), "targets[$i]")
         }
         assertTrue("ต้องมีเคส maintenance พอ", maintenance >= 150)
+        assertTrue("ต้องมีเคสที่พื้น EA ดันเป้าขึ้นตอนสร้างแผน", cases.count { it.jsonObject["expected"]!!.jsonObject["eaLimited"]!!.jsonPrimitive.boolean } >= 5)
+    }
+
+    /** P4: หญิง 24 ปี ฝึกมา 8 ปี TDEE ~1,753 ฝึก 5 วัน — ด่าน EA ตอนสร้างแผน (เคสตายตัว 7 เคสท้าย targets.json) */
+    private fun p4(goal: String, extra: Map<String, JsonElement> = emptyMap()) = Answers(
+        buildJsonObject {
+            put("Q9", "หญิง"); put("Q10", 24); put("Q11", 162.1); put("Q12", 52); put("Q16", "นักกีฬา-เทรนมานาน"); put("Q20", "ฟิตเนส-ยิม")
+            put("Q22", "ครบมาก"); put("Q36", "นั่งโต๊ะเป็นหลัก"); put("Q3", "45-60 นาที"); put("Q4a", "เข้มข้น"); put("Q6", "ห่างปานกลาง")
+            put("Q5b", "ได้ (เน้นสร้างกล้ามให้เร็ว)"); put("Q37", 7); put("Q1", goal)
+            put("Q2", JsonArray(Catalog.DAYS.take(5).map { JsonPrimitive(it) }))
+            extra.forEach { (k, v) -> put(k, v) }
+        },
+    )
+
+    private fun eaOf(a: Answers, kcal: Int): Double {
+        val kg = a.parseFloat("Q12")
+        val ffm = ProgressGoal.ffmFromAnswers(a, kg, a.str("Q9"))!!
+        return Calculations.calculateEnergyAvailability(kcal.toDouble(), Generator.plannedExFromAnswers(a, kg).toDouble(), ffm.ffm)!!
+    }
+
+    @Test
+    fun p4IntenseCutKeepsEaAtOrAboveThirty() {
+        val a = p4("ลดไขมัน")
+        val t = Generator.computeTargets(a)
+        assertTrue("TDEE ${t.tdee}", Math.abs(t.tdee!! - 1753) <= 1)
+        assertTrue("EA ${eaOf(a, t.kcal!!)}", eaOf(a, t.kcal!!) >= Calculations.EA_MIN_CUT - 1e-9)
+    }
+
+    @Test
+    fun p4MaintenanceIsTdeePlusPlannedTraining() {
+        val a = p4("รักษาสุขภาพทั่วไป")
+        val t = Generator.computeTargets(a)
+        val ex = Generator.plannedExFromAnswers(a, 52.0)
+        assertTrue(ex > 0)
+        assertEquals(t.tdee!! + ex, t.kcal!!)
+        assertFalse(t.eaLimited)
+    }
+
+    @Test
+    fun heavyLoadPushesCutUpToEaMinimumAndExplainsWhy() {
+        val a = p4(
+            "ลดไขมัน",
+            mapOf(
+                "Q2" to JsonArray(Catalog.DAYS.map { JsonPrimitive(it) }), "Q3" to JsonPrimitive("มากกว่า 60 นาที"),
+                "Q14" to JsonPrimitive("ทราบ (กรอกตัวเลข)"), "Q14_val" to JsonPrimitive(12),
+            ),
+        )
+        val t = Generator.computeTargets(a)
+        val kg = 52.0
+        val ffm = ProgressGoal.ffmFromAnswers(a, kg, "หญิง")!!
+        val minKcal = Math.ceil((30 * ffm.ffm + Generator.plannedExFromAnswers(a, kg)) / 10).toInt() * 10
+        assertTrue(t.eaLimited)
+        assertTrue(t.kcalFloored)
+        assertEquals(minKcal, t.kcal)
+        assertTrue(eaOf(a, t.kcal!!) >= Calculations.EA_MIN_CUT - 1e-9)
+        assertTrue(t.kcalDirection, "energy availability" in t.kcalDirection && "FFM" in t.kcalDirection && "ส่วนที่ขาดจริง" in t.kcalDirection)
+    }
+
+    @Test
+    fun eaGuardNeverLowersGainOrMaintenanceTargets() {
+        listOf("เพิ่มกล้ามเนื้อ", "รักษาสุขภาพทั่วไป").forEach {
+            val t = Generator.computeTargets(p4(it))
+            assertFalse(it, t.eaLimited)
+            assertFalse(it, t.kcalFloored)
+        }
     }
 }

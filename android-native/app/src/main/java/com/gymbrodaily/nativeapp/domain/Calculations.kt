@@ -82,4 +82,25 @@ object Calculations {
         if (!(minEA > 0) || ffmKg == null || !(ffmKg > 0)) return null
         return minEA * ffmKg + (exerciseKcal?.takeIf { !it.isNaN() } ?: 0.0)
     }
+
+    /** ผลของด่าน EA กลาง — ea = EA ของ kcal ที่ส่งเข้ามา (ก่อนดัน), kcal = เป้าหลังดัน */
+    data class EaGuard(val kcal: Double, val blocked: Boolean, val ea: Double, val minKcal: Double, val minEA: Double)
+
+    /**
+     * ด่านกลางของ energy availability (ตรงกับ GymBroCalc.applyEaGuard ใน calculations.js) — ใช้ตอนสร้างแผน, ตอนเสนอเป้าใหม่ให้แผนเก่า
+     * และตอนปรับเป้าตามผลจริง ดันเป้าขึ้นได้อย่างเดียว ห้ามลด: เกณฑ์ลดไขมัน = [EA_MIN_CUT], เป้าอื่น = [EA_MIN_NON_CUT]
+     * maxKcal = เพดานที่ห้ามดันขึ้นไปเกิน (null = ดันถึง minKcal เต็ม ๆ) · minKcal ปัดขึ้นเป็นหลัก 10 kcal
+     * คืน null ถ้าข้อมูลไม่ครบ (kcal ว่าง/ไม่ใช่ตัวเลข, FFM ≤ 0) — ไม่คืน 0 หรือผ่านเงียบ ๆ
+     */
+    fun applyEaGuard(kcal: Double?, goal: String?, exPerDay: Double?, ffmKg: Double?, maxKcal: Double? = null): EaGuard? {
+        if (kcal == null || !kcal.isFinite()) return null
+        val minEA = if (goal == "ลดไขมัน") EA_MIN_CUT else EA_MIN_NON_CUT
+        val raw = minIntakeForEA(minEA, exPerDay, ffmKg) ?: return null
+        val ea = calculateEnergyAvailability(kcal, exPerDay, ffmKg) ?: return null
+        val minKcal = Math.ceil(raw / 10) * 10
+        val blocked = kcal < minKcal
+        val cap = maxKcal?.takeIf { it.isFinite() } ?: minKcal
+        val out = if (blocked) maxOf(kcal, minOf(minKcal, cap)) else kcal
+        return EaGuard(out, blocked, ea, minKcal, minEA)
+    }
 }

@@ -682,14 +682,13 @@ object ProgressGoal {
                ถ้าเป้าใหม่ต่ำกว่านั้น จำกัดการลด (ไม่ดันขึ้นเหนือเป้าเดิมเอง) แล้วบอกเหตุผล */
             val ffm = ffm(t, ev.refKg)
             if (ffm != null && k < tg.kcal) {
-                val minEA = if (t.program.goal == "ลดไขมัน") Calculations.EA_MIN_CUT else Calculations.EA_MIN_NON_CUT
-                val exDay = ev.plan.exPerDay.toDouble()
-                val minKcal = ceil(Calculations.minIntakeForEA(minEA, exDay, ffm.ffm)!! / 10) * 10
-                val eaNew = Calculations.calculateEnergyAvailability(k.toDouble(), exDay, ffm.ffm)!!
-                if (k < minKcal) {
+                // เพดาน = เป้าเดิม (ไม่ดันขึ้นเหนือเป้าเดิมเอง) — ด่านกลางเดียวกับตอนสร้างแผน/เสนอเป้าใหม่ให้แผนเก่า
+                val g = Calculations.applyEaGuard(k.toDouble(), t.program.goal, ev.plan.exPerDay.toDouble(), ffm.ffm, tg.kcal.toDouble())
+                if (g != null && g.blocked) {
                     val wouldBe = k
-                    eaBlocked = EaBlocked(minEA, eaNew, wouldBe, minKcal, jsRound(ffm.ffm * 10) / 10, ffm.src)
-                    k = max(k.toDouble(), min(minKcal, tg.kcal.toDouble())).toInt()
+                    val minEA = g.minEA; val eaNew = g.ea
+                    eaBlocked = EaBlocked(minEA, eaNew, wouldBe, g.minKcal, jsRound(ffm.ffm * 10) / 10, ffm.src)
+                    k = g.kcal.toInt()
                     text += (if (k < tg.kcal) "จำกัดการลดเป้าแคลอรี่ไว้ที่ ${fmtKcal(k)} kcal" else "ไม่ลดเป้าแคลอรี่") +
                         ": ถ้ากิน ${fmtKcal(wouldBe)} kcal และฝึกตามแผน (~${ev.plan.exPerDay} kcal/วัน) energy availability จะเหลือ ~${fmt1(eaNew)}" +
                         " kcal/กก. มวลไร้ไขมัน (FFM ~${fmt1(ffm.ffm)} กก. — ${ffm.src}) ต่ำกว่าเกณฑ์ขั้นต่ำ ${minEA.toInt()} — เสี่ยงประจำเดือนผิดปกติ มวลกระดูกลด ฮอร์โมนเสียสมดุล และเสียกล้ามเนื้อ (RED-S) " +

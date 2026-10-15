@@ -499,10 +499,84 @@ for(var pc = 0; pc < PROGRESS_RANDOM + PROGRESS_FORCED; pc++){
   });
 }
 
+/* ---------- progression cases (progressive overload อัตโนมัติ + warm-up + เวลาพัก + intensity) ----------
+   สร้างแผนจริงจาก buildPlanSnapshot แล้วย้อนบันทึกหลายวัน (เซ็ต/ความรู้สึก/prog/อาการ/ขั้นอุปกรณ์สุ่ม) ให้ progressionPlan ทุกท่าของทุกเซสชัน
+   ใช้ seed แยก เพื่อไม่ขยับลำดับสุ่มของเคสอื่น */
+var PR = ev('({progressionPlan:progressionPlan, warmupStepsFor:warmupStepsFor, warmupKg:warmupKg, restFor:restFor, isIntense:isIntense,' +
+  ' intensityEligible:intensityEligible, setsText:setsText, exKind:exKind, cleanSets:cleanSets, intenseNoteHTML:intenseNoteHTML,' +
+  ' lastBestBefore:lastBestBefore, analyzeSymptom:analyzeSymptom, SYMPTOM_INFO:SYMPTOM_INFO, SYMPTOM_CHIPS:SYMPTOM_CHIPS,' +
+  ' prepTips:prepTips, PREP_WARM:PREP_WARM, PREP_COOL:PREP_COOL, sessionGroups:sessionGroups, stressLabel:stressLabel, STRESS_LEVELS:STRESS_LEVELS, STRESS_CHIPS:STRESS_CHIPS})');
+var progCases = [], progKg = [];
+(function(){
+  var saved = seed; seed = 7771001;
+  var FEELS = [null, 'more', 'ok', 'hard'], LEVELS = ['normal', 'caution', 'injury', 'emergency', 'unknown'];
+  for(var pi = 0; pi < 70; pi++){
+    var a = randomAnswers();
+    a.Q2 = subset(DAYS, 0.6 + rnd() * 0.4); if(!a.Q2.length) a.Q2 = ['จันทร์', 'พฤหัสบดี'];
+    setState({plan: randomPlan(), answers: a});
+    var prog = plain(A.buildPlanSnapshot(a));
+    if(!prog.sessions || !prog.sessions.length) continue;
+    // ท่าบางตัวเป็นแบบเข้มข้น
+    prog.sessions.forEach(function(s){ s.exercises.forEach(function(ex){ if(rnd() < 0.25) ex.intensity = 'intense'; }); });
+    prog.equipSteps = {};
+    prog.sessions.forEach(function(s){ s.exercises.forEach(function(ex){ if(rnd() < 0.2) prog.equipSteps[ex.id] = pick([0.5, 1, 1.25, 2, 2.5, 5]); }); });
+    var logs = {}, base = new RealDate('2026-10-03T12:00:00');
+    var nDays = 1 + Math.floor(rnd() * 3);
+    for(var di = nDays; di >= 1; di--){
+      var d = new RealDate(base.getTime()); d.setDate(d.getDate() - di * 3);
+      var iso = isoOf(d), lg = {date: iso, exercises: {}, nutrition: {}, sleep: {}};
+      prog.sessions.forEach(function(s){ s.exercises.forEach(function(ex){
+        if(rnd() < 0.3) return;
+        var rr = /(\d+)\s*[x×]\s*(\d+)/i.exec(ex.setsReps) || [null, 3, 8];
+        var n = rnd() < 0.8 ? parseInt(rr[1], 10) : 1 + Math.floor(rnd() * 4);
+        var w = pick([0, 5, 10, 15, 20, 22.5, 30, 40, 52.5, 60, 80, 100, 142.5]);
+        var sets = [];
+        for(var k = 0; k < n; k++) sets.push(rnd() < 0.08 ? null : {weight: ex.timeBased ? pick([20, 30, 45, 60, 75]) : (ex.equip === 'bodyweight' ? null : w + (rnd() < 0.15 ? 2.5 : 0)), reps: ex.timeBased ? null : pick([4, 6, 8, 10, 12, 14, 15, 18, 20, 25])});
+        var e = {sets: sets, done: rnd() < 0.8};
+        var f = pick(FEELS); if(f) e.feel = f;
+        if(rnd() < 0.3) e.prog = {kind: pick(['weight', 'reps', 'time']), from: pick([null, 20, 40, 60]), to: pick([null, 22.5, 42.5, 62.5]), reverted: rnd() < 0.3};
+        if(rnd() < 0.15) e.symptom = {text: pick(['ปวดเข่า', 'ปวดเมื่อย', 'ชา', 'เจ็บหน้าอก']), level: pick(LEVELS), name: ex.th};
+        lg.exercises[ex.id] = e;
+      }); });
+      logs[iso] = lg;
+    }
+    A.setTrack({program: prog, logs: logs, weights: {}});
+    var todayIso = '2026-10-03', exs = [];
+    prog.sessions.forEach(function(s){ s.exercises.forEach(function(ex){
+      var pl = PR.progressionPlan(ex, todayIso), kind = PR.exKind(ex, PR.cleanSets(((logs[Object.keys(logs).sort().pop()].exercises || {})[ex.id] || {}).sets || []));
+      var prev = PR.lastBestBefore(ex.id, todayIso);
+      exs.push({
+        sess: s.key, id: ex.id, plan: pl, rest: PR.restFor(ex), intense: PR.isIntense(ex), eligible: PR.intensityEligible(ex),
+        prev: prev ? {date: prev.date, weight: prev.weight, reps: prev.reps, e1rm: prev.e1rm} : null,
+        intenseNote: PR.intenseNoteHTML(ex, prev).replace(/<[^>]+>/g, ''),
+        setsText: PR.setsText(((logs[Object.keys(logs).sort().pop()].exercises || {})[ex.id] || {}).sets, kind), kind: kind
+      });
+    }); });
+    var wu = {}, prep = {};
+    prog.sessions.forEach(function(s){ wu[s.key] = PR.warmupStepsFor(s); prep[s.key] = {groups: PR.sessionGroups(s, false), warm: PR.prepTips(s, PR.PREP_WARM), cool: PR.prepTips(s, PR.PREP_COOL)}; });
+    progCases.push({program: {sessions: prog.sessions, equipSteps: prog.equipSteps}, logs: logs, today: todayIso, expected: plain({exercises: exs, warmup: wu, prep: prep})});
+  }
+  var kgCases = [];
+  [null, 0, 5, 20, 22.5, 47.3, 100, 142.5, 33.3].forEach(function(r){ [null, 0, 0.4, 0.5, 0.6, 0.8, 0.835].forEach(function(p){ ['barbell', 'dumbbell', 'machine', 'cable'].forEach(function(eq){
+    kgCases.push({ref: r, pct: p, equip: eq, kg: PR.warmupKg(r, p, eq)});
+  }); }); });
+  progKg = kgCases;
+  seed = saved;
+})();
+
+/* ---------- symptom / prep / stress cases ---------- */
+var symptomCases = [];
+['', 'ปวดเมื่อยปกติ', 'ตึงกล้ามเนื้อ', 'ปวดข้อ', 'เจ็บแปลบ', 'มีเสียงดังในข้อ', 'บวม', 'ชา/เหน็บ', 'ไม่บวม', 'ไม่เจ็บ แต่ชา', 'ปวดเข่าด้านในตอนย่อ, ไหล่มีเสียงดังกึก', 'SHARP PAIN', 'chest pain', 'หน้ามืดเป็นลม',
+  'ปวดหลัง ไม่มีอาการ', 'เหนื่อย', 'ก็ไม่รู้', 'ไม่ปวด ไม่เจ็บ สบายดี', 'เจ็บ', 'ตะคริว', 'ปวดไม่เจ็บแปลบ', '   ', 'ปวดเมื่อย, บวม'].forEach(function(t){
+  var r = PR.analyzeSymptom(t); symptomCases.push({text: t, level: r.level, words: r.words});
+});
+var symptomStatic = {info: PR.SYMPTOM_INFO, chips: PR.SYMPTOM_CHIPS, stressLevels: PR.STRESS_LEVELS, stressChips: PR.STRESS_CHIPS, stressLabels: [0, 1, 2, 3, 4, 5, 6].map(function(l){ return PR.stressLabel(l); })};
+
 fs.mkdirSync(OUT, {recursive: true});
 var foodCases = ev('FOODS.map(function(food){ return {food:food, cases:[1,33,100,175.5,3000].map(function(g){ return Object.assign({g:g}, foodMacros(food,g)); })}; })');
 fs.writeFileSync(path.join(OUT, 'foods.json'), JSON.stringify(foodCases, null, 2));
 fs.writeFileSync(path.join(OUT, 'progress.json'), JSON.stringify(progressCases));
+fs.writeFileSync(path.join(OUT, 'progression.json'), JSON.stringify([{cases: progCases, kg: progKg, symptoms: symptomCases, static: plain(symptomStatic)}]));
 fs.writeFileSync(path.join(OUT, 'tracking.json'), JSON.stringify(trackingCases));
 fs.writeFileSync(path.join(OUT, 'questions.json'), JSON.stringify(questionCases));
 fs.writeFileSync(path.join(OUT, 'generator.json'), JSON.stringify(generatorCases));

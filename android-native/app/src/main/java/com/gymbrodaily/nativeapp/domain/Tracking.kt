@@ -91,6 +91,10 @@ data class ExerciseLog(
 @Serializable
 data class CardioLog(val minutes: Double? = null)
 
+/** วอร์มร่างกายก่อนฝึก / คลายกล้ามเนื้อหลังฝึก (บันทึกเป็นข้อมูล ไม่นับความครบ) */
+@Serializable
+data class Prep(val warm: Boolean = false, val cool: Boolean = false)
+
 @Serializable
 data class StressLog(val level: Double? = null, val note: String? = null)
 
@@ -131,6 +135,7 @@ data class DailyLog(
     val updatedAt: String? = null,
     val cardio: CardioLog? = null,
     val stress: StressLog? = null,
+    val prep: Prep? = null,
     val final: DayFinal? = null,
     /** วันว่างที่ระบบล็อกให้เองตอนเที่ยงคืน (ไม่มีข้อมูลจริง) */
     val stub: Boolean = false,

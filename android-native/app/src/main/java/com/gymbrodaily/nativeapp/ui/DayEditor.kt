@@ -51,15 +51,18 @@ import kotlin.math.max
 @Composable
 fun DayEditor(t: TrackData, iso: String, store: TrackStore) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // น้ำหนักตัวขึ้นก่อน: ชั่งตอนเช้าหลังตื่นนอนเป็นสิ่งแรกของวัน (ลำดับเดียวกับ dayEditor ของเว็บ)
+        BodySection(t, iso, store)
         WorkoutSection(t, iso, store)
+        CardioSection(t, iso, store)
         FoodSection(t, iso, store)
         SleepSection(t, iso, store)
-        BodySection(t, iso, store)
+        StressSection(t, iso, store)
     }
 }
 
 @Composable
-private fun CheckRow(
+internal fun CheckRow(
     on: Boolean,
     onToggle: ((Boolean) -> Unit)?,
     content: @Composable () -> Unit,
@@ -87,100 +90,11 @@ private fun CheckRow(
 }
 
 @Composable
-private fun RowTitle(text: String) = Text(text, fontWeight = FontWeight.Medium, fontSize = 15.sp)
-
-/* ---------- ออกกำลังกาย ---------- */
-
-@Composable
-private fun WorkoutSection(t: TrackData, iso: String, store: TrackStore) {
-    val p = t.program
-    val sKey = Tracking.sessionKeyFor(p, iso)
-    Card {
-        if (sKey == null) {
-            SectionHead("วันพัก", GB.text4, "ไม่มีเซสชันตามตาราง")
-            Hint("วันนี้ไม่ได้อยู่ในวันที่คุณเลือกไว้ (${p.days.joinToString(" · ")}) — โฟกัสที่โภชนาการ การนอน และการฟื้นตัวแทน เดินเบาๆ หรือยืดกล้ามเนื้อได้ตามสบาย")
-            return@Card
-        }
-        val sess = Tracking.sessionDefFor(p, sKey)
-        val exercises = sess?.exercises ?: emptyList()
-        val log = t.logs[iso]
-        val exData = log?.exercises ?: emptyMap()
-        val doneN = exercises.count { exData[it.id]?.done == true }
-        SectionHead(
-            "ออกกำลังกาย", GB.accent,
-            "$sKey · ~${p.minutesEstimate ?: "45-60 นาที"} · ${p.trainTime ?: ""}",
-            "$doneN/${exercises.size}",
-        )
-        exercises.forEach { ex -> key(iso, ex.id) { ExerciseRow(t, iso, ex, exData[ex.id], store) } }
-        Row(
-            Modifier.fillMaxWidth().clickable { store.updateLog(iso) { it.copy(completed = !it.completed) } },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Checkbox(
-                checked = log?.completed == true,
-                onCheckedChange = { c -> store.updateLog(iso) { it.copy(completed = c) } },
-                colors = CheckboxDefaults.colors(checkedColor = GB.ok, checkmarkColor = GB.accentInk),
-            )
-            Text("ทำเซสชันนี้ครบแล้ว (ข้อนี้คือตัวที่นับสตรีคและ % ทำตามแผน)", fontSize = 13.5.sp, color = GB.text2)
-        }
-    }
-}
-
-@Composable
-private fun ExerciseRow(t: TrackData, iso: String, ex: PlanExercise, e: ExerciseLog?, store: TrackStore) {
-    var open by rememberSaveable { mutableStateOf(false) }
-    val isBW = ex.equip == "bodyweight" && !ex.timeBased
-    val prev = Tracking.lastBestBefore(t, ex.id, iso)
-    val prevTxt = if (prev == null) "ยังไม่เคยบันทึกท่านี้" else buildString {
-        append("ครั้งก่อน ")
-        append(Fmt.shortDate(prev.date)).append(" · ")
-        if (isBW) append(prev.reps?.let { Fmt.num(it) + " ครั้ง" } ?: "—")
-        else {
-            append(Fmt.num(prev.weight)).append(if (ex.timeBased) " วิ" else " กก.")
-            if (prev.reps != null && !ex.timeBased) append(" × ").append(Fmt.num(prev.reps)).append(" ครั้ง")
-        }
-    }
-    val done = e?.done == true
-    fun patch(change: (ExerciseLog) -> ExerciseLog) = store.updateLog(iso) { log ->
-        val cur = log.exercises[ex.id] ?: ExerciseLog()
-        log.copy(exercises = log.exercises + (ex.id to change(cur)))
-    }
-    CheckRow(done, { c -> patch { it.copy(done = c) } }) {
-        RowTitle(ex.th)
-        Hint("${ex.setsReps} · ${com.gymbrodaily.nativeapp.domain.LibraryCatalog.GROUP_SHORT[ex.pattern] ?: ex.pattern} · $prevTxt")
-        LinkButton(
-            if (open) "ซ่อนช่องบันทึกเซ็ต ▴" else if (isBW) "บันทึกจำนวนครั้งต่อเซ็ต ▾" else "บันทึกน้ำหนัก/ครั้งต่อเซ็ต ▾",
-        ) { open = !open }
-        if (open) {
-            val n = Generator.setCountFor(ex.setsReps)
-            val sets = e?.sets ?: emptyList()
-            for (i in 0 until n) {
-                val sv = sets.getOrNull(i) ?: SetEntry()
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("เซ็ต ${i + 1}", color = GB.text3, fontSize = 13.sp, modifier = Modifier.width(44.dp))
-                    /* ตรงกับ setsFromDom ของเว็บ: เขียนทุกเซ็ตที่แสดงอยู่ (n แถว) ใหม่ทั้งชุด */
-                    fun write(entry: SetEntry) = patch { cur ->
-                        val list = (0 until max(n, cur.sets.size)).map { j -> cur.sets.getOrNull(j) ?: SetEntry() }.toMutableList()
-                        list[i] = entry
-                        cur.copy(sets = list.take(n))
-                    }
-                    if (!isBW) NumberField(
-                        sv.weight, { _, v -> write(sv.copy(weight = v)) },
-                        if (ex.timeBased) "วินาที" else "น.น.(กก.)", Modifier.weight(1f),
-                    )
-                    if (!ex.timeBased) NumberField(
-                        sv.reps, { _, v -> write(sv.copy(reps = v)) }, "ครั้ง", Modifier.weight(1f), integer = true,
-                    )
-                }
-            }
-        }
-        if (!isBW && !ex.timeBased) PerfBlock(t, iso, ex, e)
-    }
-}
+internal fun RowTitle(text: String) = Text(text, fontWeight = FontWeight.Medium, fontSize = 15.sp)
 
 /** Estimated 1RM + ระดับเทียบ Benchmark + Personal Progress (ตรงกับ perfBlockFor ของเว็บ) */
 @Composable
-private fun PerfBlock(t: TrackData, iso: String, ex: PlanExercise, e: ExerciseLog?) {
+internal fun PerfBlock(t: TrackData, iso: String, ex: PlanExercise, e: ExerciseLog?) {
     val pick = Benchmarks.pickAssessmentSet((e?.sets ?: emptyList()).map { it?.let { s -> LoggedSet(s.weight, s.reps) } })
         ?: return
     var open by rememberSaveable { mutableStateOf(false) }

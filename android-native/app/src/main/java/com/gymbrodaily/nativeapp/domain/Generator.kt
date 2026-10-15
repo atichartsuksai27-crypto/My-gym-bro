@@ -197,13 +197,25 @@ object Generator {
         return Macro(proteinG, fatG, jsRound(carbKcal / 4).toInt(), clamped)
     }
 
-/** แคลฝึกตามแผนต่อวัน ณ ตอนสร้างแผน — แผน native ฝึกทุกวันที่ว่าง (Q2) ไม่มี cardio (ยังไม่พอร์ตการเลือกวันฝึก/cardio ของเว็บ)
-        สูตรเดียวกับ ProgressGoal.plannedExPerDay จึงตรงกับที่ Progression & Goal ประเมินของแผนที่สร้างตามมา */
+    /**
+     * แคลฝึกตามแผนต่อวัน ณ ตอนสร้างแผน (ยังไม่มี program จริง)
+     *
+     * **ต่างจากเว็บโดยตั้งใจ (known difference):** เว็บ (`plannedExFromAnswers` ใน app.js) คิดจากวันฝึกที่ผู้ใช้เลือกจริง (`planTrainDays`) และรวม cardio ตามวัน/นาทีที่เลือก
+     * ส่วน native ยังไม่พอร์ตหน้าเลือกวันฝึก/cardio จึง **นับทุกวันที่ติ๊กว่าง (Q2) เป็นวันฝึก และไม่มี cardio** (แผน native ฝึกทุกวันที่ว่างอยู่แล้ว — ดู buildPlanSnapshot)
+     * ผลคือเป้าตอนสร้างแผนของ native อาจต่างจากเว็บเมื่อผู้ใช้เว็บเลือกวันฝึกน้อยกว่าวันว่าง หรือมี cardio — ทางเลือก A ที่ตกลงไว้: ไม่พอร์ตการเลือกเพิ่มเพียงเพื่อเรื่องนี้
+     * ชดเชยด้วย [CalorieTargetUpdate]: พอมีโปรแกรมจริงแล้วจะเทียบกับ [ProgressGoal.plannedExPerDay] (อ่านจาก Program จริง) และเสนอเป้าที่แม่นขึ้นผ่าน banner เมื่อต่างกัน ≥ 50 kcal
+     * ข้อความที่ผู้ใช้เห็นอยู่ที่ [EX_ESTIMATE_NOTE] (หน้าแผน/ผลลัพธ์แบบสอบถาม) — ไม่ใส่ใน kcalDirection เพราะ golden เทียบข้อความนั้นกับเว็บตรงตัว
+     *
+     * สูตรแคลเหมือน [ProgressGoal.plannedExPerDay] จึงตรงกับที่ Progression & Goal ประเมินของแผนที่สร้างตามมา
+     */
     fun plannedExFromAnswers(a: Answers, kg: Double): Int {
         val days = Catalog.DAYS.count { it in a.list("Q2") }
         val sessMin = (Questions.Q3_MIN[a.strOr("Q3", "45-60 นาที")] ?: 52).toDouble()
         return jsRound(ProgressGoal.exerciseKcal(kg, days, sessMin, 0.0) / 7).toInt()
     }
+
+    /** ข้อความใต้เป้าแคลอรี่ในหน้าแผน/ผลลัพธ์ — บอกว่าแคลฝึกที่ใช้เป็นการประมาณ (ดู [plannedExFromAnswers]) */
+    const val EX_ESTIMATE_NOTE = "แคลฝึกที่ใช้คิดเป้านี้เป็นการประมาณ: นับทุกวันที่คุณเลือกว่างเป็นวันฝึก และไม่รวม cardio — ถ้าตารางจริงต่างออกไป ระบบจะเสนอเป้าที่แม่นขึ้นให้ที่หน้า “วันนี้” และ “แผนของฉัน”"
 
     fun computeTargets(a: Answers): Targets {
         val w = a.parseFloat("Q12")

@@ -9,7 +9,7 @@ import androidx.compose.ui.unit.dp
 import com.gymbrodaily.nativeapp.data.TrackStore
 import com.gymbrodaily.nativeapp.domain.*
 
-private fun macroLine(m: FoodEntry) = "โปรตีน ${Fmt.num(m.p)} g (${Fmt.num(jsRound(m.p * 4))} kcal) · คาร์บ ${Fmt.num(m.c)} g (${Fmt.num(jsRound(m.c * 4))} kcal) · ไขมัน ${Fmt.num(m.f)} g (${Fmt.num(jsRound(m.f * 9))} kcal) = ${Fmt.num(m.kcal)} kcal"
+internal fun macroLine(m: FoodEntry) = "โปรตีน ${Fmt.num(m.p)} g (${Fmt.num(jsRound(m.p * 4))} kcal) · คาร์บ ${Fmt.num(m.c)} g (${Fmt.num(jsRound(m.c * 4))} kcal) · ไขมัน ${Fmt.num(m.f)} g (${Fmt.num(jsRound(m.f * 9))} kcal) = ${Fmt.num(m.kcal)} kcal"
 
 @Composable
 fun FoodPanel(iso: String, cat: String, n: Nutrition, store: TrackStore) {

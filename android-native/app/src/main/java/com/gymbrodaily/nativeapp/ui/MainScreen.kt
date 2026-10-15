@@ -96,6 +96,8 @@ fun MainScreen(store: TrackStore, email: String?, onSignOut: () -> Unit) {
     LaunchedEffect(Unit) {
         while (true) { delay(60_000); today = LocalDate.now() }
     }
+    // ล็อกวันที่พ้นช่วงแก้ไขได้ (วันนี้/เมื่อวาน) — ทำเมื่อข้อมูลโหลดแล้ว เมื่อข้ามเที่ยงคืน และหลังดึงข้อมูลจาก server
+    LaunchedEffect(today, state.loaded, state.lastSyncedAt, state.program?.planId) { store.finalizeLockedDays(today) }
 
     Box(Modifier.fillMaxSize()) {
     Scaffold(

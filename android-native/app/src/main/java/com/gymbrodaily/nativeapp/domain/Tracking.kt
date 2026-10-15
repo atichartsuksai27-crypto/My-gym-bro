@@ -104,9 +104,31 @@ data class DayPart(val label: String = "", val missed: Boolean = false)
 @Serializable
 data class DayEnergy(val kcal: Double? = null, val tdee: Double? = null, val ex: Double? = null)
 
+/** รายการเช็คลิสต์ที่จดไว้ตอนล็อกวัน (group/label/val/done ตรงกับ items ของเว็บ) */
+@Serializable
+data class FinalItem(
+    val group: String = "",
+    val label: String = "",
+    @kotlinx.serialization.SerialName("val") val v: String = "",
+    val done: Boolean = false,
+)
+
+@Serializable
+data class WarmupByEx(val label: String = "", val done: Int = 0, val total: Int = 0)
+
+@Serializable
+data class WarmupSummary(val done: Int = 0, val total: Int = 0, val byEx: List<WarmupByEx> = emptyList())
+
 /** snapshot ตอนระบบล็อกวันตอนเที่ยงคืน — ใช้แทนแผนปัจจุบันเพราะแผนอาจเปลี่ยนไปแล้ว */
 @Serializable
-data class DayFinal(val parts: List<DayPart>? = null, val energy: DayEnergy? = null)
+data class DayFinal(
+    val at: String? = null,
+    val parts: List<DayPart>? = null,
+    val items: List<FinalItem>? = null,
+    val complete: Boolean? = null,
+    val warmup: WarmupSummary? = null,
+    val energy: DayEnergy? = null,
+)
 
 @Serializable
 data class Nutrition(

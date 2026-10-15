@@ -43,7 +43,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gymbrodaily.nativeapp.data.TrackStore
 import com.gymbrodaily.nativeapp.domain.Catalog
+import com.gymbrodaily.nativeapp.domain.DayReport
 import com.gymbrodaily.nativeapp.domain.DayStatus
+import com.gymbrodaily.nativeapp.domain.ProgressGoal
+import com.gymbrodaily.nativeapp.domain.Progression
 import com.gymbrodaily.nativeapp.domain.TrackData
 import com.gymbrodaily.nativeapp.domain.Tracking
 import java.time.LocalDate
@@ -86,11 +89,12 @@ fun ScheduleScreen(t: TrackData, today: LocalDate, store: TrackStore) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("บันทึกของ ${Fmt.longDate(iso)}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Hint("$iso · ${Tracking.sessionKeyFor(p, iso) ?: "วันพัก"} — แก้ไขย้อนหลังได้ ข้อมูลบันทึกทันทีที่กรอก")
-                DayEditor(t, iso, store)
+                val editable = DayReport.isEditable(iso, today.toString())
+                Hint("$iso · ${dayLabel(t, iso, today, "วันพัก").text}" + if (editable) " — แก้ไขได้ถึงเที่ยงคืนของวันถัดไป ข้อมูลบันทึกทันทีที่กรอก" else " — ล็อกแล้ว")
+                DayPanelBody(t, iso, today, store)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { openDate = null }) { Text("ปิด") }
-                    if (t.logs[iso] != null) {
+                    if (t.logs[iso] != null && editable) {
                         TextButton(onClick = { store.clearDay(iso); openDate = null }) {
                             Text("ล้างบันทึกของวันนี้", color = GB.warn)
                         }
@@ -114,6 +118,7 @@ private fun RangeNav(label: String, prev: String, now: String, next: String, onP
     }
 }
 
+/** ชิปสถานะของวัน (STATUS_CHIP ของเว็บ): ข้อความ + เป็นสีเขียวไหม */
 private fun statusChip(s: DayStatus): Pair<String, Boolean>? = when (s) {
     DayStatus.DONE -> "บันทึกครบ ✓" to true
     DayStatus.PARTIAL -> "บันทึกบางส่วน" to false
@@ -129,6 +134,7 @@ private fun statusChip(s: DayStatus): Pair<String, Boolean>? = when (s) {
 private fun WeekGrid(t: TrackData, today: LocalDate, ws: LocalDate, setWeek: (LocalDate) -> Unit, open: (String) -> Unit) {
     val p = t.program
     val todayIso = today.toString()
+    val start = p.startDate?.takeIf { it.isNotEmpty() } ?: todayIso
     val we = ws.plusDays(6)
     RangeNav(
         "${ws.dayOfMonth} ${Fmt.MONTHS[ws.monthValue - 1]} – ${we.dayOfMonth} ${Fmt.MONTHS[we.monthValue - 1]} ${we.year + 543}",
@@ -141,13 +147,34 @@ private fun WeekGrid(t: TrackData, today: LocalDate, ws: LocalDate, setWeek: (Lo
         val sKey = Tracking.sessionKeyFor(p, iso)
         val sess = Tracking.sessionDefFor(p, sKey)
         val status = Tracking.dayStatus(t, iso, todayIso)
-        val openable = iso <= todayIso && iso >= (p.startDate ?: "")
+        val log = t.logs[iso]
+        val openable = iso <= todayIso && (iso >= start || log != null)
+        val hasCardio = ProgressGoal.cardioPlannedFor(p, iso)
+        val active = sKey != null || hasCardio || ProgressGoal.cardioMinutesOn(t, iso) != null
         val isToday = iso == todayIso
+        // ชิป: วันนี้ + (เวลาเซสชัน/พัก) + สถานะ — วันที่ล็อกแล้วแทนด้วยผลสุดท้าย, ก่อนเริ่มแผนแทนด้วย "ก่อนเริ่มโปรแกรม"
+        var chips = mutableListOf<Triple<String, Color, Color>>()
+        if (isToday) chips += Triple("วันนี้", GB.accent, GB.accentSoft)
+        if (sKey != null) chips += Triple(p.minutesEstimate ?: "", GB.text2, GB.surface2) else if (!active) chips += Triple("พัก", GB.text2, GB.surface2)
+        statusChip(status)?.let { (label, ok) -> chips += Triple(label, if (ok) GB.ok else GB.text2, if (ok) GB.okSoft else GB.surface2) }
+        val cardioTxt = if (hasCardio) "Cardio ~${Progression.n(ProgressGoal.cardioMinFor(p, Tracking.thaiWeekday(iso)))} นาที" else ""
+        var sub = if (sess != null) sess.exercises.joinToString(" · ") { it.th } + (if (cardioTxt.isNotEmpty()) " · $cardioTxt" else "")
+        else cardioTxt.ifEmpty { if (active) "ทำ cardio เพิ่มนอกแผน" else "ยืดกล้ามเนื้อ 10 นาที · เดินเบาๆ · เน้นนอนให้ครบเป้า" }
+        val fin = log?.final
+        if (fin?.items != null) {
+            val complete = fin.complete ?: fin.items.all { it.done }
+            chips = mutableListOf(if (complete) Triple("ครบ ✓ 🔒", GB.ok, GB.okSoft) else Triple("ไม่ครบ 🔒", GB.warn, GB.warnSoft))
+            sub = "ล็อกแล้ว — ทำได้ ${fin.items.count { it.done }}/${fin.items.size} ข้อ"
+        }
+        if (iso < start) {
+            chips = mutableListOf(Triple("ก่อนเริ่มโปรแกรม", GB.text2, GB.surface2))
+            sub = if (log != null) "ก่อนเริ่มแผนปัจจุบัน — กดเพื่อดูบันทึก" else "ก่อนเริ่มแผนปัจจุบัน"
+        }
         Column(
             Modifier
                 .fillMaxWidth()
                 .clip(CardShape)
-                .background(if (sKey == null) GB.bg else GB.surface)
+                .background(if (!active) GB.bg else GB.surface)
                 .border(if (isToday) 2.dp else 1.dp, if (isToday) GB.accent else GB.border, CardShape)
                 .clickable(enabled = openable) { open(iso) }
                 .padding(12.dp),
@@ -156,18 +183,13 @@ private fun WeekGrid(t: TrackData, today: LocalDate, ws: LocalDate, setWeek: (Lo
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(Catalog.DAYS_SHORT[i], fontWeight = FontWeight.SemiBold, color = GB.text2)
                 Text("${d.dayOfMonth} ${Fmt.MONTHS[d.monthValue - 1]}", color = GB.text3)
-                if (isToday) Pill("วันนี้", GB.accent, GB.accentSoft)
-                Pill(if (sKey != null) (p.minutesEstimate ?: "") else "พัก")
-                statusChip(status)?.let { (label, ok) -> Pill(label, if (ok) GB.ok else GB.text2, if (ok) GB.okSoft else GB.surface2) }
+                chips.forEach { (label, c, bg) -> Pill(label, c, bg) }
             }
-            Text(sKey ?: "พักฟื้น", fontWeight = FontWeight.Medium, color = if (openable || sKey != null) GB.text else GB.text3)
-            Text(
-                sess?.exercises?.joinToString(" · ") { it.th } ?: "ยืดกล้ามเนื้อ 10 นาที · เดินเบาๆ · เน้นนอนให้ครบเป้า",
-                color = GB.text3, fontSize = 12.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
-            )
+            Text(dayLabel(t, iso, today, "พักฟื้น"), fontWeight = FontWeight.Medium, color = if (openable || active) GB.text else GB.text3)
+            Text(sub, color = GB.text3, fontSize = 12.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
-    Hint("แตะวันที่ผ่านมาแล้วหรือวันนี้เพื่อเปิดบันทึกของวันนั้น — วันในอนาคตและวันก่อนเริ่มโปรแกรมกดไม่ได้")
+    Hint("แตะวันที่ผ่านมาแล้วหรือวันนี้เพื่อเปิดบันทึกของวันนั้น — บันทึก/แก้ไขได้เฉพาะวันนี้และเมื่อวาน วันก่อนหน้านั้นดูได้อย่างเดียว")
 }
 
 @Composable
@@ -192,7 +214,7 @@ private fun MonthGrid(t: TrackData, today: LocalDate, ym: YearMonth, setMonth: (
                 for (c in 0 until 7) {
                     val day = week.getOrNull(c)
                     Box(Modifier.weight(1f).aspectRatio(0.72f)) {
-                        if (day != null) MonthCell(t, ym.atDay(day).toString(), todayIso, open)
+                        if (day != null) MonthCell(t, ym.atDay(day).toString(), today, open)
                     }
                 }
             }
@@ -202,11 +224,14 @@ private fun MonthGrid(t: TrackData, today: LocalDate, ym: YearMonth, setMonth: (
 }
 
 @Composable
-private fun MonthCell(t: TrackData, iso: String, todayIso: String, open: (String) -> Unit) {
+private fun MonthCell(t: TrackData, iso: String, today: LocalDate, open: (String) -> Unit) {
     val p = t.program
+    val todayIso = today.toString()
     val sKey = Tracking.sessionKeyFor(p, iso)
     val st = Tracking.dayStatus(t, iso, todayIso)
-    var bg = if (sKey == null) GB.bg else GB.surface
+    val start = p.startDate?.takeIf { it.isNotEmpty() } ?: todayIso
+    val active = sKey != null || ProgressGoal.cardioPlannedFor(p, iso) || ProgressGoal.cardioMinutesOn(t, iso) != null
+    var bg = if (!active) GB.bg else GB.surface
     var border: Color = GB.border
     var mark = ""
     var openable = false
@@ -217,7 +242,7 @@ private fun MonthCell(t: TrackData, iso: String, todayIso: String, open: (String
         DayStatus.PARTIAL -> { border = GB.accent; mark = "บางส่วน"; openable = true }
         DayStatus.PENDING -> { mark = "ยังไม่บันทึก"; openable = true }
         DayStatus.REST_DONE -> { bg = GB.okSoft; border = GB.okLine; mark = "✓"; openable = true }
-        DayStatus.REST -> openable = iso <= todayIso && iso >= (p.startDate ?: "")
+        DayStatus.REST -> openable = iso <= todayIso && iso >= start
         DayStatus.REST_FUTURE -> {}
     }
     val isToday = iso == todayIso
@@ -233,7 +258,7 @@ private fun MonthCell(t: TrackData, iso: String, todayIso: String, open: (String
         horizontalAlignment = Alignment.Start,
     ) {
         Text(LocalDate.parse(iso).dayOfMonth.toString(), fontSize = 12.sp, color = if (st == DayStatus.BEFORE) GB.text4 else GB.text)
-        Text(sKey ?: "พัก", fontSize = 9.sp, lineHeight = 11.sp, color = if (sKey == null) GB.text4 else GB.text2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(dayLabel(t, iso, today, "พัก"), fontSize = 9.sp, lineHeight = 11.sp, color = if (!active) GB.text4 else GB.text2, maxLines = 2, overflow = TextOverflow.Ellipsis)
         if (mark.isNotEmpty()) Text(mark, fontSize = 8.5.sp, lineHeight = 10.sp, color = if (st == DayStatus.DONE || st == DayStatus.REST_DONE) GB.ok else GB.text3, maxLines = 2)
     }
 }

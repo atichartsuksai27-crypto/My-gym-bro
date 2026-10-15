@@ -8,6 +8,7 @@ import com.gymbrodaily.nativeapp.ProgramRow
 import com.gymbrodaily.nativeapp.SupabaseProvider
 import com.gymbrodaily.nativeapp.domain.Answers
 import com.gymbrodaily.nativeapp.domain.DailyLog
+import com.gymbrodaily.nativeapp.domain.DayReport
 import com.gymbrodaily.nativeapp.domain.Generator
 import com.gymbrodaily.nativeapp.domain.PlanOverrides
 import com.gymbrodaily.nativeapp.domain.Program
@@ -47,6 +48,7 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
 import java.io.File
 import java.time.Instant
+import java.time.LocalDate
 
 /* ============================================================
    ที่เก็บข้อมูลติดตามผล — บันทึกลงเครื่องก่อนเสมอ แล้วค่อยซิงก์ขึ้น Supabase
@@ -288,6 +290,7 @@ class TrackStore(context: Context, private val userId: String, private val scope
                 loaded = true, phase = if (pending.isEmpty()) SyncPhase.IDLE else SyncPhase.OFFLINE,
                 lastError = null, lastSyncedAt = Instant.now().toString(),
             )
+            finalizedKey = null // ข้อมูลจาก server อาจมีวันเก่าที่ยังไม่ล็อก — ให้ล็อกใหม่รอบถัดไป (เหมือนเว็บหลังดึงข้อมูล)
         } catch (e: Exception) {
             _state.update {
                 it.copy(loaded = it.loaded || it.program != null, phase = SyncPhase.OFFLINE, lastError = e.message)
@@ -354,6 +357,7 @@ class TrackStore(context: Context, private val userId: String, private val scope
     fun updateLog(iso: String, change: (DailyLog) -> DailyLog) {
         val s = _state.value
         val program = s.program ?: return
+        if (!DayReport.isEditable(iso, LocalDate.now().toString())) return // วันที่ล็อกแล้วแก้ไม่ได้ (saveDay ของเว็บ)
         val cur = s.logs[iso] ?: DailyLog(iso)
         val next = change(cur).copy(
             date = iso,
@@ -366,13 +370,44 @@ class TrackStore(context: Context, private val userId: String, private val scope
         enqueue(PendingOp("log", iso, payload = payload))
     }
 
+    private var finalizedKey: String? = null
+
+    /**
+     * ล็อกวันที่พ้นช่วงแก้ไขได้ (เหมือน finalizeLockedDays ของเว็บ): จดผลสุดท้ายลงบันทึกของวัน และวันที่ไม่มีบันทึกเลยได้ stub
+     * ไม่แตะ updatedAt — เรียกซ้ำได้ ทำงานเฉพาะเมื่อวันหรือแผนเปลี่ยน หรือหลังดึงข้อมูลจาก server
+     */
+    fun finalizeLockedDays(today: LocalDate) {
+        val s = _state.value
+        val data = s.trackData() ?: return
+        if (!s.loaded) return
+        val key = "${DayReport.editableFrom(today.toString())}|${data.program.planId}|${data.program.startDate}"
+        if (finalizedKey == key) return
+        finalizedKey = key
+        val out = DayReport.finalizeLockedDays(data, today.toString(), Instant.now().toString())
+        if (out.isEmpty()) return
+        _state.update { st ->
+            var logs = st.logs
+            var raws = st.logsRaw
+            out.forEach { (iso, lg) ->
+                val payload = encodeLog(lg, raws[iso])
+                logs = logs + (iso to lg); raws = raws + (iso to payload)
+                pending = pending.filterNot { it.key == "log:$iso" } + PendingOp("log", iso, payload = payload)
+            }
+            st.copy(logs = logs, logsRaw = raws, pendingCount = pending.size)
+        }
+        saveCache()
+        scheduleFlush()
+    }
+
     /** ล้างบันทึกทั้งวัน — ลบบน server ด้วย (เว็บเดิมลบแค่ในเครื่อง ทำให้ข้อมูลเด้งกลับมาตอนซิงก์) */
     fun clearDay(iso: String) {
+        if (!DayReport.isEditable(iso, LocalDate.now().toString())) return
         _state.update { it.copy(logs = it.logs - iso, logsRaw = it.logsRaw - iso) }
         enqueue(PendingOp("delete-log", iso))
     }
 
     fun saveWeight(iso: String, kg: Double) {
+        if (!DayReport.isEditable(iso, LocalDate.now().toString())) return
         _state.update { it.copy(weights = it.weights + (iso to kg)) }
         enqueue(PendingOp("weight", iso, kg = kg))
     }

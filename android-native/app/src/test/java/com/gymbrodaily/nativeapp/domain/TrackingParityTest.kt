@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -79,7 +80,35 @@ class TrackingParityTest {
                     buildJsonObject { put("t", it.title); put("on", it.on); put("sub", it.sub) }
                 }))
             }
-            assertJsonEquivalent(exp, actual, "tracking[$i]")
+            assertJsonEquivalent(kotlinx.serialization.json.JsonObject(exp.filterKeys { it != "report" && it != "finalized" }), actual, "tracking[$i]")
+            assertLocking(i, t, todayIso, exp)
+        }
+    }
+
+    /** ล็อกวัน: รายงานรายวัน + ผลของ finalizeLockedDays ต้องตรงกับเว็บ (ตัดเวลา at ทิ้ง) */
+    private fun assertLocking(i: Int, t: TrackData, today: String, exp: kotlinx.serialization.json.JsonObject) {
+        (exp["report"] as JsonArray).forEach { r ->
+            val o = r.jsonObject
+            val iso = o["iso"]!!.jsonPrimitive.content
+            val rep = DayReport.dayReport(t, iso)
+            val actual = buildJsonObject {
+                put("iso", iso); put("editable", DayReport.isEditable(iso, today))
+                put("parts", goldenJson.encodeToJsonElement(DayReport.dayParts(t, iso, today)))
+                put("items", goldenJson.encodeToJsonElement(rep.items)); put("complete", rep.complete)
+                put("warmup", goldenJson.encodeToJsonElement(rep.warmup))
+            }
+            assertJsonEquivalent(o, actual, "tracking[$i].report[$iso]")
+        }
+        val out = DayReport.finalizeLockedDays(t, today, "2026-01-01T00:00:00Z")
+        val expFinal = exp["finalized"]!!.jsonObject
+        assertEquals("tracking[$i] finalized days", expFinal.keys, out.keys)
+        expFinal.forEach { (iso, e) ->
+            val lg = out.getValue(iso)
+            val actual = buildJsonObject {
+                put("stub", lg.stub)
+                put("final", goldenJson.encodeToJsonElement(lg.final!!.copy(at = null)))
+            }
+            assertJsonEquivalent(e, actual, "tracking[$i].finalized[$iso]")
         }
     }
 

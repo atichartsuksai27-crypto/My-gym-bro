@@ -58,7 +58,8 @@ var A = ev('({inScope:inScope, sanityIssues:sanityIssues, computeTargets:compute
   ' visibleQsFor:visibleQsFor, catComplete:catComplete, countAnswered:countAnswered, countVisibleTotal:countVisibleTotal,' +
   ' setAnswer:setAnswer, QUESTIONS:QUESTIONS,' +
   ' setTrack:function(t){ track.program = t.program; track.logs = t.logs; track.weights = t.weights; },' +
-  ' sessionKeyFor:sessionKeyFor, dayItems:dayItems, dayCounts:dayCounts,' +
+  ' sessionKeyFor:sessionKeyFor, dayItems:dayItems, dayCounts:dayCounts, dayParts:dayParts, dayReport:dayReport, warmupSummary:warmupSummary,' +
+  ' isEditable:isEditable, finalizeLockedDays:finalizeLockedDays, getLogs:function(){ return track.logs; }, resetFinal:function(){ track.finalizedThrough = null; },' +
   ' dayStatus:dayStatus, streakOf:streakOf, weeklyAdherence:weeklyAdherence, weightSeries:weightSeries,' +
   ' exerciseHistory:exerciseHistory, bodyweightAsOf:bodyweightAsOf, lastBestBefore:lastBestBefore, milestonesOf:milestonesOf,' +
   ' catalog:{EXERCISES:EXERCISES, SPLIT_DEFS:SPLIT_DEFS, EXCLUSION_MAP:EXCLUSION_MAP, EXP_RANK:EXP_RANK, REP_SCHEME:REP_SCHEME,' +
@@ -335,12 +336,24 @@ for(var t = 0; t < TRACKING_CASES; t++){
     lastBest[id] = {iso: q, entry: A.lastBestBefore(id, q)};
   });
   var bwChecks = [isoOff(-80), isoOff(-30), isoOff(0)].map(function(di){ return {iso: di, kg: A.bodyweightAsOf(di)}; });
+  /* ล็อกวัน: รายงานรายวัน (ชื่อวัน/ส่วนที่ไม่สำเร็จ/สรุป warm-up) + ผลของ finalizeLockedDays บนสำเนา (ตัดเวลา at ทิ้ง) */
+  var report = [];
+  for(var ro = -6; ro <= 1; ro++){
+    var rdi = isoOff(ro), rr = A.dayReport(program, rdi);
+    report.push({iso: rdi, editable: A.isEditable(rdi), parts: A.dayParts(program, rdi), items: rr.items.map(function(x){ return {group: x.group, label: x.label, val: x.val, done: x.done}; }), complete: rr.complete, warmup: rr.warmup});
+  }
+  A.setTrack({program: program, logs: plain(logs), weights: weights});
+  A.resetFinal(); A.finalizeLockedDays();
+  var finalized = {};
+  var fl = A.getLogs();
+  Object.keys(fl).forEach(function(k){ if(fl[k] && fl[k].final && !(logs[k] && logs[k].final)){ var fin = JSON.parse(JSON.stringify(fl[k].final)); delete fin.at; finalized[k] = {stub: !!fl[k].stub, final: fin}; } });
+  A.setTrack({program: program, logs: logs, weights: weights});
   trackingCases.push({
     today: today, answers: ta, program: program, logs: logs, weights: weights,
     expected: plain({
       days: days, streak: A.streakOf(program), adherence: A.weeklyAdherence(program, 8),
       weightSeries: A.weightSeries(), histories: histories, lastBest: lastBest, bodyweight: bwChecks,
-      milestones: A.milestonesOf(program)
+      milestones: A.milestonesOf(program), report: report, finalized: finalized
     })
   });
 }

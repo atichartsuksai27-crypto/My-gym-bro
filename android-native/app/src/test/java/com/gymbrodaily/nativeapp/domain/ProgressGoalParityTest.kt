@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** เทียบแถบไขมัน + กรอบแผน Progression & Goal กับ app.js ตัวจริง (golden/progress.json จาก tools/make-golden.js) */
@@ -91,6 +92,34 @@ class ProgressGoalParityTest {
                 })
             }
             assertJsonEquivalent(o["expected"]!!, actual, "progress[$i]")
+            assertCalorieUpdate(o, t, today, i)
         }
+        assertTrue("ต้องมีเคสที่เสนอเป้าใหม่ทั้งขึ้นและลง", offers.any { it > 0 } && offers.any { it < 0 } && offers.size >= 100)
+    }
+
+    /** เคสที่ยังมีเป้าเก่า/ธงต่างๆ — ผลของ CalorieTargetUpdate (เสนอหรือไม่เสนอ + ข้อความ) ต้องตรงกับ calorieTargetUpdate ของเว็บ */
+    private val offers = mutableListOf<Int>()
+
+    private fun assertCalorieUpdate(o: kotlinx.serialization.json.JsonObject, t: TrackData, today: String, i: Int) {
+        val c = o["calorie"]!!.jsonObject
+        val patch = c["patch"]!!.jsonObject
+        fun intOrNull(k: String) = patch[k]?.takeIf { it !is JsonNull }?.jsonPrimitive?.double?.toInt()
+        val flag = patch["flag"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
+        val p = t.program
+        val stale = p.copy(
+            targets = p.targets?.copy(kcal = intOrNull("kcal"), tdee = intOrNull("tdee")),
+            calcV = intOrNull("calcV") ?: p.calcV,
+            targetFormulaSeen = flag == "targetFormulaSeen",
+            recompTargetSeen = flag == "recompTargetSeen",
+            calcTargetSeen = flag == "calcTargetSeen",
+        )
+        val st = t.copy(program = stale)
+        val u = CalorieTargetUpdate.of(st, today)
+        val actual = if (u == null) JsonNull else buildJsonObject {
+            put("kcal", u.kcal); put("tdee", u.tdee); put("direction", u.direction); put("floored", u.floored); put("eaLimited", u.eaLimited)
+            put("text", CalorieTargetUpdate.text(stale, u))
+        }
+        assertJsonEquivalent(c["expected"]!!, actual, "progress[$i].calorie(mode ${patch["mode"]})")
+        if (u != null && stale.targets?.kcal != null) offers += u.kcal - stale.targets!!.kcal!!
     }
 }

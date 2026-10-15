@@ -40,6 +40,12 @@ data class Program(
     val equipSteps: Map<String, Double> = emptyMap(),
     /** วันว่างตอนสร้างแผน — null = แผนรุ่นก่อนมีระบบเลือกวัน (ทุกวันว่างเป็นวันฝึก) */
     val availableDays: List<String>? = null,
+    /** รุ่นสูตรเป้าแคลอรี่ที่คิดเป้าของแผนนี้ (เว็บประทับตอนสร้างแผน; native ไม่ประทับตั้งใจ — ดู CalorieTargetUpdate) */
+    val calcV: Int? = null,
+    /** ธงกัน banner เสนอเป้าใหม่ขึ้นซ้ำ — targetFormulaSeen คือชื่อปัจจุบัน, อีกสองตัวคือชื่อเก่าของเว็บ (ยังอ่านเป็น "เห็นแล้ว") */
+    val targetFormulaSeen: Boolean = false,
+    val calcTargetSeen: Boolean = false,
+    val recompTargetSeen: Boolean = false,
 )
 
 @Serializable

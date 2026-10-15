@@ -32,6 +32,7 @@ fun TodayScreen(t: TrackData, today: LocalDate, store: TrackStore, onNavigate: (
             else "วันพักตามตาราง — เช็คลิสต์เหลือเฉพาะโภชนาการ การนอน และน้ำหนักตัว",
         )
         val st by store.state.collectAsState()
+        CalorieTargetAlert(t, iso, store)
         FatAlert(t, iso, store, st.fatSeen)
         PgAlert(t, iso) { onNavigate(Tab.PROGRESS) }
         Card {

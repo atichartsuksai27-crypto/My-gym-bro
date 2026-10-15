@@ -357,7 +357,27 @@ for(var qi = 0; qi < 400; qi++){
    สุ่มคนที่ทำตามแผนได้หลายระดับ: ชั่งบ่อย/นาน ๆ ครั้ง, กรอกแคลอรี่ครบ/ไม่ครบ/ซ้ำ/ตรงเป้าพอดี,
    น้ำหนักลด/คงที่/ขึ้น, ความแข็งแรงเพิ่ม/ตัน, ความเครียด, อาการบาดเจ็บ, snapshot วันที่ล็อกแล้ว */
 var PG = ev('({fatTug:fatTug, pgCurrent:pgCurrent, pgRecommend:pgRecommend, pgSummaryText:pgSummaryText,' +
-  ' pgGoalLine:pgGoalLine, pgEta:pgEta, pgNowKg:pgNowKg, fmtDateISO:fmtDateISO})');
+  ' pgGoalLine:pgGoalLine, pgEta:pgEta, pgNowKg:pgNowKg, fmtDateISO:fmtDateISO,' +
+  ' calorieTargetUpdate:calorieTargetUpdate, calorieTargetText:calorieTargetText})');
+/* แผนเก่าที่เป้าล็อกด้วยสูตรเก่า — วนโหมดตามลำดับเคส (ไม่ใช้ตัวสุ่ม เพื่อไม่ขยับลำดับสุ่มของเคสอื่น):
+   0 = เป้าปัจจุบัน, 1 = เป้าเก่าต่ำกว่า, 2 = เป้าเก่าสูงกว่า, 3 = เก่าต่ำ+ธงเห็นแล้ว (วนทั้งสามชื่อ), 4 = เก่าต่ำ+calcV 2, 5 = เก่าสูง */
+var OLD_FLAGS = ['targetFormulaSeen', 'recompTargetSeen', 'calcTargetSeen'];
+function staleCalorie(pp, pc, tp){
+  var mode = pc % 6, tg = pp.targets || {}, patch = {mode: mode, kcal: tg.kcal == null ? null : tg.kcal, tdee: tg.tdee == null ? null : tg.tdee, flag: null, calcV: null};
+  if(tg.kcal != null){
+    if(mode === 1 || mode === 3 || mode === 4){ patch.kcal = Math.round(tg.kcal * 0.82); patch.tdee = Math.round(tg.tdee * 0.85); }
+    if(mode === 2 || mode === 5){ patch.kcal = Math.round(tg.kcal * 1.25); }
+  }
+  if(mode === 3) patch.flag = OLD_FLAGS[Math.floor(pc / 6) % 3];
+  if(mode === 4) patch.calcV = 2;
+  var sp = JSON.parse(JSON.stringify(pp));
+  if(sp.targets){ sp.targets.kcal = patch.kcal; sp.targets.tdee = patch.tdee; }
+  if(patch.flag) sp[patch.flag] = true;
+  if(patch.calcV != null) sp.calcV = patch.calcV;
+  A.setTrack(tp(sp));
+  var u = PG.calorieTargetUpdate(sp);
+  return {patch: patch, expected: plain(u ? {kcal: u.kcal, tdee: u.tdee, direction: u.direction, floored: u.floored, eaLimited: u.eaLimited, text: PG.calorieTargetText(sp, u)} : null)};
+}
 var PG_GOALS = ["ลดไขมัน","เพิ่มกล้ามเนื้อ","Recomposition (ลด+เพิ่มพร้อมกัน)","รักษาสุขภาพทั่วไป"];
 var STRESS_NOTES = ['', 'งานเยอะ', 'นอนไม่พอ เพราะลูกป่วยทั้งคืน และต้องตื่นเช้าไปประชุมงานที่สำนักงานใหญ่อีก', 'เรื่องเงิน'];
 var progressCases = [];
@@ -449,8 +469,10 @@ for(var pc = 0; pc < PROGRESS_RANDOM + PROGRESS_FORCED; pc++){
   var eta = PG.pgEta(pp, evv);
   if(eta && eta.date) eta.date = PG.fmtDateISO(eta.date);
   var sig = function(s){ return {level: s.level, text: s.text, why: s.why || null}; };
+  var calorie = staleCalorie(pp, pc, function(sp){ return {program: sp, logs: plogs, weights: pweights}; });
+  A.setTrack({program: pp, logs: plogs, weights: pweights});
   progressCases.push({
-    today: pToday, answers: pa, program: pp, logs: plogs, weights: pweights,
+    today: pToday, answers: pa, program: pp, logs: plogs, weights: pweights, calorie: calorie,
     expected: plain({
       fat: PG.fatTug(pp),
       level: evv.level, persisted: !!evv.persisted, run: evv.run, confirmed: evv.confirmed,

@@ -37,6 +37,25 @@ class MergeRawTest {
         assertEquals("true", set0["warm"]!!.jsonPrimitive.content)
     }
 
+    /** แผนที่แอปแก้ทับ payload ดิบ: ธงของเว็บ (targetFormulaSeen / calcV / targets.eaLimited) ต้องไม่หายหรือถูกค่า default ของแอปทับ */
+    @Test
+    fun programFlagsFromTheWebSurviveAMerge() {
+        val raw = Json.parseToJsonElement(
+            """{"goal":"ลดไขมัน","calcV":2,"targetFormulaSeen":true,"recompTargetSeen":true,"warmupPrefs":{"a":1},
+               "targets":{"kcal":1800,"eaLimited":true,"kcalFloored":true,"webOnly":"x"}}""",
+        )
+        // แอปรู้จักแค่บางฟิลด์ — ส่วนที่ไม่รู้จักมาจาก raw; ฟิลด์ที่รู้จักใช้ค่าของแอป
+        val typed = Json.parseToJsonElement("""{"goal":"ลดไขมัน","targets":{"kcal":1900,"eaLimited":true}}""")
+        val out = TrackStore.mergeRaw(raw, typed).jsonObject
+        assertEquals("2", out["calcV"]!!.jsonPrimitive.content)
+        assertEquals("true", out["targetFormulaSeen"]!!.jsonPrimitive.content)
+        assertEquals("true", out["recompTargetSeen"]!!.jsonPrimitive.content)
+        assertEquals("x", out["targets"]!!.jsonObject["webOnly"]!!.jsonPrimitive.content)
+        assertEquals("true", out["targets"]!!.jsonObject["eaLimited"]!!.jsonPrimitive.content)
+        assertEquals("1900", out["targets"]!!.jsonObject["kcal"]!!.jsonPrimitive.content)
+        assertEquals(1, out["warmupPrefs"]!!.jsonObject.size)
+    }
+
     @Test
     fun doesNotAddNullKeysTheWebNeverWrote() {
         val raw = Json.parseToJsonElement("""{"date":"2026-10-09","nutrition":{"kcal":1800}}""")

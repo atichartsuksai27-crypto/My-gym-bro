@@ -1,4 +1,4 @@
-/* Plain-node test for the calorie-target logic that lives in app.js (computeCalorieTarget / computeTargets)
+/* Plain-node test for the calorie-target logic that lives in app.js (computeCalorieTarget / computeTargets / calorieTargetUpdate)
    ใช้ tests/app-harness.js โหลด app.js ทั้งไฟล์ใน vm — ไม่มี dependency, ไม่มี build step
    Run: node tests/calorie-target.test.js */
 "use strict";
@@ -14,7 +14,7 @@ function test(name, fn){
 
 var DAYS = ['จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์','อาทิตย์'];
 var computeTargets = H.ev('computeTargets'), ffmFromAnswers = H.ev('ffmFromAnswers'), plannedEx = H.ev('plannedExFromAnswers');
-var _unused = null;
+var buildSnapshot = H.ev('buildPlanSnapshot'), calorieTargetUpdate = H.ev('calorieTargetUpdate'), calorieTargetBanner = H.ev('calorieTargetBanner');
 
 function plan(extra){
   var p = {manualPick:{}, unlockedEx:{}, forceLowTier:{}, splitOverride:null, trainDays:DAYS.slice(0, 5)};
@@ -70,6 +70,66 @@ test('guard never lowers a target that already passes EA (gain / maintenance sta
     assert.strictEqual(t.eaLimited, false, g);
     assert.strictEqual(t.kcalFloored, false, g);
   });
+});
+
+console.log('calorieTargetUpdate — banner for plans made before the current formula');
+/* แผนเก่า: เป้าล็อกด้วยสูตรเก่า (TDEE ล้วน) — สร้าง snapshot ปัจจุบันแล้วลดเป้า/TDEE ลงเป็นของเก่า */
+function oldPlan(goal, extraAnswers, mutate){
+  H.setState({plan:plan(), answers:{}});
+  var a = p4(goal, Object.assign({Q5b:'ได้ (เน้นสร้างกล้ามให้เร็ว)', Q37:7}, extraAnswers || {}));
+  H.setState({plan:plan(), answers:a});
+  var p = H.plain(buildSnapshot(a));
+  p.startWeight = 52; p.sex = 'หญิง'; p.goal = goal; p.startDate = '2026-09-01'; p.planId = 'x';
+  p.targets.tdee = 1500; p.targets.kcal = goal==='เพิ่มกล้ามเนื้อ' ? 1800 : 1500; // ค่าเก่า (TDEE ล้วน ตัวคูณกิจกรรมเก่า)
+  delete p.calcV;
+  if(mutate) mutate(p);
+  H.setTrack({program:p, logs:{}, weights:{}});
+  return p;
+}
+test('maintenance / muscle-gain plans on the old formula are offered a HIGHER target', function(){
+  ['รักษาสุขภาพทั่วไป', 'เพิ่มกล้ามเนื้อ'].forEach(function(g){
+    var p = oldPlan(g), u = calorieTargetUpdate(p);
+    assert.ok(u, g);
+    assert.ok(u.kcal >= p.targets.kcal + 50, g+' '+u.kcal);
+    assert.ok(/เดิมเป้าไม่รวมแคลที่เผาจากการฝึก/.test(calorieTargetBanner(p)), g);
+  });
+});
+test('Recomp plan whose old target was higher is offered a LOWER target with the Recomp wording', function(){
+  var p = oldPlan('Recomposition (ลด+เพิ่มพร้อมกัน)', {}, function(q){ q.targets.kcal = 2600; q.targets.tdee = 2200; });
+  var u = calorieTargetUpdate(p);
+  assert.ok(u && u.kcal < p.targets.kcal - 50, JSON.stringify(u));
+  assert.ok(/กินขาดเล็กน้อยเสมอ/.test(calorieTargetBanner(p)));
+});
+test('seen flags suppress the banner, including the legacy recompTargetSeen / calcTargetSeen', function(){
+  ['targetFormulaSeen', 'recompTargetSeen', 'calcTargetSeen'].forEach(function(flag){
+    var p = oldPlan('รักษาสุขภาพทั่วไป', {}, function(q){ q[flag] = true; });
+    assert.strictEqual(calorieTargetUpdate(p), null, flag);
+  });
+});
+test('plans PG already adjusted, plans stamped with the current formula, and differences < 50 kcal are skipped', function(){
+  var adj = oldPlan('รักษาสุขภาพทั่วไป', {}, function(q){ q.pg = {adjustments:[{date:'2026-10-01', fromKcal:1500, toKcal:1600}]}; });
+  assert.strictEqual(calorieTargetUpdate(adj), null);
+  var cur = oldPlan('รักษาสุขภาพทั่วไป', {}, function(q){ q.calcV = 2; });
+  assert.strictEqual(calorieTargetUpdate(cur), null);
+  var p = oldPlan('รักษาสุขภาพทั่วไป'), u = calorieTargetUpdate(p);
+  p.targets.kcal = u.kcal + 49;
+  assert.strictEqual(calorieTargetUpdate(p), null);
+  p.targets.kcal = u.kcal + 50;
+  assert.ok(calorieTargetUpdate(p));
+});
+test('a proposed LOWER target goes through the EA guard (never offered below the EA minimum, never above the old target)', function(){
+  // หญิงอายุ 70 ตัวเล็ก รูปร่างผอมมาก (FFM ประมาณสูงเทียบ TDEE) — เป้ารักษาน้ำหนัก = base < EA min 35 → ต้องดันขึ้น
+  var extra = {Q10:70, Q11:150, Q12:45, Q0:'10-14', Q2:DAYS.slice(0, 2)};
+  H.setState({plan:plan({trainDays:DAYS.slice(0, 2)}), answers:{}});
+  var p = oldPlan('รักษาสุขภาพทั่วไป', extra, function(q){ q.targets.kcal = 2400; q.targets.tdee = 2300; q.startWeight = 45; });
+  var a = Object.assign({}, p4('รักษาสุขภาพทั่วไป', extra));
+  var u = calorieTargetUpdate(p);
+  assert.ok(u, 'expected an offer');
+  var ex = H.ev('pgPlannedExPerDay')(p, 45), ffm = ffmFromAnswers(a, 45, 'หญิง').ffm;
+  assert.ok(u.kcal < 2400);
+  assert.ok(u.kcal >= Math.ceil((C.EA_MIN_NON_CUT*ffm + ex)/10)*10 - 1e-9, 'offered '+u.kcal+' below EA min');
+  assert.strictEqual(u.eaLimited, true);
+  assert.ok(/ไม่ลดต่ำกว่า/.test(u.direction));
 });
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

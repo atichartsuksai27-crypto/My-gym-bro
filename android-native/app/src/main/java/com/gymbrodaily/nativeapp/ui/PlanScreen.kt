@@ -83,6 +83,7 @@ fun PlanScreen(
             "เลือกเปลี่ยน เพิ่ม หรือลบท่าในแต่ละเซสชันได้เองจากคลังทั้งหมด การแก้มีผลกับทุกสัปดาห์ น้ำหนักที่เคยบันทึกยังอยู่ครบ " +
                 "แต่สถิติ “ทำตามแผน” ของวันที่ผ่านมาจะนับตามท่าชุดใหม่ และถ้ากด “แก้ไขแผน / ทำแบบสอบถามใหม่” ท่าที่เลือกเองจะถูกแทนที่ด้วยท่าที่ระบบสร้างใหม่",
         )
+        CalorieTargetAlert(t, today.toString(), store)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = {
                 store.updateOnboarding { it.copy(editPlan = true, step = 9, mode = "results") }

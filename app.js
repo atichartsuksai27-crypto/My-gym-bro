@@ -2935,7 +2935,7 @@ function renderToday(){
       '<button type="button" class="btn" data-act="nav" data-view="progress">ความคืบหน้า</button>'+
     '</div></div>';
 
-  html += oldScheduleBanner(p) + scheduleClashBanner(p) + planUpdateBanner(p) + calcTargetBanner(p) + recompTargetBanner(p) + fatAlertHTML(p) + pgAlertHTML(p);
+  html += oldScheduleBanner(p) + scheduleClashBanner(p) + planUpdateBanner(p) + calorieTargetBanner(p) + fatAlertHTML(p) + pgAlertHTML(p);
   html += '<div class="today-grid"><div class="stack">'+dayEditor(iso)+'</div>'+
     '<aside class="rail">'+
       '<div class="prog-card"><div class="prog-top"><h3>ความคืบหน้าวันนี้</h3><span class="n mono">'+counts.done+'/'+counts.total+'</span></div>'+
@@ -3823,7 +3823,7 @@ function renderPlan(){
       '<button type="button" class="btn" data-act="edit-plan">แก้ไขแผน / ทำแบบสอบถามใหม่</button>'+
       '<button type="button" class="btn" data-act="edit-start">ตั้งวันเริ่มใหม่</button>'+
     '</div></div>';
-  html += oldScheduleBanner(p) + scheduleClashBanner(p) + planUpdateBanner(p) + calcTargetBanner(p) + recompTargetBanner(p) + schedEditorPanelHTML();
+  html += oldScheduleBanner(p) + scheduleClashBanner(p) + planUpdateBanner(p) + calorieTargetBanner(p) + schedEditorPanelHTML();
   if(!track.schedDraft && track.saveStatus==='บันทึกวันฝึกแล้ว ✓') html += '<div class="banner info"><div class="ic">✓</div><div>บันทึกวันฝึกแล้ว</div></div>';
 
   if(track.editing){
@@ -4211,32 +4211,17 @@ function planUpdateBanner(p){
     programCoverage(p).filter(function(m){ return MUSCLE_ORDER.indexOf(m)>-1; }).length+'/'+MUSCLE_ORDER.length+' ส่วน) '+
     '<button type="button" class="linkbtn" data-act="edit-plan">อัปเดตตารางเป็นแบบใหม่ →</button></div></div>';
 }
-/* แผน Recomposition ที่สร้างก่อนปรับสูตรเป้าแคลอรี่ (ห่างปานกลาง ×1.0 → ×0.95, ใกล้เป้า ×1.03 → ×1.0)
-   แผนเป็นชุดที่ล็อกไว้ จึงเสนอให้กดใช้เอง ไม่เปลี่ยนเงียบๆ — เสนอเฉพาะเมื่อเป้าใหม่ต่ำกว่าเดิม
-   และข้ามแผนที่ปรับเป้าตามผลจริงจาก Progression & Goal ไปแล้ว */
-function recompTargetUpdate(p){
-  if(!p || p.goal!=='Recomposition (ลด+เพิ่มพร้อมกัน)' || p.recompTargetSeen || !p.targets || p.targets.tdee==null) return null;
-  if((p.calcV||0) >= CALC_VERSION || calcTargetUpdate(p)) return null; // สูตรรุ่นใหม่รวมหลัก Recomp นี้แล้ว — ใช้แบนเนอร์ calcTarget แทน
-  if((pgState(p).adjustments||[]).length) return null;
-  var kg0 = p.startWeight || bodyweightAsOf(todayISO()) || parseFloat((state.answers||{}).Q12);
-  var cal = computeCalorieTarget(p.targets.tdee, {Q1:p.goal, Q6:(state.answers||{}).Q6, Q9:pgSex(p)}, kg0>0 ? pgPlannedExPerDay(p, kg0) : 0);
-  var kcal = cal.kcal!=null ? Math.round(cal.kcal) : null;
-  return (kcal && p.targets.kcal!=null && kcal < p.targets.kcal) ? {kcal:kcal, direction:cal.direction, floored:cal.floored} : null;
-}
-function recompTargetBanner(p){
-  var u = recompTargetUpdate(p);
-  if(!u) return '';
-  return '<div class="banner info"><div class="ic">ⓘ</div><div>ปรับหลักเป้าแคลอรี่ของ <b>Recomposition</b> ใหม่ ให้กินขาดเล็กน้อยเสมอ (ส่วนวันฝึกจะขาดเพิ่มจากแคลที่เผาตอนออกกำลังกาย) — '+
-    'เป้าของคุณจะเปลี่ยนจาก '+fmtKcal(p.targets.kcal)+' เป็น <b>'+fmtKcal(u.kcal)+' kcal/วัน</b> โปรตีนเท่าเดิม '+
-    '<button type="button" class="linkbtn" data-act="recomp-apply">ใช้เป้าใหม่ →</button> · '+
-    '<button type="button" class="linkbtn" data-act="recomp-skip">คงเป้าเดิม</button></div></div>';
-}
-/* สูตรเป้าแคลอรี่รุ่นที่ CALC_VERSION (ตัวคูณกิจกรรม FAO/WHO + ลดไขมันคิดจากฐานรวมการฝึก + พื้น energy availability)
-   แผนที่สร้างก่อนหน้านี้ล็อกเป้าเดิมไว้ จึงเสนอให้กดใช้เอง ไม่เปลี่ยนเงียบๆ — ข้ามแผนที่ปรับเป้าตามผลจริงแล้ว (ข้อมูลจริงแม่นกว่าสูตร)
-   คิดจากคำตอบแบบสอบถามปัจจุบัน + เป้าหมาย/เพศ/วันฝึกของแผน + น้ำหนักล่าสุด */
+/* เป้าแคลอรี่ของแผนที่สร้างก่อนสูตรรุ่นปัจจุบัน (CALC_VERSION) — ตัวคูณกิจกรรม FAO/WHO, ทุกเป้าหมาย (ลดไขมัน/รักษา/เพิ่มกล้าม/Recomp) คิดจากฐาน
+   TDEE + แคลฝึกตามแผน และมีพื้น energy availability แผนเป็นชุดที่ล็อกเป้าเดิมไว้ จึงเสนอให้กดใช้เอง ไม่เปลี่ยนเงียบ ๆ
+   เสนอเมื่อเป้าใหม่ต่างจากเดิมตั้งแต่ 50 kcal ทั้งขึ้นและลง (รักษา/เพิ่มกล้ามที่เคยคิดจาก TDEE ล้วนจะขึ้น, Recomp ที่ใช้หลักเก่าจะลง)
+   ข้ามแผนที่ปรับเป้าตามผลจริงจาก Progression & Goal ไปแล้ว (ข้อมูลจริงแม่นกว่าสูตร) และแผนที่ผู้ใช้เคยตอบรับ/ปฏิเสธแล้ว
+   คิดจากคำตอบแบบสอบถามปัจจุบัน + เป้าหมาย/เพศ/วันฝึกของแผน + น้ำหนักล่าสุด (ใช้ plannedEx จาก program จริง ไม่ใช่จากคำตอบ)
+   ถ้าเสนอลดเป้า ต้องผ่านด่าน energy availability (applyEaGuard) ก่อน — ห้ามเสนอเป้าที่ EA ต่ำกว่าเกณฑ์ ดันกลับได้ไม่เกินเป้าเดิม
+   ธง targetFormulaSeen แทน calcTargetSeen/recompTargetSeen เดิม (ยังอ่านสองตัวเก่าเป็น "เห็นแล้ว" เพื่อไม่ให้ banner ที่ผู้ใช้เคยกดข้ามกลับมาอีก) */
 var CALC_VERSION = 2;
-function calcTargetUpdate(p){
-  if(!p || !p.targets || (p.calcV||0) >= CALC_VERSION || p.calcTargetSeen) return null;
+function targetFormulaSeen(p){ return !!(p.targetFormulaSeen || p.calcTargetSeen || p.recompTargetSeen); }
+function calorieTargetUpdate(p){
+  if(!p || !p.targets || (p.calcV||0) >= CALC_VERSION || targetFormulaSeen(p)) return null;
   if((pgState(p).adjustments||[]).length) return null;
   var a0 = state.answers || {}, a = {};
   Object.keys(a0).forEach(function(k){ a[k] = a0[k]; });
@@ -4245,42 +4230,51 @@ function calcTargetUpdate(p){
   a.Q1 = p.goal; a.Q9 = pgSex(p); a.Q12 = kg;
   var tdee = computeTDEE(a);
   if(tdee==null || isNaN(tdee)) return null;
-  var cal = computeCalorieTarget(tdee, a, pgPlannedExPerDay(p, kg));
+  var exDay = pgPlannedExPerDay(p, kg);
+  var cal = computeCalorieTarget(tdee, a, exDay);
   if(cal.kcal==null || isNaN(cal.kcal)) return null;
-  var kcal = Math.round(cal.kcal);
-  if(p.targets.kcal!=null && Math.abs(kcal - p.targets.kcal) < 50) return null;
-  return {kcal:kcal, tdee:Math.round(tdee), direction:cal.direction, floored:cal.floored};
+  var kcal = Math.round(cal.kcal), old = p.targets.kcal, direction = cal.direction, floored = cal.floored, eaLimited = cal.eaLimited;
+  if(old!=null && kcal < old){
+    var ffm = ffmFromAnswers(a, kg, a.Q9);
+    var g = ffm ? GymBroCalc.applyEaGuard(kcal, p.goal, exDay, ffm.ffm, old) : null;
+    if(g && g.blocked && g.kcal > kcal){
+      kcal = g.kcal; floored = true; eaLimited = true;
+      direction += ' · ไม่ลดต่ำกว่า '+fmtKcal(kcal)+' kcal เพราะ energy availability จะต่ำกว่า '+g.minEA+' kcal/กก. มวลไร้ไขมัน (FFM ~'+fmt1(ffm.ffm)+' กก. — '+ffm.src+')';
+    }
+  }
+  if(old!=null && Math.abs(kcal - old) < 50) return null;
+  return {kcal:kcal, tdee:Math.round(tdee), direction:direction, floored:floored, eaLimited:eaLimited};
 }
-function calcTargetBanner(p){
-  var u = calcTargetUpdate(p);
+/* ข้อความอธิบายเหตุผลตามทิศทาง (ข้อความล้วน ไม่มี HTML — native ใช้ข้อความเดียวกัน ตรวจด้วย golden progress.json):
+   เพิ่มขึ้น = เดิมเป้าไม่รวมแคลที่เผาจากการฝึก, ลดลง = หลัก Recomp เดิม (กินขาดเล็กน้อยเสมอ) หรือคิดจากพลังงานที่ใช้จริงรวมการฝึก */
+function calorieTargetText(p, u){
+  var up = u.kcal > p.targets.kcal;
+  var why = up
+    ? 'ปรับสูตรคำนวณเป้าแคลอรี่ใหม่: เดิมเป้าไม่รวมแคลที่เผาจากการฝึก ทำให้กินน้อยกว่าที่ร่างกายใช้จริงโดยไม่ตั้งใจ (พลังงานในชีวิตประจำวันก็ใช้ค่าที่สมจริงขึ้น)'
+    : (p.goal==='Recomposition (ลด+เพิ่มพร้อมกัน)'
+      ? 'ปรับหลักเป้าแคลอรี่ของ Recomposition ใหม่ ให้กินขาดเล็กน้อยเสมอ (ส่วนวันฝึกจะขาดเพิ่มจากแคลที่เผาตอนออกกำลังกาย)'
+      : 'ปรับสูตรคำนวณเป้าแคลอรี่ใหม่ให้ตรงกับพลังงานที่ใช้จริงรวมการฝึกตามแผน');
+  return why+' — เป้าของคุณจะเปลี่ยนจาก '+fmtKcal(p.targets.kcal)+' เป็น '+fmtKcal(u.kcal)+' kcal/วัน (TDEE ไม่รวมการฝึก '+fmtKcal(p.targets.tdee)+' → '+fmtKcal(u.tdee)+') โปรตีนเท่าเดิม'+
+    (u.eaLimited ? ' · ตั้งไม่ต่ำกว่านี้เพื่อให้ energy availability ไม่ต่ำกว่าเกณฑ์ปลอดภัย (RED-S)' : '');
+}
+function calorieTargetBanner(p){
+  var u = calorieTargetUpdate(p);
   if(!u) return '';
-  return '<div class="banner info"><div class="ic">ⓘ</div><div>ปรับสูตรคำนวณเป้าแคลอรี่ใหม่ (พลังงานในชีวิตประจำวันใช้ค่าที่สมจริงขึ้น และนับแคลจากการฝึกตามแผนในทุกเป้าหมาย) — '+
-    'เป้าของคุณจะเปลี่ยนจาก '+fmtKcal(p.targets.kcal)+' เป็น <b>'+fmtKcal(u.kcal)+' kcal/วัน</b> (TDEE ไม่รวมการฝึก '+fmtKcal(p.targets.tdee)+' → '+fmtKcal(u.tdee)+') โปรตีนเท่าเดิม '+
-    '<button type="button" class="linkbtn" data-act="calc-apply">ใช้เป้าใหม่ →</button> · '+
-    '<button type="button" class="linkbtn" data-act="calc-skip">คงเป้าเดิม</button></div></div>';
+  var html = esc(calorieTargetText(p, u)).replace('Recomposition', '<b>Recomposition</b>').replace('เป็น '+fmtKcal(u.kcal)+' kcal/วัน', 'เป็น <b>'+fmtKcal(u.kcal)+' kcal/วัน</b>');
+  return '<div class="banner info"><div class="ic">ⓘ</div><div>'+html+' '+
+    '<button type="button" class="linkbtn" data-act="calorie-apply">ใช้เป้าใหม่ →</button> · '+
+    '<button type="button" class="linkbtn" data-act="calorie-skip">คงเป้าเดิม</button></div></div>';
 }
-function calcApply(){
-  var p = track.program, u = calcTargetUpdate(p);
+function calorieApply(){
+  var p = track.program, u = calorieTargetUpdate(p);
   if(!u) return;
   var t = p.targets, nt = {}, today = todayISO();
   Object.keys(t).forEach(function(k){ nt[k] = t[k]; });
   var macro = computeMacro(u.kcal, t.proteinG ? t.proteinG/2 : bodyweightAsOf(today)); // คงเป้าโปรตีนเดิม (2 ก./กก.)
-  nt.kcal = u.kcal; nt.tdee = u.tdee; nt.kcalDirection = u.direction; nt.kcalFloored = u.floored;
+  nt.kcal = u.kcal; nt.tdee = u.tdee; nt.kcalDirection = u.direction; nt.kcalFloored = u.floored; nt.eaLimited = u.eaLimited;
   nt.fatG = macro.fatG; nt.carbG = macro.carbG; nt.macroClamped = macro.clamped;
   p.targets = nt;
   p.calcV = CALC_VERSION;
-  pgSave({evalFrom:today}); // เป้าเปลี่ยน — กรอบแผนเริ่มประเมินรอบใหม่จากวันนี้
-}
-function recompApply(){
-  var p = track.program, u = recompTargetUpdate(p);
-  if(!u) return;
-  var t = p.targets, nt = {}, today = todayISO();
-  Object.keys(t).forEach(function(k){ nt[k] = t[k]; });
-  var macro = computeMacro(u.kcal, t.proteinG ? t.proteinG/2 : bodyweightAsOf(today)); // คงเป้าโปรตีนเดิม (2 ก./กก.)
-  nt.kcal = u.kcal; nt.kcalDirection = u.direction; nt.kcalFloored = u.floored;
-  nt.fatG = macro.fatG; nt.carbG = macro.carbG; nt.macroClamped = macro.clamped;
-  p.targets = nt;
-  p.recompTargetSeen = true;
   pgSave({evalFrom:today}); // เป้าเปลี่ยน — กรอบแผนเริ่มประเมินรอบใหม่จากวันนี้
 }
 /* sessions = เซสชันของแบบที่กำลังเลือก (SPLIT_DEFS: มี patterns) หรือของโปรแกรมที่ใช้อยู่ (มี exercises) */
@@ -4891,10 +4885,8 @@ document.addEventListener("click", function(ev){
     return;
   }
   if(act==='pg-apply'){ pgApply(); return; }
-  if(act==='calc-apply'){ calcApply(); return; }
-  if(act==='calc-skip'){ if(track.program){ track.program.calcTargetSeen = true; persistProgram(); } render(); return; }
-  if(act==='recomp-apply'){ recompApply(); return; }
-  if(act==='recomp-skip'){ if(track.program){ track.program.recompTargetSeen = true; persistProgram(); } render(); return; }
+  if(act==='calorie-apply'){ calorieApply(); return; }
+  if(act==='calorie-skip'){ if(track.program){ track.program.targetFormulaSeen = true; persistProgram(); } render(); return; }
   if(act==='progress-ex'){ track.progressEx = el.getAttribute('data-ex'); render(); return; }
   if(act==='hard-restart'){
     lsRemove("gymbro_program"); lsRemove("gymbro_logs"); lsRemove("gymbro_weights"); lsRemove("gymbro_onb_proto"); lsRemove("gymbro_program_at"); lsRemove("gymbro_onb_at"); lsRemove("gymbro_fat_seen");
@@ -4956,7 +4948,7 @@ document.addEventListener("click", function(ev){
       snap.startDate = val;
       snap.planId = Date.now().toString(36);
       snap.createdAt = new Date().toISOString();
-      snap.calcV = CALC_VERSION; // เป้าแคลอรี่ของแผนนี้คิดด้วยสูตรรุ่นปัจจุบันแล้ว — ไม่ต้องเสนอ calcTargetBanner
+      snap.calcV = CALC_VERSION; // เป้าแคลอรี่ของแผนนี้คิดด้วยสูตรรุ่นปัจจุบันแล้ว — ไม่ต้องเสนอ calorieTargetBanner
     }
     track.program = snap;
     var ok = persistProgram();

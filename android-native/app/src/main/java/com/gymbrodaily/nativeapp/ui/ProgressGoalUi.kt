@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gymbrodaily.nativeapp.data.FatSeen
 import com.gymbrodaily.nativeapp.data.TrackStore
+import com.gymbrodaily.nativeapp.domain.CalorieTargetUpdate
 import com.gymbrodaily.nativeapp.domain.FAT_KCAL_PER_KG
 import com.gymbrodaily.nativeapp.domain.Generator
 import com.gymbrodaily.nativeapp.domain.PG_ADJ_MAX
@@ -192,6 +193,22 @@ fun PgAlert(t: TrackData, today: String, onGo: () -> Unit) {
             color = GB.text2,
         )
         OutlinedButton(onClick = { PgUi.more = true; onGo() }) { Text("ดูที่หน้าความคืบหน้า →") }
+    }
+}
+
+/**
+ * เสนอเป้าแคลอรี่ใหม่ให้แผนที่คิดเป้าไว้ด้วยสูตรเก่า/แคลฝึกโดยประมาณ (ตรงกับ calorieTargetBanner ของเว็บ) — ไม่เปลี่ยนเงียบ ๆ ผู้ใช้ต้องกดเอง
+ * ใช้ทั้งหน้า "วันนี้" และ "แผนของฉัน" (แผน native ที่เพิ่งสร้างก็เข้าเงื่อนไข: เป้าตอนสร้างใช้แคลฝึกประมาณจากวันที่ว่าง ส่วนที่นี่ใช้แผนจริง)
+ */
+@Composable
+fun CalorieTargetAlert(t: TrackData, today: String, store: TrackStore) {
+    val u = remember(t, today) { CalorieTargetUpdate.of(t, today) } ?: return
+    Banner("ⓘ", GB.surface2, GB.borderStrong) {
+        Text(CalorieTargetUpdate.text(t.program, u), fontSize = 13.5.sp, lineHeight = 19.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { store.patchProgram { raw -> CalorieTargetUpdate.applyTo(raw, t, u, today) } }) { Text("ใช้เป้าใหม่ ${ProgressGoal.fmtKcal(u.kcal)} kcal") }
+            OutlinedButton(onClick = { store.patchProgram { raw -> CalorieTargetUpdate.skipped(raw) } }) { Text("คงเป้าเดิม") }
+        }
     }
 }
 

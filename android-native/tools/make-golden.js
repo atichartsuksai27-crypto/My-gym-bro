@@ -358,7 +358,8 @@ for(var qi = 0; qi < 400; qi++){
    น้ำหนักลด/คงที่/ขึ้น, ความแข็งแรงเพิ่ม/ตัน, ความเครียด, อาการบาดเจ็บ, snapshot วันที่ล็อกแล้ว */
 var PG = ev('({fatTug:fatTug, pgCurrent:pgCurrent, pgRecommend:pgRecommend, pgSummaryText:pgSummaryText,' +
   ' pgGoalLine:pgGoalLine, pgEta:pgEta, pgNowKg:pgNowKg, fmtDateISO:fmtDateISO,' +
-  ' calorieTargetUpdate:calorieTargetUpdate, calorieTargetText:calorieTargetText})');
+  ' calorieTargetUpdate:calorieTargetUpdate, calorieTargetText:calorieTargetText, calorieApply:calorieApply,' +
+  ' getProgram:function(){ return track.program; }})');
 /* แผนเก่าที่เป้าล็อกด้วยสูตรเก่า — วนโหมดตามลำดับเคส (ไม่ใช้ตัวสุ่ม เพื่อไม่ขยับลำดับสุ่มของเคสอื่น):
    0 = เป้าปัจจุบัน, 1 = เป้าเก่าต่ำกว่า, 2 = เป้าเก่าสูงกว่า, 3 = เก่าต่ำ+ธงเห็นแล้ว (วนทั้งสามชื่อ), 4 = เก่าต่ำ+calcV 2, 5 = เก่าสูง */
 var OLD_FLAGS = ['targetFormulaSeen', 'recompTargetSeen', 'calcTargetSeen'];
@@ -376,7 +377,16 @@ function staleCalorie(pp, pc, tp){
   if(patch.calcV != null) sp.calcV = patch.calcV;
   A.setTrack(tp(sp));
   var u = PG.calorieTargetUpdate(sp);
-  return {patch: patch, expected: plain(u ? {kcal: u.kcal, tdee: u.tdee, direction: u.direction, floored: u.floored, eaLimited: u.eaLimited, text: PG.calorieTargetText(sp, u)} : null)};
+  /* กด "ใช้เป้าใหม่" บนเว็บจริง (calorieApply) แล้วเก็บ payload ที่ได้ — native applyTo ต้องเขียน targets / calcV / pg ออกมาเหมือนกัน (sync ข้ามเครื่อง) */
+  var applied = null;
+  if(u){
+    var ap = JSON.parse(JSON.stringify(sp));
+    A.setTrack(tp(ap));
+    PG.calorieApply();
+    var np = PG.getProgram();
+    applied = plain({targets: np.targets, calcV: np.calcV, pg: np.pg});
+  }
+  return {patch: patch, applied: applied, expected: plain(u ? {kcal: u.kcal, tdee: u.tdee, direction: u.direction, floored: u.floored, eaLimited: u.eaLimited, text: PG.calorieTargetText(sp, u)} : null)};
 }
 var PG_GOALS = ["ลดไขมัน","เพิ่มกล้ามเนื้อ","Recomposition (ลด+เพิ่มพร้อมกัน)","รักษาสุขภาพทั่วไป"];
 var STRESS_NOTES = ['', 'งานเยอะ', 'นอนไม่พอ เพราะลูกป่วยทั้งคืน และต้องตื่นเช้าไปประชุมงานที่สำนักงานใหญ่อีก', 'เรื่องเงิน'];

@@ -2,6 +2,7 @@ package com.gymbrodaily.nativeapp.domain
 
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -121,5 +122,23 @@ class ProgressGoalParityTest {
         }
         assertJsonEquivalent(c["expected"]!!, actual, "progress[$i].calorie(mode ${patch["mode"]})")
         if (u != null && stale.targets?.kcal != null) offers += u.kcal - stale.targets!!.kcal!!
+
+        // กด "ใช้เป้าใหม่": payload ที่ native เขียน (targets / calcV / pg) ต้องเท่ากับที่เว็บ calorieApply เขียน — แผนเดียวกันที่ sync ข้ามเครื่อง
+        val applied = c["applied"]
+        if (u != null && applied != null && applied !is JsonNull) {
+            val raw = o["program"]!!.jsonObject
+            val rawTargets = JsonObject(
+                (raw["targets"]?.jsonObject ?: JsonObject(emptyMap())) +
+                    mapOf("kcal" to (stale.targets?.kcal?.let { JsonPrimitive(it) } ?: JsonNull), "tdee" to (stale.targets?.tdee?.let { JsonPrimitive(it) } ?: JsonNull)),
+            )
+            val staleRaw = JsonObject(
+                raw + mapOf("targets" to rawTargets) +
+                    (flag?.let { mapOf(it to JsonPrimitive(true)) } ?: emptyMap()) +
+                    (intOrNull("calcV")?.let { mapOf("calcV" to JsonPrimitive(it)) } ?: emptyMap()),
+            )
+            val out = CalorieTargetUpdate.applyTo(staleRaw, st, u, today)
+            val actualApplied = buildJsonObject { put("targets", out["targets"]!!); put("calcV", out["calcV"]!!); put("pg", out["pg"]!!) }
+            assertJsonEquivalent(applied, actualApplied, "progress[$i].calorie.applied")
+        }
     }
 }

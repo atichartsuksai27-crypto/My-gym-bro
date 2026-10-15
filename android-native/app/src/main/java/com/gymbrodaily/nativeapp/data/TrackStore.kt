@@ -10,6 +10,7 @@ import com.gymbrodaily.nativeapp.domain.Answers
 import com.gymbrodaily.nativeapp.domain.DailyLog
 import com.gymbrodaily.nativeapp.domain.DayReport
 import com.gymbrodaily.nativeapp.domain.Generator
+import com.gymbrodaily.nativeapp.domain.PlanEditing
 import com.gymbrodaily.nativeapp.domain.PlanOverrides
 import com.gymbrodaily.nativeapp.domain.Program
 import com.gymbrodaily.nativeapp.domain.TrackData
@@ -452,6 +453,31 @@ class TrackStore(context: Context, private val userId: String, private val scope
      * ถ้ายังสร้างไม่ได้ ด่านตรวจชุดเดียวกับเว็บ: ขอบเขตที่รองรับ + ข้อมูลสมเหตุสมผล + ความปลอดภัย
      */
     /** แก้สถานะแบบสอบถาม (คำตอบ/หมวดที่อยู่/การปรับแผน) — บันทึกลงเครื่องและซิงก์เหมือนข้อมูลอื่น */
+    /** บันทึกวันฝึก/cardio ที่ร่างไว้ลงโปรแกรมที่ใช้อยู่ (ท่า/เป้าหมายเดิมไม่เปลี่ยน) และตั้งแบบสอบถามให้ตรงกัน — เหมือน saveSchedDraft ของเว็บ */
+    fun applySchedule(next: com.gymbrodaily.nativeapp.domain.Program) {
+        fun arr(l: List<String>) = kotlinx.serialization.json.JsonArray(l.map { JsonPrimitive(it) })
+        patchProgram { raw ->
+            JsonObject(
+                raw + mapOf(
+                    "days" to arr(next.days),
+                    "dayToSession" to JsonObject(next.dayToSession.mapValues { JsonPrimitive(it.value) }),
+                    "cardioDays" to arr(next.cardioDays),
+                    "cardioMinByDay" to JsonObject(next.cardioMinByDay.mapValues { JsonPrimitive(it.value) }),
+                    "availableDays" to arr(next.availableDays ?: emptyList()),
+                ),
+            )
+        }
+        updateOnboarding { o ->
+            o.copy(plan = o.plan.copy(trainDays = next.days, cardioDays = next.cardioDays, cardioMinByDay = Generator.minsForDays(next.cardioMinByDay, next.cardioDays)))
+        }
+    }
+
+    /** กด "แก้ไขแผน / ทำแบบสอบถามใหม่": ตั้งวันฝึก/cardio/ความเข้มข้นในแบบสอบถามจากโปรแกรมที่ใช้อยู่ แล้วไปหน้าตรวจแผน (edit-plan ของเว็บ) */
+    fun beginEditPlan() {
+        val p = _state.value.program
+        updateOnboarding { o -> o.copy(editPlan = true, step = 9, mode = "results", plan = if (p != null) com.gymbrodaily.nativeapp.domain.PlanEditing.seedPlanFromProgram(o.plan, p) else o.plan) }
+    }
+
     fun updateOnboarding(change: (Onboarding) -> Onboarding) {
         val next = change(_state.value.onb).toJson()
         _state.update { it.copy(onboarding = next) }
@@ -461,12 +487,8 @@ class TrackStore(context: Context, private val userId: String, private val scope
     fun startProgram(startIso: String): String? {
         val s = _state.value
         val a = s.answers
-        val gate = Generator.safetyGate(a)
-        val issues = Generator.sanityIssues(a)
-        if (!Generator.inScope(a) || issues.isNotEmpty() || gate.blocked) {
-            return "ยังสร้างตารางไม่ได้ — ข้อมูลไม่ครบหรืออยู่นอกขอบเขตที่รองรับ (" +
-                (gate.reason ?: issues.firstOrNull() ?: "เป้าหมาย/สถานที่ยังไม่รองรับ") + ") กลับไปแก้แบบสอบถามก่อน"
-        }
+        // ด่านสุดท้ายก่อนล็อกแผนจริง: ขอบเขตที่รองรับ + ข้อมูลสมเหตุสมผล + ความปลอดภัย + วันฝึกพอและไม่ชนกัน (startGateError ของเว็บ)
+        PlanEditing.startGateError(a, s.planOverrides)?.let { return it }
         val snap = json.encodeToJsonElement(Generator.buildPlanSnapshot(a, s.planOverrides)).jsonObject
         val now = Instant.now()
         val program = JsonObject(
@@ -476,7 +498,7 @@ class TrackStore(context: Context, private val userId: String, private val scope
                 "createdAt" to JsonPrimitive(now.toString()),
                 // เป้าของแผนนี้คิดด้วยสูตรรุ่นปัจจุบันแล้ว — ไม่ต้องเสนอ banner เป้าใหม่ (เหมือนเว็บตอนกดเริ่มโปรแกรม)
                 "calcV" to JsonPrimitive(com.gymbrodaily.nativeapp.domain.CALC_VERSION),
-            ),
+            ) + (s.programRaw?.get("equipSteps")?.let { mapOf("equipSteps" to it) } ?: emptyMap()), // อุปกรณ์ที่มีจริงยังเหมือนเดิมแม้เปลี่ยนแผน
         )
         _state.update { buildState(program, it.logsRaw, it.weights, it.onboarding) }
         enqueue(PendingOp("program", payload = program))

@@ -40,9 +40,12 @@ import com.gymbrodaily.nativeapp.domain.Answers
 import com.gymbrodaily.nativeapp.domain.Candidate
 import com.gymbrodaily.nativeapp.domain.Catalog
 import com.gymbrodaily.nativeapp.domain.Generator
+import com.gymbrodaily.nativeapp.domain.PlanEditing
+import com.gymbrodaily.nativeapp.domain.Progression
 import com.gymbrodaily.nativeapp.domain.QKind
 import com.gymbrodaily.nativeapp.domain.Question
 import com.gymbrodaily.nativeapp.domain.Questions
+import com.gymbrodaily.nativeapp.domain.Schedule
 import com.gymbrodaily.nativeapp.domain.with
 import kotlinx.serialization.json.JsonPrimitive
 import java.time.Instant
@@ -331,7 +334,7 @@ private fun Readiness(a: Answers): Boolean {
     return false
 }
 
-/* ---------- หน้าตรวจแผนก่อนเริ่ม ---------- */
+/* ---------- หน้าตรวจแผนก่อนเริ่ม (resultsHTML ของเว็บ) ---------- */
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -342,17 +345,22 @@ private fun ResultsPage(onb: Onboarding, store: TrackStore, hasProgram: Boolean,
         OutlinedButton(onClick = { update { it.copy(mode = null) } }) { Text("← กลับไปหน้าสรุปคำตอบ") }
         return
     }
-    val t = Generator.computeTargets(a)
+    val t = Generator.computeTargets(a, plan)
     val split = Generator.effectiveSplit(a, plan)
     val splitDef = Catalog.SPLIT_DEFS.getValue(split)
     val feas = Generator.splitFeasibility(a)
     val auto = Generator.autoSplit(a)
-    val assignment = Generator.assignSessions(split, a.list("Q2"))
-    val dayToSession = assignment.associate { it.day to it.session }
+    val avail = a.list("Q2")
+    val trainDays = Generator.planTrainDays(a, plan)
+    val cardioDays = Generator.planCardioDays(a, plan)
+    val minTrain = Schedule.minTrainDays(split, avail)
+    val scheduleOk = trainDays.size >= minTrain
+    val assignment = Schedule.assignSessions(split, trainDays)
     var openSwap by remember { mutableStateOf<String?>(null) }
     var demo by remember { mutableStateOf<Candidate?>(null) }
     var pickDate by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var schedMsg by remember { mutableStateOf<String?>(null) }
 
     a.str("Q27")?.takeIf { it.isNotEmpty() }?.let {
         Note("⚠️ ท่าที่คุณระบุเองว่าต้องหลีกเลี่ยง", "\"$it\" — ระบบยังกรองท่าให้อัตโนมัติจากข้อความนี้ไม่ได้ 100% กรุณาตรวจสอบตารางด้านล่างอีกครั้งก่อนเริ่ม", warn = true)
@@ -368,7 +376,7 @@ private fun ResultsPage(onb: Onboarding, store: TrackStore, hasProgram: Boolean,
         listOfNotNull(
             Triple("BMI ปัจจุบัน", String.format(java.util.Locale.US, "%.1f", bmiNow), Generator.bmiLabel(bmiNow)),
             bmiTarget?.let { Triple("BMI เป้าหมาย", String.format(java.util.Locale.US, "%.1f", it), Generator.bmiLabel(it)) },
-            Triple("TDEE โดยประมาณ", Fmt.kcal(t.tdee), "kcal/วัน"),
+            Triple("TDEE โดยประมาณ", Fmt.kcal(t.tdee), "kcal/วัน · ยังไม่รวมแคลจากการออกกำลังกาย"),
             Triple("เป้าแคลอรี่ต่อวัน", Fmt.kcal(t.kcal), t.kcalDirection + if (t.kcalFloored) " · ปรับขึ้นถึง floor ขั้นต่ำ" else ""),
         ),
     )
@@ -383,7 +391,7 @@ private fun ResultsPage(onb: Onboarding, store: TrackStore, hasProgram: Boolean,
             Modifier.fillMaxWidth().clip(CardShape)
                 .background(if (active) GB.accentSoft else GB.surface)
                 .border(if (active) 2.dp else 1.dp, if (active) GB.accent else GB.border, CardShape)
-                .clickable(enabled = f.eligible) { update { it.copy(plan = it.plan.copy(splitOverride = key, manualPick = emptyMap())) } }
+                .clickable(enabled = f.eligible) { schedMsg = null; update { it.copy(plan = PlanEditing.chooseSplit(it.plan, a, key)) } }
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
@@ -392,48 +400,84 @@ private fun ResultsPage(onb: Onboarding, store: TrackStore, hasProgram: Boolean,
                 if (f.eligible && key == auto) Pill("แนะนำอัตโนมัติ", GB.ok, GB.okSoft)
                 else if (f.eligible && !f.recommended) Pill("ไม่ค่อยแนะนำ", GB.warn, GB.warnSoft)
             }
-            Hint(if (!f.eligible) "ต้องมีวันว่างอย่างน้อย ${def.minDays} วัน/สัปดาห์ (ตอนนี้เลือกไว้ ${a.list("Q2").size} วัน)" else def.desc)
+            Hint(if (!f.eligible) "ต้องมีวันว่างอย่างน้อย ${def.minDays} วัน/สัปดาห์ (ตอนนี้เลือกไว้ ${avail.size} วัน)" else def.desc)
         }
     }
     if (plan.splitOverride != null) {
-        LinkButton("คุณเลือกรูปแบบนี้เอง — ให้ระบบแนะนำอัตโนมัติแทน") {
-            update { it.copy(plan = it.plan.copy(splitOverride = null, manualPick = emptyMap())) }
-        }
+        LinkButton("คุณเลือกรูปแบบนี้เอง — ให้ระบบแนะนำอัตโนมัติแทน") { schedMsg = null; update { it.copy(plan = PlanEditing.chooseSplit(it.plan, a, null)) } }
     } else Hint("ระบบแนะนำอัตโนมัติตามวันว่างและประสบการณ์ที่ตอบไว้ — แตะเลือกรูปแบบอื่นด้านบนได้ถ้าต้องการ")
+    Note("เหตุผล", reasoning(a, split, splitDef.label, plan.splitOverride != null, feas.getValue(split).recommended, trainDays))
 
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Catalog.DAYS.forEachIndexed { i, d ->
-            val active = d in a.list("Q2")
-            Column(
-                Modifier.clip(RoundedCornerShape(14.dp)).background(if (active) GB.surface2 else GB.bg)
-                    .border(1.dp, GB.border, RoundedCornerShape(14.dp)).padding(8.dp),
-            ) {
-                Text(Catalog.DAYS_SHORT[i], color = GB.text3, fontSize = 11.sp)
-                Text(if (active) dayToSession[d] ?: "" else "พัก", fontSize = 12.5.sp, color = if (active) GB.text else GB.text4)
+    SectionTitle("เลือกวันฝึกและวัน cardio")
+    Hint("วันว่างที่ตอบไว้คือวันที่ “เลือกได้” — กดเลือกเฉพาะวันที่จะเล่นจริง")
+    val splitSessions = Schedule.ofSplit(split)
+    fun byWeek(l: List<String>) = Catalog.DAYS.filter { it in l }
+    ScheduleEditor(
+        split, avail, trainDays, cardioDays, plan.cardioMinByDay, a.str("Q3") ?: "", splitSessions, schedMsg,
+        onTrain = { d ->
+            val blockMsg = if (d !in trainDays) PlanEditing.trainDayBlockMsg(splitSessions, trainDays, d) else null
+            schedMsg = blockMsg
+            if (blockMsg == null) {
+                val next = if (d in trainDays) trainDays - d else trainDays + d
+                update { it.copy(plan = it.plan.copy(trainDays = byWeek(next), cardioDays = byWeek(cardioDays))) }
             }
-        }
-    }
-    Note("เหตุผล", reasoning(a, split, splitDef.label, plan.splitOverride != null, feas.getValue(split).recommended))
-    if (plan.forceLowTier.isNotEmpty()) Note("ⓘ", "คุณเพิ่งแจ้งว่าหายจากอาการบาดเจ็บสำหรับบางท่า — ระบบเริ่มท่าในกลุ่มนั้นใหม่จาก Tier ต่ำสุดก่อนเสมอเพื่อความปลอดภัย")
+        },
+        onCardio = { d ->
+            schedMsg = null
+            val next = if (d in cardioDays) cardioDays - d else cardioDays + d
+            update { it.copy(plan = it.plan.copy(trainDays = byWeek(trainDays), cardioDays = byWeek(next))) }
+        },
+        onMins = { d, m -> update { it.copy(plan = it.plan.copy(cardioMinByDay = it.plan.cardioMinByDay + (d to m))) } },
+    )
+    val covered = PlanEditing.planCoverage(split, trainDays, a, plan)
+    val covMissing = PlanEditing.MUSCLE_ORDER.count { it !in covered }
+    CoverageCard(
+        covered,
+        if (covMissing == 0) "ครบทุกส่วนแล้ว — แต่ละวันฝึกคนละชุดท่าหมุนเวียนกัน"
+        else if (trainDays.size < splitDef.sessions.size) "ฝึก ${splitDef.sessions.size} วัน/สัปดาห์ขึ้นไปจะได้ครบทุกชุดท่า (ตอนนี้ ${trainDays.size} วัน) — ส่วนที่ขาดยังได้แรงทางอ้อมจากท่าหลัก"
+        else "ส่วนที่ขาดเพราะไม่มีอุปกรณ์สำหรับท่าเสริมนั้น",
+    )
+    if (plan.forceLowTier.isNotEmpty()) Note("ⓘ", "คุณเพิ่งแจ้งว่าหายจากอาการบาดเจ็บสำหรับบางท่า — ระบบเริ่มท่าในกลุ่มนั้นใหม่จาก Tier ต่ำสุด ก่อนเสมอเพื่อความปลอดภัย")
 
     SectionTitle("รายละเอียดเซสชัน")
     Hint(Catalog.TIER_LABEL.entries.joinToString(" · ") { "Tier ${it.key} ${it.value}" })
+    val intenseBlocked = Progression.intenseBlockReason(a)
+    val picks = splitDef.sessions.flatMap { se -> se.patterns.map { it to Generator.selectionFor(it, a, plan).picked } }
+    val anyEligible = picks.any { (_, pk) -> pk != null && Progression.intensityEligible(pk.exercise.pattern, pk.equip) && intenseBlocked == null }
+    val anyIntense = picks.any { (slot, pk) -> pk != null && Generator.planIntense(slot, pk.exercise.pattern, pk.equip, a, plan) }
+    if (anyEligible) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("ความเข้มข้นทุกท่า (ยกเว้นท่าน้ำหนักตัว/core):", fontSize = 12.5.sp, color = GB.text3, modifier = Modifier.weight(1f))
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GbChip(false, { update { it.copy(plan = PlanEditing.setIntensityAll(it.plan, a, false)) } }, { Text("ทั่วไปทั้งหมด") })
+            GbChip(false, { update { it.copy(plan = PlanEditing.setIntensityAll(it.plan, a, true)) } }, { Text("เข้มข้นทั้งหมด") })
+        }
+        Hint("ทั่วไป = จำนวนเซ็ต/ครั้งตามเป้าหมาย พักตามปกติ · เข้มข้น = 2 เซ็ต × 4-8 ครั้ง ใช้น้ำหนักมากขึ้นจนหมดแรงภายใน 4-8 ครั้ง พักเซ็ตละ 3-5 นาที")
+    }
+    if (intenseBlocked != null && picks.any { (_, pk) -> pk != null && Progression.intensityEligible(pk.exercise.pattern, pk.equip) }) {
+        Note("ℹ️ ปิดตัวเลือกแบบเข้มข้น", intenseBlocked)
+    }
+    if (anyIntense) {
+        Note("⚠️ คุณเลือกแบบเข้มข้นไว้", Progression.INTENSE_WARNING + if (a.str("Q16") == "มือใหม่") " · คุณระบุว่าเป็นมือใหม่ แนะนำให้เริ่มจากแบบทั่วไปจนฟอร์มนิ่งก่อน" else "", warn = true)
+    }
     splitDef.sessions.forEach { se ->
         val daysFor = assignment.filter { it.session == se.key }.map { it.day }
         Card {
             Text("เซสชัน \"${se.key}\"", fontWeight = FontWeight.SemiBold)
             Hint("${daysFor.size}x/สัปดาห์ — ${daysFor.joinToString(", ").ifEmpty { "—" }} · ~${a.str("Q3") ?: "45-60 นาที"} รวมวอร์มอัพ")
-            se.patterns.forEach { p ->
-                ExerciseChoice(p, a, onb, openSwap == p, { openSwap = if (openSwap == p) null else p }, { demo = it }, update)
+            se.patterns.forEach { slot ->
+                ExerciseChoice(slot, a, onb, openSwap == slot, { openSwap = if (openSwap == slot) null else slot }, { demo = it }, update)
             }
         }
     }
 
     error?.let { Note("ยังเริ่มไม่ได้", it, warn = true) }
-    Button(onClick = { pickDate = true }, Modifier.fillMaxWidth()) {
+    Button(onClick = { error = PlanEditing.startGateError(a, plan); if (error == null) pickDate = true }, Modifier.fillMaxWidth(), enabled = scheduleOk) {
         Text(if (hasProgram) "บันทึกแผนใหม่ (ตั้งวันเริ่ม) →" else "เริ่มโปรแกรม →")
     }
     OutlinedButton(onClick = { update { it.copy(mode = null) } }, Modifier.fillMaxWidth()) { Text("← กลับไปหน้าสรุปคำตอบ") }
+    if (hasProgram) OutlinedButton(onClick = { update { it.copy(editPlan = false) } }, Modifier.fillMaxWidth()) { Text("ยกเลิก กลับไปแอป") }
 
     demo?.let { d ->
         AlertDialog(
@@ -444,7 +488,7 @@ private fun ResultsPage(onb: Onboarding, store: TrackStore, hasProgram: Boolean,
                     Text(Catalog.PATTERN_LABEL[d.exercise.pattern] ?: d.exercise.pattern, color = GB.text3, fontSize = 12.sp)
                     if (d.exercise.sub.isNotEmpty()) Text(d.exercise.sub)
                     Text("Tier ${d.tier} — ${Catalog.TIER_LABEL[d.tier]}: ${Catalog.TIER_DESC[d.tier]}", fontSize = 12.5.sp, color = GB.text2)
-                    Text("ℹ️ ปรึกษาเทรนเนอร์ก่อนทำจริง เพื่อฟอร์มที่ถูกต้องเป๊ะรายท่า", fontSize = 12.5.sp, color = GB.text2)
+                    Text("ℹ️ ปรึกษาเทรนเนอร์ก่อนทำจริง เพื่อฟอร์มที่ถูกต้องเป๊ะรายท่า", fontSize = 12.sp, color = GB.text3)
                 }
             },
             confirmButton = { TextButton(onClick = { demo = null }) { Text("ปิด") } },
@@ -477,16 +521,16 @@ private fun ResultsPage(onb: Onboarding, store: TrackStore, hasProgram: Boolean,
     }
 }
 
-private fun reasoning(a: Answers, split: String, label: String, isOverride: Boolean, recommended: Boolean): String {
+private fun reasoning(a: Answers, split: String, label: String, isOverride: Boolean, recommended: Boolean, trainDays: List<String>): String {
     val lead = if (isOverride) "คุณเลือก $label เอง" else "ระบบแนะนำ $label ให้อัตโนมัติ"
     val warnRec = if (isOverride && !recommended) " — รูปแบบนี้ปกติแนะนำสำหรับคนที่มีประสบการณ์มากกว่านี้ ระบบยังสร้างตารางให้ตามที่คุณเลือกได้ แต่โปรดสังเกตความเหนื่อยล้า/ฟอร์มท่าให้ดีเป็นพิเศษในช่วงแรก" else ""
     val days = a.list("Q2")
     val daysStr = days.joinToString(", ")
     val body = when (split) {
-        "fullbody" -> " เพราะวันที่เลือก ($daysStr) " +
-            (if (Generator.weekdayAdjacencyWarning(days)) "มีวันที่ติดกัน — โปรดสังเกตว่ากล้ามเนื้อกลุ่มเดิมอาจได้พักไม่ถึง ~48 ชม. แนะนำให้เว้นอย่างน้อย 1 วันระหว่างเซสชันถ้าเป็นไปได้"
+        "fullbody" -> " เพราะวันฝึกที่เลือก (${trainDays.joinToString(", ").ifEmpty { "—" }}) " +
+            (if (Generator.weekdayAdjacencyWarning(trainDays)) "มีวันที่ติดกัน — โปรดสังเกตว่ากล้ามเนื้อกลุ่มเดิมอาจได้พักไม่ถึง ~48 ชม. แนะนำให้เว้นอย่างน้อย 1 วันระหว่างเซสชันถ้าเป็นไปได้"
             else "ไม่ติดกัน ทำให้แต่ละกลุ่มกล้ามเนื้อได้พัก ≥48 ชม. ระหว่างเซสชันพอดี") +
-            " และประสบการณ์ระดับ \"${a.str("Q16") ?: ""}\" เหมาะกับ Full Body ที่สุดในบรรดา 4 รูปแบบที่รองรับ"
+            " และประสบการณ์ระดับ \"${a.str("Q16") ?: ""}\" เหมาะกับ Full Body ที่สุดในบรรดา 4 รูปแบบที่ MVP นี้รองรับ"
         "ul" -> " เพราะมีวันว่าง ${days.size} วัน/สัปดาห์ ($daysStr) พอจะแยกวันบน-ล่างสลับกันได้"
         "ppl" -> " เพราะมีวันว่าง ${days.size} วัน/สัปดาห์ ($daysStr) พอจะหมุนวน Push → Pull → Legs ได้"
         else -> " เพราะมีวันว่าง ${days.size} วัน/สัปดาห์ ($daysStr) พอจะแยกฝึกกล้ามเนื้อทีละกลุ่มได้ครบ 5 วัน (ข้อควรรู้: แต่ละกลุ่มได้ฝึก ~1 ครั้ง/สัปดาห์ แลกกับโวลุ่มต่อครั้งที่สูงกว่า)"
@@ -494,10 +538,11 @@ private fun reasoning(a: Answers, split: String, label: String, isOverride: Bool
     return lead + body + warnRec
 }
 
-/** ท่าที่ระบบเลือกในแต่ละ pattern + สลับท่า / แจ้งว่าหายจากอาการบาดเจ็บ (ตรงกับ buildExRow ของเว็บ) */
+/** ท่าที่ระบบเลือกในแต่ละ slot + สลับท่า / แจ้งว่าหายจากอาการบาดเจ็บ / ความเข้มข้นรายท่า (buildExRow ของเว็บ) */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ExerciseChoice(
-    pattern: String,
+    slot: String,
     a: Answers,
     onb: Onboarding,
     open: Boolean,
@@ -505,35 +550,53 @@ private fun ExerciseChoice(
     showDemo: (Candidate) -> Unit,
     update: ((Onboarding) -> Onboarding) -> Unit,
 ) {
-    val sel = Generator.selectionFor(pattern, a, onb.plan)
+    val plan = onb.plan
+    val base = Schedule.slotBase(slot)
+    val label = (Catalog.PATTERN_LABEL[base] ?: base) + if (slot != base) " · ท่าที่ 2" else ""
+    val sel = Generator.selectionFor(slot, a, plan)
     val picked = sel.picked
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(GB.surface2).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(Catalog.PATTERN_LABEL[pattern] ?: pattern, color = GB.text3, fontSize = 11.5.sp)
+        Text(label, color = GB.text3, fontSize = 11.5.sp)
         if (picked == null) {
-            Text("✕ ไม่มีท่าที่เหมาะสมเหลือให้เลือก (อุปกรณ์ไม่พอ หรือถูกล็อกทั้งหมด) — ต้องการอุปกรณ์เพิ่มเติม/ปรึกษาเทรนเนอร์", color = GB.warn, fontSize = 13.sp)
+            if (base in PlanEditing.OPTIONAL_PATTERNS) Hint("ข้ามท่านี้ — ไม่มีท่าที่ใช้อุปกรณ์ที่คุณมี (เป็นท่าเสริม ไม่กระทบตารางหลัก)")
+            else Text("✕ ไม่มีท่าที่เหมาะสมเหลือให้เลือก (อุปกรณ์ไม่พอ หรือถูกล็อกทั้งหมด) — ต้องการอุปกรณ์เพิ่มเติม/ปรึกษาเทรนเนอร์", color = GB.warn, fontSize = 12.5.sp)
             return@Column
         }
+        val intense = Generator.planIntense(slot, picked.exercise.pattern, picked.equip, a, plan)
+        val rest = Progression.restFor(
+            com.gymbrodaily.nativeapp.domain.PlanExercise(pattern = base, id = picked.id, th = picked.exercise.th, equip = picked.equip, timeBased = picked.timed, intensity = if (intense) "intense" else "normal"),
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(picked.exercise.th, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f).clickable { showDemo(picked) })
             Pill("Tier ${picked.tier}")
         }
         if (picked.exercise.sub.isNotEmpty()) Text(picked.exercise.sub, color = GB.text3, fontSize = 12.sp)
+        Hint("พักระหว่างเซ็ต ${rest.set} · ก่อนเปลี่ยนท่า ${rest.next}")
+        if (intense) Text("⚠️ เข้มข้น: เพิ่มน้ำหนักให้หมดแรงภายใน 4-8 ครั้ง — ${Progression.INTENSE_WARNING}", color = GB.warn, fontSize = 12.5.sp, lineHeight = 18.sp)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (pattern == "core") "3 x 30-45 วิ" else Generator.repSchemeFor(a.str("Q1")), color = GB.accent, fontSize = 12.5.sp, modifier = Modifier.weight(1f))
+            Text(Generator.setsRepsFor(slot, picked, a, plan), color = GB.accent, fontSize = 12.5.sp, modifier = Modifier.weight(1f))
             LinkButton(if (open) "ซ่อน ▴" else "สลับท่า ▾", toggle)
         }
+        if (Progression.intensityEligible(picked.exercise.pattern, picked.equip) && Progression.intenseBlockReason(a) == null) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GbChip(!intense, { update { it.copy(plan = it.plan.copy(intensity = it.plan.intensity - slot)) } }, { Text("ทั่วไป") })
+                GbChip(intense, { update { it.copy(plan = it.plan.copy(intensity = it.plan.intensity + (slot to "intense"))) } }, { Text("เข้มข้น") })
+            }
+        }
         if (open) sel.all.filter { it.id != picked.id }.forEach { x ->
-            val pickedThis = onb.plan.manualPick[pattern] == x.id
+            val pickedThis = plan.manualPick[slot] == x.id
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (pickedThis) GB.accentSoft else GB.bg).padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("${x.exercise.th} · Tier ${x.tier}", fontSize = 13.sp, color = if (x.locked || !x.equipOk) GB.text3 else GB.text,
-                        modifier = Modifier.clickable { showDemo(x) })
+                    Text(
+                        "${x.exercise.th} · Tier ${x.tier}", fontSize = 13.sp, color = if (x.locked || !x.equipOk) GB.text3 else GB.text,
+                        modifier = Modifier.clickable { showDemo(x) },
+                    )
                     when {
                         x.locked -> Text("ล็อกอยู่ — เนื่องจากอาการที่ ${x.lockedBy.joinToString(", ")} ที่คุณแจ้งไว้", fontSize = 11.5.sp, color = GB.warn)
                         !x.equipOk -> Text("ต้องใช้อุปกรณ์ที่คุณไม่มีตามที่แจ้งไว้", fontSize = 11.5.sp, color = GB.text3)
@@ -542,19 +605,20 @@ private fun ExerciseChoice(
                 when {
                     x.locked -> TextButton(onClick = {
                         update {
-                            it.copy(plan = it.plan.copy(
-                                unlockedEx = it.plan.unlockedEx + (x.id to true),
-                                forceLowTier = it.plan.forceLowTier + (pattern to true),
-                                manualPick = it.plan.manualPick - pattern,
-                            ))
+                            it.copy(
+                                plan = it.plan.copy(
+                                    unlockedEx = it.plan.unlockedEx + (x.id to true),
+                                    forceLowTier = it.plan.forceLowTier + (base to true),
+                                    manualPick = it.plan.manualPick - slot,
+                                ),
+                            )
                         }
                     }) { Text("แจ้งว่าหายแล้ว", fontSize = 12.sp) }
                     x.equipOk -> TextButton(onClick = {
-                        update { it.copy(plan = it.plan.copy(manualPick = it.plan.manualPick + (pattern to x.id))) }
+                        update { it.copy(plan = it.plan.copy(manualPick = it.plan.manualPick + (slot to x.id))) }
                     }) { Text("เลือกท่านี้แทน", fontSize = 12.sp) }
                 }
             }
         }
     }
 }
-

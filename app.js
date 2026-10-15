@@ -3740,6 +3740,54 @@ function setSchedLists(ctx, train, cardio){
   state.plan.trainDays = byWeek(train); state.plan.cardioDays = byWeek(cardio);
   persist(); render();
 }
+/* เพิ่มวันนี้เป็นวันฝึกแล้วกล้ามเนื้อกลุ่มเดียวกันชนกันในวันติดกันไหม — คืนข้อความห้าม หรือ null ถ้าเพิ่มได้ */
+function trainDayBlockMsg(sessions, list, day){
+  var cur = bestSchedule(sessions, list), next = bestSchedule(sessions, list.concat([day]));
+  if(!cur.hard && next.hard) return 'เลือก'+day+'เป็นวันฝึกไม่ได้ — จะทำให้'+clashText(next.clash)+' กล้ามเนื้อต้องพัก ~48 ชม. (วันนี้ใช้เป็นวันพักหรือวัน cardio ได้)';
+  return null;
+}
+/* เลือกรูปแบบโปรแกรม (null = ให้ระบบแนะนำ) — ล้างท่าที่เลือกเอง และถ้าวันที่เลือกไว้ชนกัน/ไม่พอในแบบใหม่ กลับไปใช้ชุดวันอัตโนมัติ */
+function chooseSplit(key){
+  state.plan.splitOverride = key; state.plan.manualPick = {};
+  var nSplit = effectiveSplit(state.answers), nDays = state.plan.trainDays ? inAvailable(state.plan.trainDays, state.answers) : null;
+  if(nDays && (bestSchedule(SPLIT_DEFS[nSplit].sessions, nDays).hard || nDays.length < minTrainDays(nSplit, state.answers))) state.plan.trainDays = null;
+}
+/* ด่านสุดท้ายก่อนล็อกแผนจริง (C-01/C-02) — คืนข้อความที่ยังสร้างไม่ได้ หรือ null */
+function startGateError(){
+  var gateIssues = sanityIssues(state.answers);
+  var gateSafety = safetyGate(state.answers);
+  if(!inScope(state.answers) || gateIssues.length || gateSafety.blocked){
+    return 'ยังสร้างตารางไม่ได้ — ข้อมูลไม่ครบหรืออยู่นอกขอบเขตที่รองรับ ('+
+      (gateSafety.blocked ? gateSafety.reason : (gateIssues[0] || 'เป้าหมาย/สถานที่ยังไม่รองรับ'))+') กลับไปแก้แบบสอบถามก่อน';
+  }
+  var gSplit = effectiveSplit(state.answers);
+  if(planTrainDays(state.answers).length < minTrainDays(gSplit, state.answers)){
+    return 'ยังสร้างตารางไม่ได้ — '+SPLIT_DEFS[gSplit].label+' ต้องมีวันฝึกอย่างน้อย '+minTrainDays(gSplit, state.answers)+' วัน/สัปดาห์';
+  }
+  var gSch = bestSchedule(SPLIT_DEFS[gSplit].sessions, planTrainDays(state.answers));
+  if(gSch.hard){
+    return 'ยังสร้างตารางไม่ได้ — '+clashText(gSch.clash)+' กล้ามเนื้อต้องพัก ~48 ชม. ปรับวันฝึกก่อน';
+  }
+  return null;
+}
+/* กด "แก้ไขแผน": ตั้งวันฝึก/cardio/ความเข้มข้นในแบบสอบถามจากโปรแกรมที่ใช้อยู่ */
+function seedPlanFromProgram(ep){
+  state.plan.trainDays = (ep.days||[]).slice();
+  state.plan.cardioDays = (ep.cardioDays||[]).slice();
+  state.plan.cardioMinByDay = {};
+  state.plan.cardioDays.forEach(function(d){ state.plan.cardioMinByDay[d] = cardioMinFor(ep, d); });
+  state.plan.intensity = {};
+  (ep.sessions||[]).forEach(function(se){ se.exercises.forEach(function(ex){ if(ex.intensity==='intense') state.plan.intensity[ex.slot||ex.pattern] = 'intense'; }); });
+}
+/* ปุ่ม "เข้มข้นทั้งหมด/ทั่วไปทั้งหมด" */
+function setIntensityAll(intense){
+  state.plan.intensity = {};
+  if(intense){
+    SPLIT_DEFS[effectiveSplit(state.answers)].sessions.forEach(function(se){ se.patterns.forEach(function(pt){
+      if(intensityEligible(selectionFor(pt, state.answers).picked)) state.plan.intensity[pt] = 'intense';
+    }); });
+  }
+}
 function openSchedDraft(){
   var p = track.program, mins = {};
   (p.cardioDays||[]).forEach(function(d){ mins[d] = cardioMinFor(p, d); });
@@ -3747,18 +3795,13 @@ function openSchedDraft(){
   track.saveStatus = '';
 }
 /* ปรับวันของโปรแกรมที่ใช้อยู่ โดยท่า/เป้าหมายเดิมไม่เปลี่ยน — วันที่ล็อกแล้วมี snapshot ของตัวเองจึงไม่กระทบประวัติ */
-function saveSchedDraft(){
-  var p = track.program, dr = track.schedDraft, avail = progAvailDays(p);
+/* ผลของการบันทึกวันฝึกที่ร่างไว้ (ฟังก์ชันล้วน — native ใช้ตรรกะเดียวกัน ตรวจด้วย golden planedit.json) */
+function schedDraftNext(p, dr){
+  var avail = progAvailDays(p);
   var need = minTrainDays(p.splitKey, {Q2:avail});
-  if(dr.days.length < need){
-    track.saveStatus = 'ยังบันทึกไม่ได้ — '+(p.splitLabel||'')+' ต้องมีวันฝึกอย่างน้อย '+need+' วัน/สัปดาห์';
-    render(); return;
-  }
+  if(dr.days.length < need) return {error:'ยังบันทึกไม่ได้ — '+(p.splitLabel||'')+' ต้องมีวันฝึกอย่างน้อย '+need+' วัน/สัปดาห์'};
   var sch = bestSchedule(p.sessions||[], dr.days);
-  if(sch.hard){
-    track.saveStatus = 'ยังบันทึกไม่ได้ — '+clashText(sch.clash)+' กล้ามเนื้อต้องพัก ~48 ชม. เอาวันใดวันหนึ่งออกก่อน';
-    render(); return;
-  }
+  if(sch.hard) return {error:'ยังบันทึกไม่ได้ — '+clashText(sch.clash)+' กล้ามเนื้อต้องพัก ~48 ชม. เอาวันใดวันหนึ่งออกก่อน'};
   var next = {};
   Object.keys(p).forEach(function(k){ next[k] = p[k]; });
   next.days = dr.days.slice();
@@ -3767,6 +3810,13 @@ function saveSchedDraft(){
   next.cardioDays = dr.cardioDays.slice();
   next.cardioMinByDay = minsForDays(dr.cardioMinByDay, next.cardioDays);
   next.availableDays = avail;
+  return {next:next};
+}
+function saveSchedDraft(){
+  var p = track.program, dr = track.schedDraft;
+  var res = schedDraftNext(p, dr);
+  if(res.error){ track.saveStatus = res.error; render(); return; }
+  var next = res.next;
   track.program = next;
   var ok = persistProgram();
   state.plan.trainDays = next.days.slice();
@@ -4896,15 +4946,7 @@ document.addEventListener("click", function(ev){
     return;
   }
   if(act==='edit-plan'){
-    if(track.program){
-      var ep = track.program;
-      state.plan.trainDays = (ep.days||[]).slice();
-      state.plan.cardioDays = (ep.cardioDays||[]).slice();
-      state.plan.cardioMinByDay = {};
-      state.plan.cardioDays.forEach(function(d){ state.plan.cardioMinByDay[d] = cardioMinFor(ep, d); });
-      state.plan.intensity = {};
-      (ep.sessions||[]).forEach(function(se){ se.exercises.forEach(function(ex){ if(ex.intensity==='intense') state.plan.intensity[ex.slot||ex.pattern] = 'intense'; }); });
-    }
+    if(track.program) seedPlanFromProgram(track.program);
     track.schedDraft = null;
     state.editPlan=true; state.step=9; state.mode='results'; track.editing=false; persist(); render(true); return; }
   if(act==='exit-edit'){ state.editPlan=false; track.editing=false; persist(); render(true); return; }
@@ -4923,26 +4965,8 @@ document.addEventListener("click", function(ev){
       // C-01/C-02: ด่านสุดท้ายก่อนล็อกแผนจริง ต้องตรวจซ้ำเสมอ ไม่พึ่งแค่ "ready" ตอนอยู่
       // หน้าสรุป — เพราะเข้าถึงหน้านี้ได้จากหลายทาง (rail jump, session เก่าที่ค้าง
       // mode='results' จากก่อนมี gate นี้) ห้ามล็อกแผนที่มีข้อมูลไม่ครบ/ไม่ปลอดภัยเด็ดขาด
-      var gateIssues = sanityIssues(state.answers);
-      var gateSafety = safetyGate(state.answers);
-      if(!inScope(state.answers) || gateIssues.length || gateSafety.blocked){
-        track.saveStatus = 'ยังสร้างตารางไม่ได้ — ข้อมูลไม่ครบหรืออยู่นอกขอบเขตที่รองรับ ('+
-          (gateSafety.blocked ? gateSafety.reason : (gateIssues[0] || 'เป้าหมาย/สถานที่ยังไม่รองรับ'))+') กลับไปแก้แบบสอบถามก่อน';
-        render();
-        return;
-      }
-      var gSplit = effectiveSplit(state.answers);
-      if(planTrainDays(state.answers).length < minTrainDays(gSplit, state.answers)){
-        track.saveStatus = 'ยังสร้างตารางไม่ได้ — '+SPLIT_DEFS[gSplit].label+' ต้องมีวันฝึกอย่างน้อย '+minTrainDays(gSplit, state.answers)+' วัน/สัปดาห์';
-        render();
-        return;
-      }
-      var gSch = bestSchedule(SPLIT_DEFS[gSplit].sessions, planTrainDays(state.answers));
-      if(gSch.hard){
-        track.saveStatus = 'ยังสร้างตารางไม่ได้ — '+clashText(gSch.clash)+' กล้ามเนื้อต้องพัก ~48 ชม. ปรับวันฝึกก่อน';
-        render();
-        return;
-      }
+      var gateErr = startGateError();
+      if(gateErr){ track.saveStatus = gateErr; render(); return; }
       snap = buildPlanSnapshot(state.answers);
       if(track.program && track.program.equipSteps) snap.equipSteps = track.program.equipSteps; // อุปกรณ์ที่มีจริงยังเหมือนเดิมแม้เปลี่ยนแผน
       snap.startDate = val;
@@ -4973,10 +4997,7 @@ document.addEventListener("click", function(ev){
   }
   if(act==='split' || act==='split-auto'){
     if(el.disabled) return;
-    state.plan.splitOverride = act==='split' ? el.getAttribute('data-split') : null; state.plan.manualPick={};
-    // วันที่เลือกไว้กับแบบเดิมอาจชนกันในแบบใหม่ (เช่น เปลี่ยนเป็น Full Body ที่ต้องเว้นวัน) → กลับไปใช้ชุดวันอัตโนมัติ
-    var nSplit = effectiveSplit(state.answers), nDays = state.plan.trainDays ? inAvailable(state.plan.trainDays, state.answers) : null;
-    if(nDays && (bestSchedule(SPLIT_DEFS[nSplit].sessions, nDays).hard || nDays.length < minTrainDays(nSplit, state.answers))) state.plan.trainDays = null;
+    chooseSplit(act==='split' ? el.getAttribute('data-split') : null);
     track.schedMsg = '';
     persist(); render(); return;
   }
@@ -4987,11 +5008,8 @@ document.addEventListener("click", function(ev){
     track.schedMsg = '';
     if(act==='train-day' && at===-1){
       var tsess = sctx==='prog' ? (track.program.sessions||[]) : SPLIT_DEFS[effectiveSplit(state.answers)].sessions;
-      var tcur = bestSchedule(tsess, list), tnext = bestSchedule(tsess, list.concat([dday]));
-      if(!tcur.hard && tnext.hard){
-        track.schedMsg = 'เลือก'+dday+'เป็นวันฝึกไม่ได้ — จะทำให้'+clashText(tnext.clash)+' กล้ามเนื้อต้องพัก ~48 ชม. (วันนี้ใช้เป็นวันพักหรือวัน cardio ได้)';
-        render(); return;
-      }
+      var tmsg = trainDayBlockMsg(tsess, list, dday);
+      if(tmsg){ track.schedMsg = tmsg; render(); return; }
     }
     if(at>-1) list.splice(at,1); else list.push(dday);
     if(act==='train-day') setSchedLists(sctx, list, sl.cardio); else setSchedLists(sctx, sl.train, list);
@@ -5008,12 +5026,7 @@ document.addEventListener("click", function(ev){
     persist(); render(); return;
   }
   if(act==='intensity-all'){
-    state.plan.intensity = {};
-    if(el.getAttribute('data-val')==='intense'){
-      SPLIT_DEFS[effectiveSplit(state.answers)].sessions.forEach(function(se){ se.patterns.forEach(function(pt){
-        if(intensityEligible(selectionFor(pt, state.answers).picked)) state.plan.intensity[pt] = 'intense';
-      }); });
-    }
+    setIntensityAll(el.getAttribute('data-val')==='intense');
     persist(); render(); return;
   }
   if(act==='swap-toggle'){ var pt=el.getAttribute('data-pattern'); track.openSwap = (track.openSwap===pt? null : pt); render(); return; }

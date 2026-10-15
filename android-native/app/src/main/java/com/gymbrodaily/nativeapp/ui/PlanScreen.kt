@@ -39,7 +39,13 @@ import com.gymbrodaily.nativeapp.data.TrackState
 import com.gymbrodaily.nativeapp.data.TrackStore
 import com.gymbrodaily.nativeapp.domain.Exercise
 import com.gymbrodaily.nativeapp.domain.LibraryCatalog
+import com.gymbrodaily.nativeapp.domain.Catalog
+import com.gymbrodaily.nativeapp.domain.PlanEditing
 import com.gymbrodaily.nativeapp.domain.PlanExercise
+import com.gymbrodaily.nativeapp.domain.ProgressGoal
+import com.gymbrodaily.nativeapp.domain.Progression
+import com.gymbrodaily.nativeapp.domain.SchedDraft
+import com.gymbrodaily.nativeapp.domain.Schedule
 import com.gymbrodaily.nativeapp.domain.TrackData
 import com.gymbrodaily.nativeapp.domain.Tracking
 import com.gymbrodaily.nativeapp.domain.jsRound
@@ -76,6 +82,12 @@ fun PlanScreen(
     val injuries = t.answers.list("Q26")
     var picker by remember { mutableStateOf<PickTarget?>(null) }
     var removing by remember { mutableStateOf<Pair<String, PlanExercise>?>(null) }
+    var draft by remember { mutableStateOf<SchedDraft?>(null) }
+    var draftMsg by remember { mutableStateOf<String?>(null) }
+    var saveStatus by remember { mutableStateOf("") }
+    androidx.compose.runtime.LaunchedEffect(PlanUi.openDraft) {
+        if (PlanUi.openDraft) { draft = PlanEditing.openSchedDraft(p); draftMsg = null; saveStatus = ""; PlanUi.openDraft = false }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         PageHead(
@@ -83,13 +95,40 @@ fun PlanScreen(
             "เลือกเปลี่ยน เพิ่ม หรือลบท่าในแต่ละเซสชันได้เองจากคลังทั้งหมด การแก้มีผลกับทุกสัปดาห์ น้ำหนักที่เคยบันทึกยังอยู่ครบ " +
                 "แต่สถิติ “ทำตามแผน” ของวันที่ผ่านมาจะนับตามท่าชุดใหม่ และถ้ากด “แก้ไขแผน / ทำแบบสอบถามใหม่” ท่าที่เลือกเองจะถูกแทนที่ด้วยท่าที่ระบบสร้างใหม่",
         )
+        PlanBanners(t, store, draft != null) { draft = PlanEditing.openSchedDraft(p); draftMsg = null; saveStatus = "" }
         CalorieTargetAlert(t, today.toString(), store)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = {
-                store.updateOnboarding { it.copy(editPlan = true, step = 9, mode = "results") }
-            }) { Text("แก้ไขแผน / ทำแบบสอบถามใหม่") }
+            OutlinedButton(onClick = { draft = PlanEditing.openSchedDraft(p); draftMsg = null; saveStatus = "" }) { Text("ปรับวันฝึก / วัน cardio") }
+            OutlinedButton(onClick = { store.beginEditPlan() }) { Text("แก้ไขแผน / ทำแบบสอบถามใหม่") }
             OutlinedButton(onClick = { pickDate = true }) { Text("ตั้งวันเริ่มใหม่") }
         }
+        draft?.let { dr ->
+            Card {
+                Text("เลือกวันฝึกและวัน cardio", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Hint("วันว่างคือวันที่ “เลือกได้” — กดเลือกเฉพาะวันที่จะเล่นจริง ท่าออกกำลังกายและเป้าหมายเดิมไม่เปลี่ยน วันที่ถูกล็อกเป็นประวัติแล้วไม่ได้รับผลกระทบ")
+                val progSessions = p.sessions.map { Schedule.of(it) }
+                fun byWeek(l: List<String>) = Catalog.DAYS.filter { it in l }
+                ScheduleEditor(
+                    p.splitKey, PlanEditing.progAvailDays(p, t.answers), dr.days, dr.cardioDays, dr.cardioMinByDay, p.minutesEstimate ?: "", progSessions, draftMsg,
+                    onTrain = { d ->
+                        val blockMsg = if (d !in dr.days) PlanEditing.trainDayBlockMsg(progSessions, dr.days, d) else null
+                        draftMsg = blockMsg
+                        if (blockMsg == null) draft = dr.copy(days = byWeek(if (d in dr.days) dr.days - d else dr.days + d))
+                    },
+                    onCardio = { d -> draftMsg = null; draft = dr.copy(cardioDays = byWeek(if (d in dr.cardioDays) dr.cardioDays - d else dr.cardioDays + d)) },
+                    onMins = { d, m -> draft = dr.copy(cardioMinByDay = dr.cardioMinByDay + (d to m)) },
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Button(onClick = {
+                        val res = PlanEditing.schedDraftNext(p, dr, t.answers)
+                        if (res.error != null) saveStatus = res.error else { store.applySchedule(res.next!!); draft = null; draftMsg = null; saveStatus = "บันทึกวันฝึกแล้ว ✓" }
+                    }) { Text("บันทึกวันฝึก") }
+                    OutlinedButton(onClick = { draft = null; draftMsg = null; saveStatus = "" }) { Text("ยกเลิก") }
+                }
+                if (saveStatus.isNotEmpty()) Hint(saveStatus, color = GB.warn)
+            }
+        }
+        if (draft == null && saveStatus == "บันทึกวันฝึกแล้ว ✓") WebBanner("✓", GB.surface2, GB.borderStrong) { Text("บันทึกวันฝึกแล้ว", fontSize = 13.5.sp) }
 
         Card {
             val since = p.startDate?.let { max(0L, ChronoUnit.DAYS.between(LocalDate.parse(it), today)) }
@@ -97,7 +136,7 @@ fun PlanScreen(
                 listOf(
                     Triple("รูปแบบโปรแกรม", p.splitLabel, "${p.days.size} วัน/สัปดาห์"),
                     Triple("วันเริ่มโปรแกรม", p.startDate?.let { Fmt.shortDate(it) } ?: "—", since?.let { "$it วันที่ผ่านมา" }),
-                    Triple("TDEE โดยประมาณ", Fmt.kcal(tg.tdee), "kcal/วัน"),
+                    Triple("TDEE โดยประมาณ", Fmt.kcal(tg.tdee), "kcal/วัน · ยังไม่รวมแคลจากการออกกำลังกาย"),
                     Triple("เป้าแคลอรี่ต่อวัน", Fmt.kcal(tg.kcal), tg.kcalDirection + if (tg.kcalFloored) " · ปรับขึ้นถึงขั้นต่ำ" else ""),
                 ),
             )
@@ -107,6 +146,7 @@ fun PlanScreen(
         }
 
         SectionTitle("เซสชันในแผน")
+        CoverageCard(PlanEditing.programCoverage(p), null)
         p.sessions.forEach { se ->
             val daysFor = p.days.filter { p.dayToSession[it] == se.key }
             Card {
@@ -120,6 +160,11 @@ fun PlanScreen(
                             Pill("Tier ${ex.tier}")
                         }
                         if (ex.sub.isNotEmpty()) Text(ex.sub, color = GB.text3, fontSize = 12.sp)
+                        val rest = Progression.restFor(ex)
+                        Hint("พักระหว่างเซ็ต ${rest.set} · ก่อนเปลี่ยนท่า ${rest.next}")
+                        if (Progression.isIntense(ex)) {
+                            Text("เข้มข้น — ${Progression.INTENSE_WARNING}", color = GB.warn, fontSize = 12.5.sp, lineHeight = 18.sp)
+                        }
                         Text(ex.setsReps, color = GB.accent, fontSize = 12.5.sp)
                         LibraryCatalog.byId(ex.id)?.let { lib ->
                             val g = LibraryCatalog.guideFor(lib)
@@ -137,6 +182,13 @@ fun PlanScreen(
                     }
                 }
                 OutlinedButton(onClick = { picker = PickTarget(se.key, null, null) }) { Text("+ เพิ่มท่าจากคลัง") }
+            }
+        }
+
+        if (p.cardioDays.isNotEmpty()) {
+            Card {
+                Text("Cardio", fontWeight = FontWeight.SemiBold)
+                Hint("${p.cardioDays.size}x/สัปดาห์ — " + p.cardioDays.joinToString(", ") { d -> "$d ${Progression.n(ProgressGoal.cardioMinFor(p, d))} นาที" })
             }
         }
 

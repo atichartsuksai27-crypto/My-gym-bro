@@ -608,10 +608,81 @@ var symptomCases = [];
 });
 var symptomStatic = {info: PR.SYMPTOM_INFO, chips: PR.SYMPTOM_CHIPS, stressLevels: PR.STRESS_LEVELS, stressChips: PR.STRESS_CHIPS, stressLabels: [0, 1, 2, 3, 4, 5, 6].map(function(l){ return PR.stressLabel(l); })};
 
+/* ---------- plan-editing cases (วันฝึก/cardio/ความเข้มข้น/เลือกรูปแบบ/ด่านเริ่มโปรแกรม/ความครอบคลุมกล้ามเนื้อ) ---------- */
+var PE = ev('({schedDraftNext:schedDraftNext, trainDayBlockMsg:trainDayBlockMsg, chooseSplit:chooseSplit, startGateError:startGateError,' +
+  ' seedPlanFromProgram:seedPlanFromProgram, setIntensityAll:setIntensityAll, planCoverage:planCoverage, programCoverage:programCoverage,' +
+  ' planOutdated:planOutdated, programClash:programClash, progAvailDays:progAvailDays, effectiveSplit:effectiveSplit, planTrainDays:planTrainDays,' +
+  ' MUSCLE_ORDER:MUSCLE_ORDER, OPTIONAL_PATTERNS:OPTIONAL_PATTERNS, SPLIT_DEFS:SPLIT_DEFS, bestSchedule:bestSchedule, getPlan:function(){ return state.plan; }})');
+var planEditCases = [];
+(function(){
+  var saved = seed; seed = 5551001;
+  for(var qi = 0; qi < 150; qi++){
+    var a = randomAnswers();
+    a.Q2 = subset(DAYS, 0.5 + rnd() * 0.5); if(!a.Q2.length) a.Q2 = ['จันทร์', 'พฤหัสบดี', 'เสาร์'];
+    var plan = extendPlan(randomPlan(), 200000 + qi);
+    var planIn = plain(plan);
+    setState({plan: plan, answers: a});
+    var out = {gate: PE.startGateError(), split: PE.effectiveSplit(a), trainDays: PE.planTrainDays(a)};
+    out.coverage = PE.planCoverage(out.split, out.trainDays, a);
+    // เลือกรูปแบบ (ทุกแบบ + อัตโนมัติ)
+    out.choose = {};
+    ['auto'].concat(Object.keys(PE.SPLIT_DEFS)).forEach(function(k){
+      setState({plan: plain(planIn), answers: a});
+      PE.chooseSplit(k === 'auto' ? null : k);
+      var pl = PE.getPlan();
+      out.choose[k] = {splitOverride: pl.splitOverride, trainDays: pl.trainDays, manualPick: pl.manualPick};
+    });
+    out.intensityAll = {};
+    [true, false].forEach(function(on){
+      setState({plan: plain(planIn), answers: a});
+      PE.setIntensityAll(on);
+      out.intensityAll[on ? 'on' : 'off'] = PE.getPlan().intensity;
+    });
+    setState({plan: plain(planIn), answers: a});
+    // โปรแกรมที่ใช้อยู่ (ปรับให้มีทั้งแบบเก่า/ชนกัน/ไม่ชนกัน)
+    var p = plain(A.buildPlanSnapshot(a));
+    if(!p.sessions || !p.sessions.length){ planEditCases.push({answers: a, plan: planIn, expected: plain(out)}); continue; }
+    var rr = rnd();
+    if(rr < 0.3) delete p.availableDays;
+    if(rr > 0.5){ // วันฝึกสุ่ม + จัดเซสชันมั่ว ๆ (อาจชนกัน)
+      p.days = DAYS.filter(function(){ return rnd() < 0.55; });
+      p.dayToSession = {};
+      p.days.forEach(function(d){ p.dayToSession[d] = pick(p.sessions).key; });
+    }
+    if(rnd() < 0.2) p.sessions = p.sessions.slice(0, Math.max(1, p.sessions.length - 1)); // ตารางเก่า: เซสชันไม่ครบตามแบบ
+    if(rnd() < 0.15){ p.sessions = p.sessions.map(function(se){ return {key: se.key + ' (เก่า)', exercises: se.exercises}; }); }
+    var tp = {program: p};
+    out.program = {
+      coverage: PE.programCoverage(p), outdated: PE.planOutdated(p), clash: PE.programClash(p), avail: PE.progAvailDays(p)
+    };
+    // ร่างวันฝึกแล้วกดบันทึก
+    var dr = {days: DAYS.filter(function(){ return rnd() < 0.55; }), cardioDays: DAYS.filter(function(){ return rnd() < 0.3; }), cardioMinByDay: {}};
+    dr.cardioDays.forEach(function(d){ if(rnd() < 0.6) dr.cardioMinByDay[d] = pick([20, 30, 45, 60]); });
+    var res = PE.schedDraftNext(p, dr);
+    out.draft = {input: dr, result: res.error ? {error: res.error} : {days: res.next.days, dayToSession: res.next.dayToSession, cardioDays: res.next.cardioDays, cardioMinByDay: res.next.cardioMinByDay, availableDays: res.next.availableDays}};
+    // กดเลือกวันฝึก
+    out.block = [];
+    for(var bi = 0; bi < 6; bi++){
+      var lst = DAYS.filter(function(){ return rnd() < 0.4; }), dd = pick(DAYS);
+      if(lst.indexOf(dd) > -1) continue;
+      out.block.push({list: lst, day: dd, msg: PE.trainDayBlockMsg(p.sessions, lst, dd), msgSplit: PE.trainDayBlockMsg(PE.SPLIT_DEFS[out.split].sessions, lst, dd)});
+    }
+    // กด "แก้ไขแผน" ในโปรแกรมนี้
+    p.cardioMinByDay = p.cardioMinByDay || {};
+    setState({plan: plain(planIn), answers: a});
+    PE.seedPlanFromProgram(p);
+    var sp = PE.getPlan();
+    out.seed = {trainDays: sp.trainDays, cardioDays: sp.cardioDays, cardioMinByDay: sp.cardioMinByDay, intensity: sp.intensity};
+    planEditCases.push({answers: a, plan: planIn, program: p, expected: plain(out)});
+  }
+  seed = saved;
+})();
+
 fs.mkdirSync(OUT, {recursive: true});
 var foodCases = ev('FOODS.map(function(food){ return {food:food, cases:[1,33,100,175.5,3000].map(function(g){ return Object.assign({g:g}, foodMacros(food,g)); })}; })');
 fs.writeFileSync(path.join(OUT, 'foods.json'), JSON.stringify(foodCases, null, 2));
 fs.writeFileSync(path.join(OUT, 'progress.json'), JSON.stringify(progressCases));
+fs.writeFileSync(path.join(OUT, 'planedit.json'), JSON.stringify(planEditCases));
 fs.writeFileSync(path.join(OUT, 'progression.json'), JSON.stringify([{cases: progCases, kg: progKg, symptoms: symptomCases, static: plain(symptomStatic)}]));
 fs.writeFileSync(path.join(OUT, 'tracking.json'), JSON.stringify(trackingCases));
 fs.writeFileSync(path.join(OUT, 'questions.json'), JSON.stringify(questionCases));

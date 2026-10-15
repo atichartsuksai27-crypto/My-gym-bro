@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -108,6 +109,8 @@ private fun SpinDialog(folder: String, sex: String, band: String, onClose: () ->
     var frame by remember { mutableIntStateOf(0) }
     var auto by remember { mutableStateOf(true) }
     fun show(f: Int) { frame = ((f % n) + n) % n }
+    val sliderState = remember { SliderState(0f, 0, 0f..(n - 1).toFloat()) }
+    LaunchedEffect(frame) { sliderState.value = frame.toFloat() }
     LaunchedEffect(frames, auto) {
         while (frames != null && auto) { delay(90); show(frame + 1) }
     }
@@ -145,8 +148,8 @@ private fun SpinDialog(folder: String, sex: String, band: String, onClose: () ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(onClick = { auto = false; show(frame - 1) }) { Text("‹") }
                 Slider(
-                    value = frame.toFloat(), onValueChange = { auto = false; show(it.roundToInt()) },
-                    valueRange = 0f..(n - 1).toFloat(), modifier = Modifier.weight(1f),
+                    state = sliderState, onValueChange = { auto = false; show(it.roundToInt()) },
+                    modifier = Modifier.weight(1f),
                 )
                 OutlinedButton(onClick = { auto = false; show(frame + 1) }) { Text("›") }
             }

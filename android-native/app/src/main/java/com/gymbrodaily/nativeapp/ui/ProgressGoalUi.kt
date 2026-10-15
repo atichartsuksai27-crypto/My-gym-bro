@@ -388,7 +388,7 @@ private fun CorridorChart(t: TrackData, ev: PgEval, today: String) {
     val ys = listOf(at(plan.lo, 0), at(plan.hi, 0), at(plan.lo, bigX), at(plan.hi, bigX)) + pts.map { it.second }
     var minY = ys.min(); var maxY = ys.max()
     val showGoal = goal != null && goal >= minY - 2 && goal <= maxY + 2
-    if (showGoal) { minY = min(minY, goal!!); maxY = max(maxY, goal) }
+    if (showGoal) { minY = min(minY, goal); maxY = max(maxY, goal) }
     if (maxY - minY < 2) { val m = (maxY + minY) / 2; minY = m - 1; maxY = m + 1 }
     val pad = (maxY - minY) * 0.1
     minY -= pad; maxY += pad
@@ -412,7 +412,7 @@ private fun CorridorChart(t: TrackData, ev: PgEval, today: String) {
         val dash = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))
         drawLine(GB.ok, Offset(px(0), py(ak.kg)), Offset(px(bigX), py(at(plan.c, bigX))), 2.5f, pathEffect = dash)
         if (showGoal) {
-            drawLine(GB.branch, Offset(pl, py(goal!!)), Offset(size.width - pr, py(goal)), 2f, pathEffect = dash)
+            drawLine(GB.branch, Offset(pl, py(goal)), Offset(size.width - pr, py(goal)), 2f, pathEffect = dash)
             val label = "เป้า ${Fmt.one(goal)} กก."
             val m = measurer.measure(label, goalStyle)
             drawText(m, topLeft = Offset(size.width - pr - m.size.width, py(goal) - m.size.height - 2.dp.toPx()))

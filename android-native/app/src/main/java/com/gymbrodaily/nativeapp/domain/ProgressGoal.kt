@@ -474,7 +474,7 @@ object ProgressGoal {
         val pct = jsRound(abs(diff) / expected * 100).toLong()
         s.text = if (diff < 0) {
             "$nums ต่ำกว่าที่ระบบคาด$exp $pct%" + if (belowBmr)
-                " และต่ำกว่าพลังงานขั้นต่ำขณะพัก (BMR ~${locR(bmr!!)} kcal) ซึ่งแทบเป็นไปไม่ได้ทางร่างกาย — มีแนวโน้มสูงว่าบันทึกการกินไม่ครบ หรือช่วงนี้มีน้ำคั่ง"
+                " และต่ำกว่าพลังงานขั้นต่ำขณะพัก (BMR ~${locR(bmr)} kcal) ซึ่งแทบเป็นไปไม่ได้ทางร่างกาย — มีแนวโน้มสูงว่าบันทึกการกินไม่ครบ หรือช่วงนี้มีน้ำคั่ง"
             else " — มักเกิดจากบันทึกการกินไม่ครบ (เครื่องดื่ม ของว่าง น้ำมัน ซอส) หรือร่างกายใช้พลังงานน้อยกว่าที่คำนวณ"
         } else {
             "$nums สูงกว่าที่ระบบคาด$exp $pct% — อาจกรอกแคลอรี่เกินจริง เคลื่อนไหวมากขึ้น หรือน้ำหนักลดจากน้ำ"
@@ -553,12 +553,12 @@ object ProgressGoal {
             var top: Double? = null
             adh.kcal.forEach { v ->
                 cnt[v] = (cnt[v] ?: 0) + 1
-                if (top == null || cnt.getValue(v) > cnt.getValue(top!!)) top = v
+                if (top == null || cnt.getValue(v) > cnt.getValue(top)) top = v
             }
             val nearTarget = if (tg.kcal != null) adh.kcal.count { abs(it - tg.kcal) <= 5 } else 0
             val topN = cnt.getValue(top!!)
             if (topN.toDouble() / adh.kcal.size >= 0.6)
-                out += PgIssue("warn", "แคลอรี่ ${loc(top!!)} kcal ซ้ำกัน $topN จาก ${adh.kcal.size} วัน — ถ้าเป็นตัวเลขที่กะไว้หรือกรอกตามเป้า ระบบจะประเมินคลาดเคลื่อน")
+                out += PgIssue("warn", "แคลอรี่ ${loc(top)} kcal ซ้ำกัน $topN จาก ${adh.kcal.size} วัน — ถ้าเป็นตัวเลขที่กะไว้หรือกรอกตามเป้า ระบบจะประเมินคลาดเคลื่อน")
             else if (nearTarget.toDouble() / adh.kcal.size >= 0.5)
                 out += PgIssue("warn", "แคลอรี่ที่กรอกตรงกับเป้าพอดี $nearTarget จาก ${adh.kcal.size} วัน — เป็นยอดที่กินจริงหรือกรอกตามเป้า?")
         }

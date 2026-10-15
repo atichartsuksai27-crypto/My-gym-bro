@@ -101,7 +101,7 @@ object Progression {
         when (feel) {
             "more" -> {
                 if (lvl == "caution" || lvl == "injury" || lvl == "emergency")
-                    return out(PlanChange("hold"), "ครั้งก่อนบันทึกอาการ “${symptom!!.text}” — ยังไม่เพิ่ม รอให้หายก่อน")
+                    return out(PlanChange("hold"), "ครั้งก่อนบันทึกอาการ “${symptom.text}” — ยังไม่เพิ่ม รอให้หายก่อน")
                 if (kind != "time" && base.any { it.reps != null && it.reps < rr.lo })
                     return out(PlanChange("hold"), "ครั้งก่อนบางเซ็ตทำไม่ถึง ${rr.lo} ครั้ง — คงไว้จนทำครบทุกเซ็ตก่อน")
                 when (kind) {
@@ -114,7 +114,7 @@ object Progression {
                             for (i in sets.indices) {
                                 var s = sets[i]
                                 if ((s.weight ?: 0.0) > 0) s = s.copy(weight = r2(s.weight!! + inc))
-                                if (s.reps != null) s = s.copy(reps = min(rr.hi.toDouble(), max(rr.lo.toDouble(), s.reps!!)))
+                                if (s.reps != null) s = s.copy(reps = min(rr.hi.toDouble(), max(rr.lo.toDouble(), s.reps)))
                                 sets[i] = s
                             }
                             return out(

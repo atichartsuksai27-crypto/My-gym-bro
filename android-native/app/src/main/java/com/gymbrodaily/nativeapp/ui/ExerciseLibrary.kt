@@ -39,7 +39,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -261,7 +262,7 @@ fun ExerciseLibraryScreen(data: TrackData?, onBack: () -> Unit) {
     }
 
     openId?.let { id ->
-        val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val sheet = rememberBottomSheetState(SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
         ModalBottomSheet(onDismissRequest = { openId = null }, sheetState = sheet, containerColor = GB.surface) {
             ExerciseDetail(id, data, mine) { openId = it }
         }

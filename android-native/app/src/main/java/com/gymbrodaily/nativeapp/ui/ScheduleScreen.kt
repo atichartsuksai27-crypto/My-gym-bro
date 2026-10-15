@@ -26,7 +26,8 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -78,7 +79,7 @@ fun ScheduleScreen(t: TrackData, today: LocalDate, store: TrackStore) {
     }
 
     openDate?.let { iso ->
-        val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val sheet = rememberBottomSheetState(SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
         ModalBottomSheet(onDismissRequest = { openDate = null }, sheetState = sheet, containerColor = GB.bg) {
             Column(
                 Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding(),

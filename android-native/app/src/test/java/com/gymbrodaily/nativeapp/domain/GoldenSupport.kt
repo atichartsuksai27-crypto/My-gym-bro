@@ -29,7 +29,7 @@ fun jsonNum(x: Double?): JsonElement = if (x == null || !x.isFinite()) JsonNull 
  * key ที่ไม่มีเท่ากับ null (JSON.stringify ทิ้ง field ที่เป็น undefined)
  */
 fun assertJsonEquivalent(expected: JsonElement, actual: JsonElement, path: String = "$") {
-    fun mismatch(): Nothing = fail("$path: expected $expected but was $actual") as Nothing
+    fun mismatch(): Nothing { fail("$path: expected $expected but was $actual"); throw AssertionError() }
     when {
         expected is JsonNull || actual is JsonNull -> if (expected !is JsonNull || actual !is JsonNull) mismatch()
         expected is JsonObject && actual is JsonObject ->

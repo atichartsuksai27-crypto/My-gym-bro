@@ -38,7 +38,6 @@ import com.gymbrodaily.nativeapp.data.SyncPhase
 import com.gymbrodaily.nativeapp.data.TrackState
 import com.gymbrodaily.nativeapp.data.TrackStore
 import com.gymbrodaily.nativeapp.domain.Exercise
-import com.gymbrodaily.nativeapp.domain.Generator
 import com.gymbrodaily.nativeapp.domain.LibraryCatalog
 import com.gymbrodaily.nativeapp.domain.PlanExercise
 import com.gymbrodaily.nativeapp.domain.TrackData
@@ -102,7 +101,6 @@ fun PlanScreen(
                     Triple("เป้าแคลอรี่ต่อวัน", Fmt.kcal(tg.kcal), tg.kcalDirection + if (tg.kcalFloored) " · ปรับขึ้นถึงขั้นต่ำ" else ""),
                 ),
             )
-            if (tg.kcal != null && tg.kcalDirection.contains("แคลฝึก")) Hint(Generator.EX_ESTIMATE_NOTE)
             MacroBar(tg.proteinG, tg.fatG, tg.carbG)
             if (tg.macroClamped) Hint("⚠️ ปรับสัดส่วนอัตโนมัติเพราะโปรตีน+ไขมันตั้งต้นเกินเป้าแคลอรี่ — เคสนี้ควรปรึกษาผู้เชี่ยวชาญเพิ่มเติม", color = GB.warn)
             Hint("น้ำ ${tg.waterL?.let { Fmt.one(it) } ?: "—"} ลิตร/วัน · ${tg.meals} มื้อ/วัน · นอน ${Fmt.hours(tg.sleepH)}/คืน")

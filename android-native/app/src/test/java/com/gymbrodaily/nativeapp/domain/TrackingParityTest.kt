@@ -43,7 +43,7 @@ class TrackingParityTest {
                     put("done", counts.done); put("total", counts.total)
                     if (d.jsonObject.containsKey("items")) {
                         put("items", JsonArray(Tracking.dayItems(t, iso).map {
-                            buildJsonObject { put("group", it.group); put("key", it.key); put("done", it.done) }
+                            buildJsonObject { put("group", it.group); put("key", it.key); put("done", it.done); put("label", it.label); put("val", it.v) }
                         }))
                     }
                 }

@@ -11,7 +11,7 @@ object LibraryCatalog {
     private fun x(id: String, pattern: String, tier: Int, equip: String, th: String, sub: String) =
         Exercise(id, pattern, tier, equip, th, sub)
 
-    val EXTRA = listOf(
+    private val RAW_EXTRA = listOf(
         // ขา / ก้น
         x("xsq1", "squat", 1, "bodyweight", "Wall Sit", "นั่งพิงกำแพงค้างท่า"),
         x("xsq2", "squat", 2, "bodyweight", "Split Squat", "สควอทแยกขาหน้า-หลังอยู่กับที่"),
@@ -114,6 +114,9 @@ object LibraryCatalog {
         x("xcd7", "cardio", 3, "bodyweight", "Burpee", "เบอร์พี"),
     )
 
+    /** ท่าเสริมที่ชื่อซ้ำกับท่าใน Catalog (ซึ่งเว็บขยายเป็น 93 ท่าแล้ว) ตัดทิ้ง — ใช้ท่าของ Catalog แทน */
+    val EXTRA: List<Exercise> = RAW_EXTRA.filter { x -> Catalog.EXERCISES.none { it.th.equals(x.th, ignoreCase = true) } }
+
     val ALL: List<Exercise> = Catalog.EXERCISES + EXTRA
 
     private val EXTRA_IDS = EXTRA.map { it.id }.toSet()
@@ -148,7 +151,7 @@ object LibraryCatalog {
     fun byId(id: String): Exercise? = ALL.firstOrNull { it.id == id }
 
     /** ท่าที่วัดเป็นเวลา (วินาที) ไม่ใช่จำนวนครั้ง — ตรงกับที่ generator ทำกับกลุ่ม core */
-    fun isTimeBased(e: Exercise) = e.pattern == "core" || e.pattern == "cardio" || e.id == "xsq1"
+    fun isTimeBased(e: Exercise) = e.timed || e.pattern == "cardio" || e.id == "xsq1" || (isLibraryOnly(e.id) && e.pattern == "core")
 
     fun defaultSetsReps(e: Exercise, goal: String?) = when {
         e.pattern == "cardio" -> "3 x 60 วิ"

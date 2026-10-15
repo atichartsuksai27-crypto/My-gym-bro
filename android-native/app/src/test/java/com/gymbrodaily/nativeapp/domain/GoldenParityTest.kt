@@ -50,6 +50,7 @@ class GoldenParityTest {
                 buildJsonObject {
                     put("id", e.id); put("pattern", e.pattern); put("tier", e.tier)
                     put("equip", e.equip); put("th", e.th); put("sub", e.sub)
+                    if (e.timed) put("timed", true)
                 }
             }))
             put("SPLIT_DEFS", buildJsonObject {
@@ -187,9 +188,23 @@ class GoldenParityTest {
                     put("blocked", gate.blocked)
                     gate.reason?.let { put("reason", it) }
                 })
-                put("targets", goldenJson.encodeToJsonElement(Generator.computeTargets(a)))
+                put("targets", goldenJson.encodeToJsonElement(Generator.computeTargets(a, plan)))
                 put("picks", buildJsonObject {
                     Catalog.PATTERN_LABEL.keys.forEach { p -> put(p, Generator.selectionFor(p, a, plan).picked?.id) }
+                })
+                put("trainDays", JsonArray(Generator.planTrainDays(a, plan).map { JsonPrimitive(it) }))
+                put("cardioDays", JsonArray(Generator.planCardioDays(a, plan).map { JsonPrimitive(it) }))
+                put("minTrain", buildJsonObject { Catalog.SPLIT_DEFS.keys.forEach { k -> put(k, Schedule.minTrainDays(k, a.list("Q2"))) } })
+                put("schedules", buildJsonObject {
+                    Catalog.SPLIT_DEFS.keys.forEach { k ->
+                        val r = Schedule.bestSchedule(Schedule.ofSplit(k), Generator.planTrainDays(a, plan))
+                        put(k, buildJsonObject {
+                            put("list", JsonArray(r.list.map { x -> buildJsonObject { put("day", x.day); put("session", x.session) } }))
+                            put("hard", r.hard); put("soft", r.soft)
+                            put("clash", r.clash?.let { c -> buildJsonObject { put("from", c.from); put("to", c.to); put("groups", JsonArray(c.groups.map { g -> JsonPrimitive(g) })) } } ?: kotlinx.serialization.json.JsonNull)
+                            put("text", r.clash?.let { Schedule.clashText(it) })
+                        })
+                    }
                 })
                 put("splitFeasibility", buildJsonObject {
                     Generator.splitFeasibility(a).forEach { (k, f) ->
@@ -203,16 +218,9 @@ class GoldenParityTest {
                 put("adjacencyWarning", Generator.weekdayAdjacencyWarning(a.list("Q2")))
                 put("snapshot", goldenJson.encodeToJsonElement(Generator.buildPlanSnapshot(a, plan)))
             }
-            // เป้าแคลอรี่/มาโครเทียบแยกที่ targetsMatchJs (generator.json คงเป็นเวอร์ชันเว็บเก่า — ดู make-golden.js)
-            assertJsonEquivalent(withoutTargets(expected), withoutTargets(actual), "generator[$i]")
+            assertJsonEquivalent(expected, actual, "generator[$i]")
         }
     }
-
-    private fun withoutTargets(o: JsonObject): JsonObject = JsonObject(
-        o.filterKeys { it != "targets" }.mapValues { (k, v) ->
-            if (k == "snapshot" && v is JsonObject) JsonObject(v.filterKeys { it != "targets" }) else v
-        },
-    )
 
     /** เป้าแคลอรี่ตามเป้าหมาย (รวม F-02: maintenance = TDEE + แคลฝึกตามแผน) ต้องตรงกับเว็บ */
     @Test
@@ -221,8 +229,9 @@ class GoldenParityTest {
         var maintenance = 0
         cases.forEachIndexed { i, c ->
             val a = Answers(c.jsonObject["answers"]!!.jsonObject)
+            val plan = goldenJson.decodeFromJsonElement<PlanOverrides>(c.jsonObject["plan"]!!)
             if (a.str("Q1") == "รักษาสุขภาพทั่วไป") maintenance++
-            assertJsonEquivalent(c.jsonObject["expected"]!!, goldenJson.encodeToJsonElement(Generator.computeTargets(a)), "targets[$i]")
+            assertJsonEquivalent(c.jsonObject["expected"]!!, goldenJson.encodeToJsonElement(Generator.computeTargets(a, plan)), "targets[$i]")
         }
         assertTrue("ต้องมีเคส maintenance พอ", maintenance >= 150)
         assertTrue("ต้องมีเคสที่พื้น EA ดันเป้าขึ้นตอนสร้างแผน", cases.count { it.jsonObject["expected"]!!.jsonObject["eaLimited"]!!.jsonPrimitive.boolean } >= 5)
@@ -239,10 +248,10 @@ class GoldenParityTest {
         },
     )
 
-    private fun eaOf(a: Answers, kcal: Int): Double {
+    private fun eaOf(a: Answers, kcal: Int, plan: PlanOverrides = PlanOverrides()): Double {
         val kg = a.parseFloat("Q12")
         val ffm = ProgressGoal.ffmFromAnswers(a, kg, a.str("Q9"))!!
-        return Calculations.calculateEnergyAvailability(kcal.toDouble(), Generator.plannedExFromAnswers(a, kg).toDouble(), ffm.ffm)!!
+        return Calculations.calculateEnergyAvailability(kcal.toDouble(), Generator.plannedExFromAnswers(a, kg, plan).toDouble(), ffm.ffm)!!
     }
 
     @Test
@@ -272,14 +281,16 @@ class GoldenParityTest {
                 "Q14" to JsonPrimitive("ทราบ (กรอกตัวเลข)"), "Q14_val" to JsonPrimitive(12),
             ),
         )
-        val t = Generator.computeTargets(a)
+        val every = Catalog.DAYS
+        val plan = PlanOverrides(trainDays = every, cardioDays = every, cardioMinByDay = every.associateWith { 60.0 }) // ฝึกหนักทุกวัน + cardio ทุกวัน
+        val t = Generator.computeTargets(a, plan)
         val kg = 52.0
         val ffm = ProgressGoal.ffmFromAnswers(a, kg, "หญิง")!!
-        val minKcal = Math.ceil((30 * ffm.ffm + Generator.plannedExFromAnswers(a, kg)) / 10).toInt() * 10
+        val minKcal = Math.ceil((30 * ffm.ffm + Generator.plannedExFromAnswers(a, kg, plan)) / 10).toInt() * 10
         assertTrue(t.eaLimited)
         assertTrue(t.kcalFloored)
         assertEquals(minKcal, t.kcal)
-        assertTrue(eaOf(a, t.kcal!!) >= Calculations.EA_MIN_CUT - 1e-9)
+        assertTrue(eaOf(a, t.kcal!!, plan) >= Calculations.EA_MIN_CUT - 1e-9)
         assertTrue(t.kcalDirection, "energy availability" in t.kcalDirection && "FFM" in t.kcalDirection && "ส่วนที่ขาดจริง" in t.kcalDirection)
     }
 

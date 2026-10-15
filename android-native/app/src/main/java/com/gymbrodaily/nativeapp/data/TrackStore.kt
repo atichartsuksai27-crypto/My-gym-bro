@@ -439,6 +439,8 @@ class TrackStore(context: Context, private val userId: String, private val scope
                 "startDate" to JsonPrimitive(startIso),
                 "planId" to JsonPrimitive(now.toEpochMilli().toString(36)),
                 "createdAt" to JsonPrimitive(now.toString()),
+                // เป้าของแผนนี้คิดด้วยสูตรรุ่นปัจจุบันแล้ว — ไม่ต้องเสนอ banner เป้าใหม่ (เหมือนเว็บตอนกดเริ่มโปรแกรม)
+                "calcV" to JsonPrimitive(com.gymbrodaily.nativeapp.domain.CALC_VERSION),
             ),
         )
         _state.update { buildState(program, it.logsRaw, it.weights, it.onboarding) }

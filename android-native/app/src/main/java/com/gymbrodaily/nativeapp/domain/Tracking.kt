@@ -141,7 +141,8 @@ data class DailyLog(
     val stub: Boolean = false,
 )
 
-data class DayItem(val group: String, val key: String, val done: Boolean)
+/** label/v = ข้อความที่หน้าประวัติของวันนั้นแสดง (ตรงกับ dayItems ของเว็บ) */
+data class DayItem(val group: String, val key: String, val done: Boolean, val label: String = "", val v: String = "")
 data class DayCounts(val done: Int, val total: Int)
 data class WeekAdherence(val start: String, val planned: Int, val done: Int, val pct: Int?)
 data class WeightPoint(val date: String, val kg: Double)
@@ -185,7 +186,7 @@ object Tracking {
         v != null && target != null && v >= target * 0.9 && v <= target * 1.1
 
     fun proteinOk(n: Nutrition, t: Targets) = n.proteinG != null && n.proteinG >= (t.proteinG ?: 0) * 0.9
-    fun waterOk(n: Nutrition, t: Targets) = n.waterL != null && n.waterL >= (t.waterL ?: 0.0)
+    fun waterOk(n: Nutrition, t: Targets) = n.waterL != null && n.waterL >= (t.waterL ?: 0.0) * 0.9
 
     /** คาร์บ/ไขมัน: ผ่านเมื่ออยู่ในช่วง ±10% ของเป้า (บันทึกเพื่อติดตาม ไม่นับในคะแนนรวม — เหมือน sectionFood ของเว็บ) */
     fun macroOk(v: Double?, target: Int?) = v != null && target != null && v >= target * 0.9 && v <= target * 1.1
@@ -193,22 +194,34 @@ object Tracking {
     fun sleepHoursValid(h: Double?) = h != null && h.isFinite() && h >= 0 && h <= 24
     fun sleepOk(s: Sleep, t: Targets) = sleepHoursValid(s.hours) && t.sleepH != null && s.hours!! >= t.sleepH - 0.5
 
+    /** รายการเช็คลิสต์ของวัน (ตรงกับ dayItems ของเว็บ): ท่าที่ติ๊ก (หรือทำเซสชันครบ) + Cardio ถ้าอยู่ในแผน + โภชนาการ + การนอน + น้ำหนักตัว */
     fun dayItems(t: TrackData, iso: String): List<DayItem> {
         val targets = targetsOf(t)
         val log = t.logs[iso]
         val items = mutableListOf<DayItem>()
+        val na = "ไม่ได้บันทึก"
         sessionDefFor(t.program, sessionKeyFor(t.program, iso))?.exercises?.forEach { ex ->
-            items += DayItem("workout", "ex-" + ex.id, log?.exercises?.get(ex.id)?.done == true)
+            val exDone = log?.exercises?.get(ex.id)?.done == true || log?.completed == true
+            items += DayItem("workout", "ex-" + ex.id, exDone, ex.th, if (exDone) "ทำแล้ว" else "ยังไม่ติ๊ก")
+        }
+        if (ProgressGoal.cardioPlannedFor(t.program, iso)) {
+            val cm = ProgressGoal.cardioMinutesOn(t, iso)
+            items += DayItem("cardio", "cardio", cm != null, "Cardio", if (cm != null) "${Progression.n(cm)} / ${Progression.n(ProgressGoal.cardioMinFor(t.program, thaiWeekday(iso)))} นาที" else na)
         }
         val n = log?.nutrition ?: Nutrition()
-        items += DayItem("food", "protein", proteinOk(n, targets))
-        items += DayItem("food", "kcal", kcalOk(n.kcal, targets.kcal))
-        items += DayItem("food", "water", waterOk(n, targets))
-        for (i in 0 until targets.meals) items += DayItem("food", "meal$i", n.meals.getOrNull(i) == true)
+        fun num(v: Double?) = v?.let { Progression.n(it) }
+        items += DayItem("food", "protein", proteinOk(n, targets), "โปรตีน", if (n.proteinG != null) "${num(n.proteinG)} / ${targets.proteinG} g" else na)
+        items += DayItem("food", "kcal", kcalOk(n.kcal, targets.kcal), "แคลอรี่", if (n.kcal != null) "${ProgressGoal.fmtKcal(n.kcal)} / ${ProgressGoal.fmtKcal(targets.kcal)} kcal" else na)
+        items += DayItem("food", "water", waterOk(n, targets), "น้ำ", if (n.waterL != null) "${num(n.waterL)} / ${fmt1(targets.waterL ?: 0.0)} ล." else na)
+        for (i in 0 until targets.meals) {
+            val ate = n.meals.getOrNull(i) == true
+            items += DayItem("food", "meal$i", ate, "มื้อ ${i + 1}", if (ate) "กินแล้ว" else na)
+        }
         val sl = log?.sleep ?: Sleep()
-        items += DayItem("sleep", "hours", sleepOk(sl, targets))
-        if (targets.sleepHygiene) items += DayItem("sleep", "hygiene", sl.hygiene)
-        items += DayItem("body", "weight", t.weights[iso] != null)
+        items += DayItem("sleep", "hours", sleepOk(sl, targets), "ชั่วโมงนอน", if (sl.hours != null) "${num(sl.hours)} ชม." else na)
+        if (targets.sleepHygiene) items += DayItem("sleep", "hygiene", sl.hygiene, "Sleep hygiene", if (sl.hygiene) "ทำแล้ว" else na)
+        val kg = t.weights[iso]
+        items += DayItem("body", "weight", kg != null, "น้ำหนักตัว", if (kg != null) "${fmt1(kg)} กก." else na)
         return items
     }
 
@@ -221,7 +234,7 @@ object Tracking {
         val sKey = sessionKeyFor(t.program, iso)
         if (iso < (t.program.startDate?.takeIf { it.isNotEmpty() } ?: today)) return DayStatus.BEFORE
         if (iso > today) return if (sKey != null) DayStatus.FUTURE else DayStatus.REST_FUTURE
-        val log = t.logs[iso]
+        val log = t.logs[iso]?.takeIf { !it.stub } // วันว่างที่ระบบล็อกให้เอง (stub) นับเหมือนไม่มีบันทึก
         if (sKey == null) {
             if (log == null) return DayStatus.REST
             val c = dayCounts(t, iso)

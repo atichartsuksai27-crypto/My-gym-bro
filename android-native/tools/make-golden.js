@@ -50,7 +50,8 @@ vm.runInContext(appSrc.slice(0, iifeEnd) + 'window.__ev = function(s){ return ev
 var ev = ctx.__ev;
 var setState = ev('(function(v){ state = v; })');
 var getState = ev('(function(){ return state; })');
-var A = ev('({inScope:inScope, sanityIssues:sanityIssues, computeTargets:computeTargets,' +
+var A = ev('({inScope:inScope, sanityIssues:sanityIssues, computeTargets:computeTargets, planTrainDays:planTrainDays, planCardioDays:planCardioDays,' +
+  ' minTrainDays:minTrainDays, bestSchedule:bestSchedule, clashText:clashText, SPLIT_DEFS:SPLIT_DEFS,' +
   ' safetyGate:safetyGate, selectionFor:selectionFor, splitFeasibility:splitFeasibility, effectiveSplit:effectiveSplit,' +
   ' assignSessions:assignSessions, weekdayAdjacencyWarning:weekdayAdjacencyWarning, buildPlanSnapshot:buildPlanSnapshot,' +
   ' setCountFor:setCountFor, bmiOf:bmiOf, bmiLabel:bmiLabel, PATTERNS:Object.keys(PATTERN_LABEL),' +
@@ -137,14 +138,27 @@ function randomPlan(){
 
 function plain(x){ return JSON.parse(JSON.stringify(x === undefined ? null : x)); }
 
+/* วันฝึก/cardio/ความเข้มข้นรายท่า (state.plan ส่วนตารางของเว็บ) — ใช้ตัวสุ่มแยก (LCG ตาม k) เพื่อไม่ขยับลำดับสุ่มของเคสอื่น */
+function lcg(seed){ var x = seed; return function(){ x = (x * 1103515245 + 12345) & 0x7fffffff; return x / 0x7fffffff; }; }
+var ALL_SLOTS = (function(){ var o = []; Object.keys(A.catalog.SPLIT_DEFS).forEach(function(k){ A.catalog.SPLIT_DEFS[k].sessions.forEach(function(se){ se.patterns.forEach(function(p){ if(o.indexOf(p) < 0) o.push(p); }); }); }); return o; })();
+function extendPlan(plan, k){
+  var r = lcg(900001 + k * 7);
+  plan.trainDays = null; plan.cardioDays = []; plan.cardioMinByDay = {}; plan.intensity = {};
+  if(r() < 0.4) plan.trainDays = DAYS.filter(function(){ return r() < 0.6; }); // อาจมีวันที่ไม่ว่าง/ว่างเปล่า — ต้องถูกกรองด้วยวันว่าง
+  if(r() < 0.4) plan.cardioDays = DAYS.filter(function(){ return r() < 0.4; });
+  plan.cardioDays.forEach(function(d){ if(r() < 0.5) plan.cardioMinByDay[d] = [20, 30, 45, 60][Math.floor(r() * 4)]; });
+  if(r() < 0.5) ALL_SLOTS.forEach(function(sl){ if(r() < 0.3) plan.intensity[sl] = 'intense'; });
+  return plan;
+}
+
 /* ---------- generator cases ---------- */
 var GENERATOR_CASES = 1500;
 var generatorCases = [];
 for(var i = 0; i < GENERATOR_CASES; i++){
   var a = randomAnswers();
-  var plan = randomPlan();
+  var plan = extendPlan(randomPlan(), i);
   var planIn = plain(plan);
-  setState({plan: plan});
+  setState({plan: plan, answers: a});
   var picks = {};
   A.PATTERNS.forEach(function(p){
     var sel = A.selectionFor(p, a);
@@ -164,6 +178,15 @@ for(var i = 0; i < GENERATOR_CASES; i++){
       splitFeasibility: feas,
       effectiveSplit: split,
       planAfter: plan,
+      trainDays: A.planTrainDays(a),
+      cardioDays: A.planCardioDays(a),
+      minTrain: Object.keys(A.SPLIT_DEFS).reduce(function(o, k){ o[k] = A.minTrainDays(k, a); return o; }, {}),
+      schedules: Object.keys(A.SPLIT_DEFS).reduce(function(o, k){
+        var sess = A.SPLIT_DEFS[k].sessions.map(function(se){ return {key: se.key, patterns: se.patterns.map(function(p){ return String(p).split('@')[0]; }).filter(function(b, ix, ar){ return ar.indexOf(b) === ix; })}; });
+        var r = A.bestSchedule(sess.map(function(x){ return {key: x.key, patterns: x.patterns}; }), A.planTrainDays(a));
+        o[k] = {list: r.list, hard: r.hard, soft: r.soft, clash: r.clash, text: r.clash ? A.clashText(r.clash) : null};
+        return o;
+      }, {}),
       adjacencyWarning: A.weekdayAdjacencyWarning(a.Q2),
       snapshot: A.buildPlanSnapshot(a)
     })
@@ -184,10 +207,9 @@ for(var ti = 0; ti < 600; ti++){
   // Katch-McArdle ใช้เฉพาะ % ไขมันที่กรอกเอง: กำหนดตายตัวตามลำดับเคส (ไม่ใช้ตัวสุ่ม เพื่อไม่ให้เคสเดิมเปลี่ยน) รวมค่านอกช่วง 3-60
   if(ti % 4 === 1){ ta.Q14 = 'ทราบ (กรอกตัวเลข)'; ta.Q14_val = [8, 12, 18, 25, 35, 45, 2, 70][(ti >> 2) % 8]; }
   else if(ti % 4 === 2){ ta.Q14 = 'ไม่ทราบ'; ta.Q14_val = 15; } // ไม่ได้กรอกเอง → ต้องไม่ใช้ Katch แม้มีตัวเลขค้าง
-  var tPlan = randomPlan();
-  tPlan.trainDays = DAYS.filter(function(d){ return (ta.Q2 || []).indexOf(d) > -1; });
-  setState({plan: tPlan});
-  targetCases.push({answers: ta, expected: plain(A.computeTargets(ta))});
+  var tPlan = extendPlan(randomPlan(), 100000 + ti);
+  setState({plan: tPlan, answers: ta});
+  targetCases.push({answers: ta, plan: plain(tPlan), expected: plain(A.computeTargets(ta))});
 }
 /* P4: หญิง 24 ปี ฝึกมา 8 ปี TDEE ~1,753 ฝึก 5 วัน — เคสตายตัว (ไม่ใช้ตัวสุ่ม) ตรึงด่าน EA ตอนสร้างแผน:
    ลดไขมันเข้มข้น (EA ผ่านเอง), รักษาน้ำหนัก (= TDEE + แคลฝึก), และเคสที่ EA ต่ำกว่า 30 จริง (กรอก % ไขมันต่ำ + ฝึกหนักทุกวัน) ต้องถูกดันขึ้น */
@@ -200,9 +222,10 @@ for(var ti = 0; ti < 600; ti++){
     .concat([mk(Object.assign({Q1:'ลดไขมัน'}, heavy)), mk(Object.assign({Q1:'Recomposition (ลด+เพิ่มพร้อมกัน)', Q6:'ห่างมาก'}, heavy))])
     .forEach(function(a, i){
       if(i === 2){ a.Q4a = 'ค่อยเป็นค่อยไป'; }
-      var tp = randomPlan(); tp.trainDays = DAYS.filter(function(d){ return (a.Q2 || []).indexOf(d) > -1; });
-      setState({plan: tp});
-      targetCases.push({answers: a, expected: plain(A.computeTargets(a))});
+      var tp = {manualPick: {}, unlockedEx: {}, forceLowTier: {}, splitOverride: null, trainDays: null, cardioDays: [], cardioMinByDay: {}, intensity: {}};
+      if(i >= 5){ var cm = {}; DAYS.forEach(function(d){ cm[d] = 60; }); tp.trainDays = DAYS.slice(); tp.cardioDays = DAYS.slice(); tp.cardioMinByDay = cm; } // ฝึกหนักทุกวัน + cardio ทุกวัน
+      setState({plan: tp, answers: a});
+      targetCases.push({answers: a, plan: plain(tp), expected: plain(A.computeTargets(a))});
     });
 })();
 seed = savedSeed;

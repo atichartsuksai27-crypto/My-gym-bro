@@ -36,4 +36,10 @@ data class PlanOverrides(
     val unlockedEx: Map<String, Boolean> = emptyMap(),
     val forceLowTier: Map<String, Boolean> = emptyMap(),
     val splitOverride: String? = null,
+    /** วันฝึกที่ผู้ใช้เลือกเอง (null = ใช้ชุดวันที่มากที่สุดที่ไม่ชนกัน) */
+    val trainDays: List<String>? = null,
+    val cardioDays: List<String> = emptyList(),
+    val cardioMinByDay: Map<String, Double> = emptyMap(),
+    /** slot → "intense" (แบบเข้มข้นรายท่า) */
+    val intensity: Map<String, String> = emptyMap(),
 )

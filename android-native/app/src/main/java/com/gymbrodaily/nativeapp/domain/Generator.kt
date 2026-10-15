@@ -42,6 +42,8 @@ data class PlanExercise(
     val equip: String = "",
     val setsReps: String = "",
     val timeBased: Boolean = false,
+    /** slot ในแบบ (เช่น "squat@2" = ตัวเลือกที่สองของรูปแบบเดียวกัน) — pattern คือรูปแบบฐาน */
+    val slot: String? = null,
     /** "intense" = แบบเข้มข้น (2 x 4-8 จนหมดแรง) — เลือกตอนสร้างแผนบนเว็บ */
     val intensity: String? = null,
 )
@@ -62,6 +64,11 @@ data class PlanSnapshot(
     val trainTime: String,
     val targets: Targets,
     val startWeight: Double?,
+    val availableDays: List<String> = emptyList(),
+    val cardioDays: List<String> = emptyList(),
+    val cardioMinByDay: Map<String, Double> = emptyMap(),
+    val exp: String? = null,
+    val sex: String? = null,
 )
 
 data class CalorieTarget(val kcal: Double?, val floored: Boolean, val floor: Double?, val direction: String, val eaLimited: Boolean = false)
@@ -79,6 +86,7 @@ data class Candidate(
     val id get() = exercise.id
     val tier get() = exercise.tier
     val equip get() = exercise.equip
+    val timed get() = exercise.timed
 }
 
 data class Selection(val picked: Candidate?, val all: List<Candidate>)
@@ -198,30 +206,23 @@ object Generator {
     }
 
     /**
-     * แคลฝึกตามแผนต่อวัน ณ ตอนสร้างแผน (ยังไม่มี program จริง)
-     *
-     * **ต่างจากเว็บโดยตั้งใจ (known difference):** เว็บ (`plannedExFromAnswers` ใน app.js) คิดจากวันฝึกที่ผู้ใช้เลือกจริง (`planTrainDays`) และรวม cardio ตามวัน/นาทีที่เลือก
-     * ส่วน native ยังไม่พอร์ตหน้าเลือกวันฝึก/cardio จึง **นับทุกวันที่ติ๊กว่าง (Q2) เป็นวันฝึก และไม่มี cardio** (แผน native ฝึกทุกวันที่ว่างอยู่แล้ว — ดู buildPlanSnapshot)
-     * ผลคือเป้าตอนสร้างแผนของ native อาจต่างจากเว็บเมื่อผู้ใช้เว็บเลือกวันฝึกน้อยกว่าวันว่าง หรือมี cardio — ทางเลือก A ที่ตกลงไว้: ไม่พอร์ตการเลือกเพิ่มเพียงเพื่อเรื่องนี้
-     * ชดเชยด้วย [CalorieTargetUpdate]: พอมีโปรแกรมจริงแล้วจะเทียบกับ [ProgressGoal.plannedExPerDay] (อ่านจาก Program จริง) และเสนอเป้าที่แม่นขึ้นผ่าน banner เมื่อต่างกัน ≥ 50 kcal
-     * ข้อความที่ผู้ใช้เห็นอยู่ที่ [EX_ESTIMATE_NOTE] (หน้าแผน/ผลลัพธ์แบบสอบถาม) — ไม่ใส่ใน kcalDirection เพราะ golden เทียบข้อความนั้นกับเว็บตรงตัว
-     *
-     * สูตรแคลเหมือน [ProgressGoal.plannedExPerDay] จึงตรงกับที่ Progression & Goal ประเมินของแผนที่สร้างตามมา
+     * แคลฝึกตามแผนต่อวัน ณ ตอนสร้างแผน (ยังไม่มี program จริง) — ใช้ตารางวัน/นาที/cardio ชุดเดียวกับ [buildPlanSnapshot]
+     * (วันฝึกจาก [planTrainDays] + cardio จาก [planCardioDays]) ตรงกับ plannedExFromAnswers ของเว็บ และตรงกับ [ProgressGoal.plannedExPerDay] ของแผนที่สร้างตามมา
      */
-    fun plannedExFromAnswers(a: Answers, kg: Double): Int {
-        val days = Catalog.DAYS.count { it in a.list("Q2") }
+    fun plannedExFromAnswers(a: Answers, kg: Double, plan: PlanOverrides = PlanOverrides()): Int {
+        val days = planTrainDays(a, plan).size
+        val cd = planCardioDays(a, plan)
+        val mins = minsForDays(plan.cardioMinByDay, cd)
+        val cardioWeek = cd.sumOf { mins.getValue(it) }
         val sessMin = (Questions.Q3_MIN[a.strOr("Q3", "45-60 นาที")] ?: 52).toDouble()
-        return jsRound(ProgressGoal.exerciseKcal(kg, days, sessMin, 0.0) / 7).toInt()
+        return jsRound(ProgressGoal.exerciseKcal(kg, days, sessMin, cardioWeek) / 7).toInt()
     }
 
-    /** ข้อความใต้เป้าแคลอรี่ในหน้าแผน/ผลลัพธ์ — บอกว่าแคลฝึกที่ใช้เป็นการประมาณ (ดู [plannedExFromAnswers]) */
-    const val EX_ESTIMATE_NOTE = "แคลฝึกที่ใช้คิดเป้านี้เป็นการประมาณ: นับทุกวันที่คุณเลือกว่างเป็นวันฝึก และไม่รวม cardio — ถ้าตารางจริงต่างออกไป ระบบจะเสนอเป้าที่แม่นขึ้นให้ที่หน้า “วันนี้” และ “แผนของฉัน”"
-
-    fun computeTargets(a: Answers): Targets {
+    fun computeTargets(a: Answers, plan: PlanOverrides = PlanOverrides()): Targets {
         val w = a.parseFloat("Q12")
         val hasWeight = w > 0
         val tdee = computeTDEE(a)
-        val cal = computeCalorieTarget(tdee, a, if (hasWeight) plannedExFromAnswers(a, w) else 0)
+        val cal = computeCalorieTarget(tdee, a, if (hasWeight) plannedExFromAnswers(a, w, plan) else 0)
         val macro = computeMacro(cal.kcal, if (hasWeight) w else null)
         var water = if (hasWeight) min(4.0, max(1.5, jsRound(w * 0.035 * 10) / 10)) else null
         val already = a.str("Q43")?.let { Catalog.WATER_NOW[it] }
@@ -310,11 +311,18 @@ object Generator {
         return null
     }
 
-    fun selectionFor(pattern: String, a: Answers, plan: PlanOverrides): Selection {
-        val all = candidatesFor(pattern, a, plan)
-        val eligible = all.filter { it.equipOk && !it.locked }
-        val tTier = if (plan.forceLowTier[pattern] == true) 1 else targetTier(a.str("Q16"))
-        val manual = plan.manualPick[pattern]
+    /** slot = ชื่อรูปแบบท่า หรือ "รูปแบบ@2" (ตัวเลือกที่สองที่ไม่ซ้ำท่าแรก ถ้ามีให้เลือก) */
+    fun selectionFor(slot: String, a: Answers, plan: PlanOverrides): Selection {
+        val base = Schedule.slotBase(slot)
+        val all = candidatesFor(base, a, plan)
+        var eligible = all.filter { it.equipOk && !it.locked }
+        if (slot != base) {
+            val primary = selectionFor(base, a, plan).picked
+            val others = if (primary != null) eligible.filter { it.id != primary.id } else eligible
+            if (others.isNotEmpty()) eligible = others
+        }
+        val tTier = if (plan.forceLowTier[base] == true) 1 else targetTier(a.str("Q16"))
+        val manual = plan.manualPick[slot]
         val picked = manual?.takeIf { it.isNotEmpty() }
             ?.let { id -> all.firstOrNull { it.id == id && it.equipOk && !it.locked } }
             ?: pickByTier(eligible, tTier)
@@ -350,10 +358,7 @@ object Generator {
         return if (splitFeasibility(a)[override]?.eligible == true) plan else plan.copy(splitOverride = null)
     }
 
-    fun assignSessions(splitKey: String, days: List<String>): List<DaySession> {
-        val seq = Catalog.SPLIT_DEFS.getValue(splitKey).sessions.map { it.key }
-        return Catalog.DAYS.filter { it in days }.mapIndexed { i, d -> DaySession(d, seq[i % seq.size]) }
-    }
+    fun assignSessions(splitKey: String, days: List<String>): List<DaySession> = Schedule.assignSessions(splitKey, days)
 
     /** มีวันฝึกติดกันไหม (วนรอบสัปดาห์ อาทิตย์→จันทร์ นับว่าติดกัน) */
     fun weekdayAdjacencyWarning(days: List<String>): Boolean {
@@ -374,23 +379,58 @@ object Generator {
         return if (n == 0) 3 else n
     }
 
+    /* ---------- ความเข้มข้นรายท่า + จำนวนเซ็ต/ครั้ง ---------- */
+    const val INTENSE_SCHEME = "2 x 4-8"
+
+    fun planIntense(slot: String, pattern: String, equip: String, a: Answers, plan: PlanOverrides): Boolean =
+        Progression.intensityEligible(pattern, equip) && Progression.intenseBlockReason(a) == null && plan.intensity[slot] == "intense"
+
+    fun setsRepsFor(slot: String, picked: Candidate, a: Answers, plan: PlanOverrides): String {
+        val base = Schedule.slotBase(slot)
+        if (base in Progression.TIMED_PATTERNS) return if (picked.timed) "3 x 30-45 วิ" else "3 x 10-15"
+        if (planIntense(slot, picked.exercise.pattern, picked.equip, a, plan)) return INTENSE_SCHEME
+        if (base in Progression.SMALL_PATTERNS) return "3 x 12-15"
+        return repSchemeFor(a.str("Q1"))
+    }
+
+    /* ---------- วันฝึก / วัน cardio ---------- */
+    const val CARDIO_DEFAULT_MIN = 30.0
+
+    /** ยังไม่ได้เลือกวันเอง = ใช้ชุดวันที่มากที่สุดที่ไม่มีกล้ามเนื้อกลุ่มเดียวกันโดนในวันติดกัน */
+    fun planTrainDays(a: Answers, plan: PlanOverrides): List<String> {
+        val avail = a.list("Q2")
+        val td = plan.trainDays
+        return if (td != null) Schedule.inAvailable(td, avail)
+        else Schedule.inAvailable(Schedule.freeTrainDays(Schedule.ofSplit(effectiveSplit(a, plan)), avail), avail)
+    }
+
+    fun planCardioDays(a: Answers, plan: PlanOverrides): List<String> = Schedule.inAvailable(plan.cardioDays, a.list("Q2"))
+
+    fun minsForDays(minByDay: Map<String, Double>, days: List<String>): Map<String, Double> =
+        days.associateWith { d -> minByDay[d]?.takeIf { it != 0.0 } ?: CARDIO_DEFAULT_MIN }
+
     fun buildPlanSnapshot(a: Answers, plan: PlanOverrides): PlanSnapshot {
         val split = effectiveSplit(a, plan)
         val splitDef = Catalog.SPLIT_DEFS.getValue(split)
-        val days = a.list("Q2")
+        val days = planTrainDays(a, plan)
         val dayToSession = assignSessions(split, days).associate { it.day to it.session }
         val sessions = splitDef.sessions.map { se ->
-            PlanSession(se.key, se.patterns.mapNotNull { p ->
-                val picked = selectionFor(p, a, plan).picked ?: return@mapNotNull null
-                PlanExercise(
-                    pattern = p, id = picked.id, th = picked.exercise.th, sub = picked.exercise.sub,
-                    tier = picked.tier, equip = picked.equip,
-                    setsReps = if (p == "core") "3 x 30-45 วิ" else repSchemeFor(a.str("Q1")),
-                    timeBased = p == "core",
-                )
-            })
+            PlanSession(
+                se.key,
+                se.patterns.mapNotNull { slot ->
+                    val picked = selectionFor(slot, a, plan).picked ?: return@mapNotNull null
+                    PlanExercise(
+                        pattern = Schedule.slotBase(slot), slot = slot, id = picked.id, th = picked.exercise.th, sub = picked.exercise.sub,
+                        tier = picked.tier, equip = picked.equip,
+                        setsReps = setsRepsFor(slot, picked, a, plan),
+                        intensity = if (planIntense(slot, picked.exercise.pattern, picked.equip, a, plan)) "intense" else "normal",
+                        timeBased = picked.timed,
+                    )
+                },
+            )
         }
         val startWeight = a.parseFloat("Q12")
+        val cardioDays = planCardioDays(a, plan)
         return PlanSnapshot(
             splitKey = split,
             splitLabel = splitDef.label,
@@ -400,8 +440,13 @@ object Generator {
             sessions = sessions,
             minutesEstimate = a.strOr("Q3", "45-60 นาที"),
             trainTime = a.strOr("Q24", "ไม่แน่นอนแล้วแต่วัน"),
-            targets = computeTargets(a),
+            targets = computeTargets(a, plan),
             startWeight = if (startWeight.isNaN() || startWeight == 0.0) null else startWeight.finiteOrNull(),
+            availableDays = a.list("Q2"),
+            cardioDays = cardioDays,
+            cardioMinByDay = minsForDays(plan.cardioMinByDay, cardioDays),
+            exp = a.str("Q16")?.takeIf { it.isNotEmpty() },
+            sex = a.str("Q9")?.takeIf { it.isNotEmpty() },
         )
     }
 }

@@ -76,7 +76,7 @@ class CalorieTargetUpdateTest {
         assertNull(CalorieTargetUpdate.of(track(oldPlanRaw(a) { it["calcV"] = JsonPrimitive(2) }, a), today))
     }
 
-    @Test fun nativePlanWithoutCalcVIsEligibleOnceTheRealProgramDiffersByFiftyKcal() {
+    @Test fun planWithoutCalcVIsEligibleOnceTheRealProgramDiffersByFiftyKcal() {
         val a = answers("รักษาสุขภาพทั่วไป")
         val fresh = snapshot(a)
         assertNull("แผน native ที่เพิ่งสร้างและตรงกับแผนจริง → ไม่มี banner", CalorieTargetUpdate.of(track(fresh, a), today))
@@ -86,23 +86,6 @@ class CalorieTargetUpdateTest {
         val u = CalorieTargetUpdate.of(t, today)
         assertNotNull(u)
         assertTrue(u!!.kcal < t.program.targets!!.kcal!!)
-    }
-
-    /** known difference จากเว็บ (ทางเลือก A): native นับทุกวันว่าง (Q2) เป็นวันฝึกและไม่รวม cardio — ตรึงไว้ ถ้าเปลี่ยนต้องเปลี่ยนใจ ไม่ใช่เผลอ */
-    @Test fun nativeExEstimateCountsEveryFreeDayAndIgnoresCardio() {
-        val a5 = answers("รักษาสุขภาพทั่วไป")
-        val a7 = Answers(JsonObject(a5.json + ("Q2" to JsonArray(Catalog.DAYS.map { JsonPrimitive(it) }))))
-        val expected5 = jsRound(ProgressGoal.exerciseKcal(52.0, 5, 52.0, 0.0) / 7).toInt()
-        val expected7 = jsRound(ProgressGoal.exerciseKcal(52.0, 7, 52.0, 0.0) / 7).toInt()
-        assertEquals(expected5, Generator.plannedExFromAnswers(a5, 52.0))
-        assertEquals(expected7, Generator.plannedExFromAnswers(a7, 52.0))
-        assertTrue(expected7 > expected5)
-        assertTrue(Generator.EX_ESTIMATE_NOTE.contains("ไม่รวม cardio"))
-    }
-
-    @Test fun freshNativePlanIsNotStampedWithCalcV() {
-        // ไม่ประทับ calcV ตั้งใจ — ไม่งั้น banner จะไม่มีวันเสนอเป้าที่แม่นขึ้นให้แผน native ที่เพิ่งสร้าง
-        assertFalse("calcV" in snapshot(answers("รักษาสุขภาพทั่วไป")))
     }
 
     @Test fun applyWritesOnlyTargetsCalcVAndEvalFromAndKeepsEverythingElse() {

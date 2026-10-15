@@ -372,7 +372,6 @@ private fun ResultsPage(onb: Onboarding, store: TrackStore, hasProgram: Boolean,
             Triple("เป้าแคลอรี่ต่อวัน", Fmt.kcal(t.kcal), t.kcalDirection + if (t.kcalFloored) " · ปรับขึ้นถึง floor ขั้นต่ำ" else ""),
         ),
     )
-    if (t.kcal != null && t.kcalDirection.contains("แคลฝึก")) Hint(Generator.EX_ESTIMATE_NOTE)
     Hint("โปรตีน ${t.proteinG ?: "—"} g · ไขมัน ${t.fatG ?: "—"} g · คาร์บ ${t.carbG ?: "—"} g · น้ำ ${t.waterL?.let { Fmt.one(it) } ?: "—"} ลิตร/วัน · ${t.meals} มื้อ/วัน · นอน ${Fmt.hours(t.sleepH)}/คืน" + if (t.sleepHygiene) " · มีข้อ sleep hygiene ในเช็คลิสต์" else "")
     if (t.macroClamped) Hint("⚠️ ปรับสัดส่วนอัตโนมัติเพราะโปรตีน+ไขมันตั้งต้นเกินเป้าแคลอรี่ที่คำนวณได้", color = GB.warn)
 

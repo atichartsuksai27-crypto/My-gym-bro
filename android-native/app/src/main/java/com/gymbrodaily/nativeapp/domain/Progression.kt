@@ -39,8 +39,8 @@ object Progression {
     private val LOWER_PATTERNS = listOf("squat", "lunge", "hinge", "glute", "legcurl", "calf")
     val WARMUP_COMPOUND = listOf("squat", "lunge", "hinge", "glute", "hpush", "incline", "hpull", "vpush", "vpull")
     val WARMUP_WEIGHTED = listOf("barbell", "dumbbell", "machine", "cable")
-    private val TIMED_PATTERNS = listOf("core", "oblique")
-    private val SMALL_PATTERNS = listOf("latraise", "reardelt", "calf")
+    val TIMED_PATTERNS = listOf("core", "oblique")
+    val SMALL_PATTERNS = listOf("latraise", "reardelt", "calf")
     const val INTENSE_WARNING = "ต้องคุมฟอร์มให้ดีและเล่นให้ถูกต้องทุกครั้ง เนื่องจากใช้น้ำหนักสูงจึงอาจเสี่ยงบาดเจ็บได้"
     val EQUIP_STEP_OPTS = mapOf(
         "barbell" to listOf(1.0, 2.5, 5.0), "dumbbell" to listOf(0.5, 1.0, 2.0, 2.5),
@@ -205,7 +205,8 @@ object Progression {
     }
 
     /* ---------- ความเข้มข้น / เวลาพัก ---------- */
-    fun intensityEligible(ex: PlanExercise) = ex.pattern !in TIMED_PATTERNS && ex.pattern !in SMALL_PATTERNS && ex.equip in WARMUP_WEIGHTED
+    fun intensityEligible(ex: PlanExercise) = intensityEligible(ex.pattern, ex.equip)
+    fun intensityEligible(pattern: String, equip: String) = pattern !in TIMED_PATTERNS && pattern !in SMALL_PATTERNS && equip in WARMUP_WEIGHTED
     fun isIntense(ex: PlanExercise) = intensityEligible(ex) && ex.intensity == "intense"
 
     /**

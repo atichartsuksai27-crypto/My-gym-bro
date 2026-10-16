@@ -43,6 +43,22 @@ class JsCompatTest {
         assertTrue(jsParseFloat(JsonPrimitive(true)).isNaN())
     }
 
+    /** ชุดอักขระที่ ' '.trim() ของ node ตัดจริง (สแกนทั้ง BMP): 9–D, 20, A0, 1680, 2000–200A, 2028, 2029, 202F, 205F, 3000, FEFF */
+    @Test fun jsTrimMatchesNode() {
+        assertEquals("abc", jsTrim("﻿abc﻿"))
+        assertEquals("abc", jsTrim("  abc　\n\t"))
+        assertEquals("abc", jsTrim(" abc      "))
+        assertEquals("\u001Cabc\u001F", jsTrim("\u001Cabc\u001F")) // Kotlin trim() ตัดสองตัวนี้ แต่ JS ไม่ตัด
+        assertEquals("\u0085abc", jsTrim("\u0085abc"))
+        assertEquals("᠎abc", jsTrim("᠎abc"))
+        assertEquals("", jsTrim("  \t\n"))
+    }
+
+    @Test fun saveSymptomAndStressNoteUseJsTrim() {
+        assertEquals("ปวดเข่า", DayActions.saveSymptom(null, "﻿ ปวดเข่า ﻿", "x").symptom!!.text)
+        assertEquals("งาน", DayActions.setStressNote(null, "﻿งาน ").note)
+    }
+
     /** JsonNull เป็น JsonPrimitive แต่ไม่ใช่สตริง — Answers ต้องไม่เอามาเทียบ === กับข้อความ */
     @Test fun answersWithExplicitNulls() {
         val a = Answers(JsonObject(mapOf("Q1" to JsonNull, "Q10" to JsonNull, "Q26" to JsonNull)))

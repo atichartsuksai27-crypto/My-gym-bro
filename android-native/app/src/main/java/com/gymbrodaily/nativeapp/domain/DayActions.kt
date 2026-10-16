@@ -53,7 +53,7 @@ object DayActions {
     }
 
     fun saveSymptom(e: ExerciseLog?, text: String, name: String): ExerciseLog {
-        val tx = text.trim().take(200)
+        val tx = jsTrim(text).take(200)
         return (e ?: ExerciseLog()).copy(symptom = if (tx.isEmpty()) null else Symptom(tx, DayExtras.analyzeSymptom(tx).level, name))
     }
 
@@ -84,7 +84,7 @@ object DayActions {
         val cur = s ?: StressLog()
         return cur.copy(level = if (cur.level != null && cur.level == v.toDouble()) null else v.toDouble())
     }
-    fun setStressNote(s: StressLog?, note: String): StressLog = (s ?: StressLog()).copy(note = note.trim().take(200))
+    fun setStressNote(s: StressLog?, note: String): StressLog = (s ?: StressLog()).copy(note = jsTrim(note).take(200))
     fun stressNoteWithChip(s: StressLog?, chip: String): StressLog {
         val sn = s?.note.orEmpty()
         return (s ?: StressLog()).copy(note = (if (sn.isNotEmpty()) "$sn, $chip" else chip).take(200))

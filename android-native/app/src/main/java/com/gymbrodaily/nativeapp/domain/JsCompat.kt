@@ -78,6 +78,12 @@ fun jsRound(x: Double): Double {
     return if (r - 0.5 > x) r - 1 else r
 }
 
+/** String.prototype.trim ของ JS — ตัดเฉพาะ WhiteSpace/LineTerminator ของ ECMAScript (รวม U+FEFF แต่ไม่รวม U+001C–001F ที่ Kotlin trim() ตัด) */
+private fun isJsSpace(c: Char) = c in '\u0009'..'\u000D' || c == ' ' || c == ' ' || c == ' ' || c in ' '..' ' ||
+    c == ' ' || c == ' ' || c == ' ' || c == ' ' || c == '　' || c == '﻿'
+
+fun jsTrim(s: String): String = s.trim { isJsSpace(it) }
+
 /** NaN/Infinity ของ JS กลายเป็น null ตอน JSON.stringify — ใช้ก่อนเก็บค่าลงโมเดลที่จะซิงก์ */
 fun Double.finiteOrNull(): Double? = if (isFinite()) this else null
 

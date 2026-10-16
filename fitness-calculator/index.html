@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fitness Calculator — TDEE &amp; เป้าหมายโภชนาการ</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+  if (window.tailwind) tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { sans: ['"Noto Sans Thai"', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
+        colors: {
+          ink: '#0f172a',
+          brand: { 50: '#eef2ff', 100: '#e0e7ff', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' },
+          protein: '#3b82f6',
+          fat: '#8b5cf6',
+          carb: '#f59e0b'
+        }
+      }
+    }
+  };
+</script>
+<style>
+  body { background: radial-gradient(1200px 500px at 50% -10%, #e0e7ff 0%, rgba(224,231,255,0) 60%), #f8fafc; }
+
+  /* ปุ่มเลือกเพศแบบ segmented */
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg label { transition: all .2s ease; }
+  .seg input:checked + label {
+    background: #fff; color: #4338ca; box-shadow: 0 1px 3px rgba(15,23,42,.12), 0 0 0 1px #c7d2fe;
+  }
+  .seg input:focus-visible + label { outline: 2px solid #6366f1; outline-offset: 2px; }
+
+  /* Animation ตอนแสดงผล */
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+  .reveal { opacity: 0; animation: fadeUp .55s cubic-bezier(.2,.8,.2,1) forwards; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner { width: 18px; height: 18px; border: 2.5px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+
+  @keyframes shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+  .shake { animation: shake .3s ease; }
+
+  .macro-seg { transition: width 1s cubic-bezier(.2,.8,.2,1); width: 0; }
+  .bmi-marker { transition: left 1s cubic-bezier(.2,.8,.2,1); left: 0; }
+
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 1.25rem; box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 8px 24px -12px rgba(15,23,42,.08); }
+  .field { width: 100%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: .75rem; padding: .7rem .9rem; color: #0f172a; transition: border-color .15s, box-shadow .15s, background .15s; }
+  .field:focus { outline: none; background: #fff; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.18); }
+  .field.invalid { border-color: #f43f5e; background: #fff1f2; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reveal, .shake, .spinner { animation-duration: .01ms; }
+    .macro-seg, .bmi-marker { transition: none; }
+  }
+</style>
+</head>
+<body class="font-sans text-ink antialiased min-h-screen">
+<div class="max-w-3xl mx-auto px-4 py-10 sm:py-14">
+
+  <!-- Header -->
+  <header class="text-center mb-8">
+    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-50 text-brand-700 text-xs font-semibold tracking-wide ring-1 ring-brand-100">
+      <span class="w-1.5 h-1.5 rounded-full bg-brand-500"></span> FITNESS CALCULATOR
+    </div>
+    <h1 class="mt-4 text-3xl sm:text-4xl font-bold tracking-tight">คำนวณ TDEE และเป้าหมายโภชนาการ</h1>
+    <p class="mt-2 text-slate-500 text-sm sm:text-base">ประเมินพลังงานที่ร่างกายใช้ต่อวัน พร้อมแคลอรีเป้าหมายและสัดส่วนสารอาหารที่เหมาะกับคุณ</p>
+  </header>
+
+  <!-- Input Section -->
+  <section class="card p-5 sm:p-7" aria-labelledby="input-title">
+    <h2 id="input-title" class="text-lg font-semibold mb-5">ข้อมูลของคุณ</h2>
+    <form id="calc-form" novalidate class="space-y-5">
+
+      <!-- เพศ -->
+      <fieldset>
+        <legend class="block text-sm font-medium text-slate-600 mb-2">เพศ</legend>
+        <div class="seg grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-100 relative">
+          <div class="relative">
+            <input type="radio" name="gender" id="g-male" value="male" checked>
+            <label for="g-male" class="block text-center py-2.5 rounded-lg cursor-pointer text-sm font-medium text-slate-500 hover:text-slate-700">ชาย</label>
+          </div>
+          <div class="relative">
+            <input type="radio" name="gender" id="g-female" value="female">
+            <label for="g-female" class="block text-center py-2.5 rounded-lg cursor-pointer text-sm font-medium text-slate-500 hover:text-slate-700">หญิง</label>
+          </div>
+        </div>
+      </fieldset>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+          <label for="age" class="block text-sm font-medium text-slate-600 mb-1.5">อายุ <span class="text-slate-400 font-normal">(ปี)</span></label>
+          <input id="age" type="number" inputmode="numeric" min="15" max="100" step="1" placeholder="เช่น 28" class="field" required>
+        </div>
+        <div>
+          <label for="weight" class="block text-sm font-medium text-slate-600 mb-1.5">น้ำหนักปัจจุบัน <span class="text-slate-400 font-normal">(กก.)</span></label>
+          <input id="weight" type="number" inputmode="decimal" min="30" max="300" step="0.1" placeholder="เช่น 72.5" class="field" required>
+        </div>
+        <div>
+          <label for="height" class="block text-sm font-medium text-slate-600 mb-1.5">ส่วนสูง <span class="text-slate-400 font-normal">(ซม.)</span></label>
+          <input id="height" type="number" inputmode="decimal" min="120" max="230" step="0.1" placeholder="เช่น 170" class="field" required>
+        </div>
+      </div>
+
+      <div>
+        <label for="activity" class="block text-sm font-medium text-slate-600 mb-1.5">ระดับกิจกรรม</label>
+        <select id="activity" class="field appearance-none bg-no-repeat pr-10"
+                style="background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2216%22 height=%2216%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%2364748b%22 stroke-width=%222.5%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><path d=%22M6 9l6 6 6-6%22/></svg>');background-position:right .9rem center;">
+          <option value="1.2">ไม่ออกกำลังกาย — นั่งทำงานเป็นหลัก (×1.2)</option>
+          <option value="1.375">ออกกำลังกายเบาๆ — 1-3 วัน/สัปดาห์ (×1.375)</option>
+          <option value="1.55" selected>ปานกลาง — 3-5 วัน/สัปดาห์ (×1.55)</option>
+          <option value="1.725">หนัก — 6-7 วัน/สัปดาห์ (×1.725)</option>
+          <option value="1.9">หนักมาก — ฝึกหนัก/งานใช้แรงงาน (×1.9)</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="extra" class="block text-sm font-medium text-slate-600 mb-1.5">แคลอรีจากการออกกำลังกายเพิ่มเติม <span class="text-slate-400 font-normal">(kcal/วัน)</span></label>
+        <input id="extra" type="number" inputmode="numeric" min="0" max="3000" step="10" value="0" class="field">
+        <p class="mt-1.5 text-xs text-slate-400">เช่น วิ่ง/คาร์ดิโอเพิ่มเติมที่นอกเหนือจากระดับกิจกรรมข้างต้น</p>
+      </div>
+
+      <p id="form-error" class="hidden text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2" role="alert"></p>
+
+      <button id="calc-btn" type="submit"
+        class="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-semibold text-white bg-gradient-to-r from-brand-600 to-violet-600 hover:from-brand-700 hover:to-violet-700 shadow-lg shadow-brand-500/25 active:scale-[.99] transition focus:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/30">
+        <span id="btn-spinner" class="spinner hidden"></span>
+        <span id="btn-label">คำนวณเป้าหมายของฉัน</span>
+      </button>
+    </form>
+  </section>
+
+  <!-- Result Section -->
+  <section id="results" class="hidden mt-8 space-y-4" aria-live="polite">
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <!-- BMI -->
+      <article class="card p-5 reveal" style="animation-delay:.00s">
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">BMI ปัจจุบัน</p>
+        <div class="mt-2 flex items-baseline gap-2">
+          <span id="bmi-value" class="text-4xl font-bold tabular-nums">–</span>
+          <span id="bmi-badge" class="text-xs font-semibold px-2.5 py-1 rounded-full">–</span>
+        </div>
+        <div class="mt-4 relative h-2 rounded-full overflow-visible" style="background:linear-gradient(90deg,#60a5fa 0%,#34d399 22%,#fbbf24 50%,#fb923c 75%,#f43f5e 100%)">
+          <span id="bmi-marker" class="bmi-marker absolute -top-1 w-4 h-4 -ml-2 rounded-full bg-white border-2 border-ink shadow"></span>
+        </div>
+        <div class="mt-1.5 flex justify-between text-[10px] text-slate-400 tabular-nums"><span>15</span><span>23</span><span>25</span><span>30</span><span>40</span></div>
+        <p id="bmi-note" class="mt-3 text-xs text-slate-500"></p>
+      </article>
+
+      <!-- TDEE -->
+      <article class="card p-5 reveal" style="animation-delay:.08s">
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">TDEE โดยประมาณ</p>
+        <div class="mt-2 flex items-baseline gap-1.5">
+          <span id="tdee-value" class="text-4xl font-bold tabular-nums">–</span>
+          <span class="text-sm text-slate-400">kcal</span>
+        </div>
+        <p class="mt-3 text-xs text-slate-500">พลังงานที่ใช้ต่อวัน <span class="font-medium">ก่อนหัก Deficit</span></p>
+        <p id="bmr-note" class="mt-1 text-xs text-slate-400"></p>
+      </article>
+
+      <!-- Target -->
+      <article class="rounded-[1.25rem] p-5 reveal text-white bg-gradient-to-br from-brand-600 to-violet-600 shadow-xl shadow-brand-500/25" style="animation-delay:.16s">
+        <p class="text-xs font-semibold uppercase tracking-wider text-white/70">เป้าหมายแคลอรีต่อวัน</p>
+        <div class="mt-2 flex items-baseline gap-1.5">
+          <span id="target-value" class="text-4xl font-bold tabular-nums">–</span>
+          <span class="text-sm text-white/70">kcal</span>
+        </div>
+        <p id="target-note" class="mt-3 text-xs text-white/85 leading-relaxed"></p>
+      </article>
+    </div>
+
+    <!-- Macros -->
+    <article class="card p-5 sm:p-6 reveal" style="animation-delay:.24s">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-semibold">สัดส่วนสารอาหารหลัก (Macros)</h3>
+        <span id="macro-total" class="text-xs text-slate-400 tabular-nums"></span>
+      </div>
+
+      <div class="flex h-4 w-full rounded-full overflow-hidden bg-slate-100" role="img" aria-label="สัดส่วนโปรตีน ไขมัน และคาร์โบไฮเดรต">
+        <div id="bar-protein" class="macro-seg bg-protein"></div>
+        <div id="bar-fat" class="macro-seg bg-fat"></div>
+        <div id="bar-carb" class="macro-seg bg-carb"></div>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div class="rounded-xl bg-blue-50/70 border border-blue-100 p-3.5">
+          <div class="flex items-center gap-2 text-sm font-medium text-blue-700"><span class="w-2.5 h-2.5 rounded-full bg-protein"></span>โปรตีน</div>
+          <p class="mt-1 text-2xl font-bold tabular-nums"><span id="p-g">–</span><span class="text-sm font-medium text-slate-400"> g</span></p>
+          <p class="text-xs text-slate-500"><span id="p-pct">–</span>% · <span id="p-kcal">–</span> kcal</p>
+        </div>
+        <div class="rounded-xl bg-violet-50/70 border border-violet-100 p-3.5">
+          <div class="flex items-center gap-2 text-sm font-medium text-violet-700"><span class="w-2.5 h-2.5 rounded-full bg-fat"></span>ไขมัน</div>
+          <p class="mt-1 text-2xl font-bold tabular-nums"><span id="f-g">–</span><span class="text-sm font-medium text-slate-400"> g</span></p>
+          <p class="text-xs text-slate-500"><span id="f-pct">–</span>% · <span id="f-kcal">–</span> kcal</p>
+        </div>
+        <div class="rounded-xl bg-amber-50/70 border border-amber-100 p-3.5">
+          <div class="flex items-center gap-2 text-sm font-medium text-amber-700"><span class="w-2.5 h-2.5 rounded-full bg-carb"></span>คาร์โบไฮเดรต</div>
+          <p class="mt-1 text-2xl font-bold tabular-nums"><span id="c-g">–</span><span class="text-sm font-medium text-slate-400"> g</span></p>
+          <p class="text-xs text-slate-500"><span id="c-pct">–</span>% · <span id="c-kcal">–</span> kcal</p>
+        </div>
+      </div>
+      <p id="macro-warn" class="hidden mt-4 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2"></p>
+    </article>
+
+    <p class="text-center text-xs text-slate-400 px-4 reveal" style="animation-delay:.32s">
+      ผลลัพธ์เป็นค่าประมาณเพื่อใช้อ้างอิงเท่านั้น ไม่ใช่คำแนะนำทางการแพทย์ หากมีโรคประจำตัวหรือตั้งครรภ์ ควรปรึกษาแพทย์/นักกำหนดอาหาร
+    </p>
+  </section>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var KCAL = { protein: 4, carb: 4, fat: 9 };
+
+  /* ---------- Pure calculation ---------- */
+
+  function bmiCategory(bmi) {
+    // เกณฑ์ของเอเชีย/กรมอนามัย: ท้วม 23-24.9, อ้วนระดับ 1 25-29.9, อ้วนระดับ 2 >= 30
+    if (bmi < 18.5) return { label: 'น้ำหนักน้อย', cls: 'bg-sky-100 text-sky-700' };
+    if (bmi < 23)   return { label: 'ปกติ',        cls: 'bg-emerald-100 text-emerald-700' };
+    if (bmi < 25)   return { label: 'ท้วม',        cls: 'bg-amber-100 text-amber-700' };
+    if (bmi < 30)   return { label: 'อ้วนระดับ 1', cls: 'bg-orange-100 text-orange-700' };
+    return                 { label: 'อ้วนระดับ 2', cls: 'bg-rose-100 text-rose-700' };
+  }
+
+  // Dynamic deficit ตาม BMI
+  // หมายเหตุ: ช่วง BMI 22-22.9 ไม่ได้ระบุในโจทย์ จึงรวมไว้กับกลุ่ม 15% (ขอบเขตจริงคือ 22 ≤ BMI < 25)
+  function deficitRule(bmi) {
+    if (bmi < 22)  return { pct: 8,  max: 300 };
+    if (bmi < 25)  return { pct: 15, max: 400 };
+    if (bmi < 30)  return { pct: 20, max: 500 };
+    return                { pct: 25, max: 800 };
+  }
+
+  function calculate(i) {
+    var heightM = i.height / 100;
+    var bmi = i.weight / (heightM * heightM);
+
+    var ibw = i.gender === 'male' ? i.height - 100 : i.height - 105;
+
+    // BMI > 25 → ใช้ Adjusted Body Weight แทนน้ำหนักจริงใน BMR
+    var usedWeight = i.weight;
+    var usedABW = false;
+    if (bmi > 25) {
+      usedWeight = ibw + 0.25 * (i.weight - ibw);
+      usedABW = true;
+    }
+
+    // Mifflin-St Jeor
+    var bmr = 10 * usedWeight + 6.25 * i.height - 5 * i.age + (i.gender === 'male' ? 5 : -161);
+    var tdee = bmr * i.activity + i.extra;
+
+    var rule = deficitRule(bmi);
+    var deficit = Math.min(tdee * rule.pct / 100, rule.max);
+    var target = tdee - deficit;
+
+    // Macros: โปรตีน → ไขมัน → คาร์บ (ส่วนที่เหลือ)
+    var proteinG = ibw * 2.0;
+    var proteinKcal = proteinG * KCAL.protein;
+
+    var fatG = i.weight * 0.8;
+    var fatCapped = false;
+    var fatCapG = (target * 0.30) / KCAL.fat;
+    if (fatG > fatCapG) { fatG = fatCapG; fatCapped = true; }
+    var fatKcal = fatG * KCAL.fat;
+
+    var carbKcal = target - proteinKcal - fatKcal;
+    var carbNegative = carbKcal < 0;
+    if (carbNegative) carbKcal = 0;
+    var carbG = carbKcal / KCAL.carb;
+
+    var sumKcal = proteinKcal + fatKcal + carbKcal;
+
+    return {
+      bmi: bmi, ibw: ibw, usedWeight: usedWeight, usedABW: usedABW,
+      bmr: bmr, tdee: tdee, rule: rule, deficit: deficit, target: target,
+      macros: {
+        protein: { g: proteinG, kcal: proteinKcal, pct: proteinKcal / sumKcal * 100 },
+        fat:     { g: fatG,     kcal: fatKcal,     pct: fatKcal / sumKcal * 100 },
+        carb:    { g: carbG,    kcal: carbKcal,    pct: carbKcal / sumKcal * 100 }
+      },
+      fatCapped: fatCapped, carbNegative: carbNegative
+    };
+  }
+
+  /* ---------- Input / validation ---------- */
+
+  var LIMITS = {
+    age:    { min: 15,  max: 100, label: 'อายุ' },
+    weight: { min: 30,  max: 300, label: 'น้ำหนัก' },
+    height: { min: 120, max: 230, label: 'ส่วนสูง' },
+    extra:  { min: 0,   max: 3000, label: 'แคลอรีจากการออกกำลังกายเพิ่มเติม' }
+  };
+
+  function readInputs() {
+    var errors = [];
+    var vals = {};
+    Object.keys(LIMITS).forEach(function (k) {
+      var el = $(k);
+      var raw = el.value.trim();
+      var n = raw === '' ? (k === 'extra' ? 0 : NaN) : Number(raw);
+      var lim = LIMITS[k];
+      var bad = !isFinite(n) || n < lim.min || n > lim.max;
+      el.classList.toggle('invalid', bad);
+      if (bad) errors.push(lim.label + ' ต้องอยู่ระหว่าง ' + lim.min + '–' + lim.max);
+      vals[k] = n;
+    });
+    vals.gender = document.querySelector('input[name="gender"]:checked').value;
+    vals.activity = Number($('activity').value);
+    return { vals: vals, errors: errors };
+  }
+
+  /* ---------- Rendering ---------- */
+
+  var fmt = function (n) { return Math.round(n).toLocaleString('en-US'); };
+
+  function animateNumber(el, to, ms) {
+    var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { el.textContent = fmt(to); return; }
+    var start = performance.now();
+    (function tick(now) {
+      var t = Math.min((now - start) / ms, 1);
+      var eased = 1 - Math.pow(1 - t, 3);
+      el.textContent = fmt(to * eased);
+      if (t < 1) requestAnimationFrame(tick);
+    })(start);
+  }
+
+  function render(r) {
+    var cat = bmiCategory(r.bmi);
+
+    // BMI
+    $('bmi-value').textContent = r.bmi.toFixed(1);
+    var badge = $('bmi-badge');
+    badge.textContent = cat.label;
+    badge.className = 'text-xs font-semibold px-2.5 py-1 rounded-full ' + cat.cls;
+    var pos = Math.max(0, Math.min(1, (r.bmi - 15) / (40 - 15))) * 100;
+    $('bmi-marker').style.left = '0%';
+    $('bmi-note').textContent = r.usedABW
+      ? 'BMI > 25: ใช้น้ำหนักปรับค่า (ABW) ' + r.usedWeight.toFixed(1) + ' กก. คำนวณ BMR'
+      : 'ใช้น้ำหนักจริงในการคำนวณ BMR';
+
+    // TDEE
+    animateNumber($('tdee-value'), r.tdee, 900);
+    $('bmr-note').textContent = 'BMR ' + fmt(r.bmr) + ' kcal (Mifflin-St Jeor)';
+
+    // Target
+    animateNumber($('target-value'), r.target, 1100);
+    $('target-note').textContent =
+      'หัก Deficit ' + r.rule.pct + '% ตามเกณฑ์ BMI = ' + fmt(r.deficit) + ' kcal' +
+      (r.tdee * r.rule.pct / 100 > r.rule.max ? ' (จำกัดเพดานสูงสุด ' + r.rule.max + ' kcal)' : '');
+
+    // Macros
+    var m = r.macros;
+    $('p-g').textContent = fmt(m.protein.g);  $('p-pct').textContent = fmt(m.protein.pct);  $('p-kcal').textContent = fmt(m.protein.kcal);
+    $('f-g').textContent = fmt(m.fat.g);      $('f-pct').textContent = fmt(m.fat.pct);      $('f-kcal').textContent = fmt(m.fat.kcal);
+    $('c-g').textContent = fmt(m.carb.g);     $('c-pct').textContent = fmt(m.carb.pct);     $('c-kcal').textContent = fmt(m.carb.kcal);
+    $('macro-total').textContent = 'รวม ' + fmt(m.protein.kcal + m.fat.kcal + m.carb.kcal) + ' kcal';
+
+    var warn = $('macro-warn');
+    var msgs = [];
+    if (r.fatCapped) msgs.push('ไขมันถูกจำกัดไม่เกิน 30% ของแคลอรีเป้าหมาย');
+    if (r.carbNegative) msgs.push('แคลอรีเป้าหมายต่ำกว่าโปรตีน+ไขมันที่คำนวณได้ จึงตั้งคาร์โบไฮเดรตเป็น 0 — แคลอรีรวมอาจสูงกว่าเป้าหมายเล็กน้อย ควรปรึกษาผู้เชี่ยวชาญ');
+    warn.textContent = msgs.join(' · ');
+    warn.classList.toggle('hidden', msgs.length === 0);
+
+    // ตั้งค่า bar เป็น 0 ก่อน แล้วค่อยขยายเพื่อให้ transition ทำงานทุกครั้งที่คำนวณ
+    ['protein', 'fat', 'carb'].forEach(function (k) { $('bar-' + k).style.width = '0%'; });
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        $('bar-protein').style.width = m.protein.pct + '%';
+        $('bar-fat').style.width = m.fat.pct + '%';
+        $('bar-carb').style.width = m.carb.pct + '%';
+        $('bmi-marker').style.left = pos + '%';
+      });
+    });
+  }
+
+  function showResults(r) {
+    var section = $('results');
+    // รีสตาร์ท animation ของการ์ดทุกครั้งที่คำนวณใหม่
+    section.querySelectorAll('.reveal').forEach(function (el) {
+      el.style.animation = 'none';
+      void el.offsetWidth;
+      el.style.animation = '';
+    });
+    section.classList.remove('hidden');
+    render(r);
+  }
+
+  /* ---------- Wiring ---------- */
+
+  $('calc-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var btn = $('calc-btn');
+    var errBox = $('form-error');
+    var parsed = readInputs();
+
+    if (parsed.errors.length) {
+      errBox.textContent = parsed.errors.join(' · ');
+      errBox.classList.remove('hidden');
+      btn.classList.remove('shake'); void btn.offsetWidth; btn.classList.add('shake');
+      return;
+    }
+    errBox.classList.add('hidden');
+
+    // Loading สั้นๆ เพื่อให้รู้สึกถึงการคำนวณ
+    btn.disabled = true;
+    $('btn-spinner').classList.remove('hidden');
+    $('btn-label').textContent = 'กำลังคำนวณ...';
+
+    setTimeout(function () {
+      var result = calculate(parsed.vals);
+      btn.disabled = false;
+      $('btn-spinner').classList.add('hidden');
+      $('btn-label').textContent = 'คำนวณเป้าหมายของฉัน';
+      showResults(result);
+      $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 450);
+  });
+
+  // เอาสถานะ error ออกเมื่อผู้ใช้แก้ไข
+  Object.keys(LIMITS).forEach(function (k) {
+    $(k).addEventListener('input', function () { this.classList.remove('invalid'); });
+  });
+})();
+</script>
+</body>
+</html>

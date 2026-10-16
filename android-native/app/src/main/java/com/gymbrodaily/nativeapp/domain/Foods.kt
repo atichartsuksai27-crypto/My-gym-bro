@@ -46,12 +46,12 @@ object Foods {
         Food("peanut_butter", "fat", "เนยถั่ว", 25.0, 20.0, 50.0, "1 ช้อนโต๊ะ ≈ 16 g"),
         Food("coconut_milk", "fat", "กะทิ", 2.3, 5.5, 23.8, null),
     )
-    private fun r1(v: Double) = jsRound(v * 10) / 10
+    private fun r1(v: Double) = jsRound(v * 10) / 10.0
     fun entry(food: Food, grams: Double): FoodEntry {
         require(grams.isFinite() && grams in 1.0..3000.0)
-        val p = r1(food.p * grams / 100)
-        val c = r1(food.c * grams / 100)
-        val f = r1(food.f * grams / 100)
+        val p = r1(food.p * grams / 100.0)
+        val c = r1(food.c * grams / 100.0)
+        val f = r1(food.f * grams / 100.0)
         return FoodEntry(food.id, food.cat, food.name, grams, p, c, f, jsRound(p * 4 + c * 4 + f * 9))
     }
     fun add(n: Nutrition, food: Food, grams: Double): Nutrition {

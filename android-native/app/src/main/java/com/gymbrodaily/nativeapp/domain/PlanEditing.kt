@@ -118,7 +118,7 @@ object PlanEditing {
     fun seedPlanFromProgram(plan: PlanOverrides, p: Program): PlanOverrides {
         val mins = p.cardioDays.associateWith { ProgressGoal.cardioMinFor(p, it) }
         val intensity = LinkedHashMap<String, String>()
-        p.sessions.forEach { se -> se.exercises.forEach { ex -> if (ex.intensity == "intense") intensity[ex.slot ?: ex.pattern] = "intense" } }
+        p.sessions.forEach { se -> se.exercises.forEach { ex -> if (ex.intensity == "intense") intensity[ex.slot?.takeIf { it.isNotEmpty() } ?: ex.pattern] = "intense" } }
         return plan.copy(trainDays = p.days, cardioDays = p.cardioDays, cardioMinByDay = mins, intensity = intensity)
     }
 

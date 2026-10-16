@@ -88,15 +88,109 @@ function calculateBMRKatchMcArdle(weightKg, bodyFatPct){
   if(!(weightKg>0) || !(bodyFatPct>=KATCH_BF_MIN && bodyFatPct<=KATCH_BF_MAX)) return null;
   return 370 + 21.6 * (weightKg * (1 - bodyFatPct/100));
 }
+/* ------------------------------------------------------------
+   BMI / น้ำหนักอ้างอิง (Adjusted Body Weight)
+   Mifflin กับน้ำหนักรวมของคน BMI > 25 นับไขมันส่วนเกินเหมือนเนื้อเยื่อที่ใช้พลังงานเท่ากล้าม → TDEE สูงเกินจริง
+   BMI > 25 จึงใช้ ABW = anchor + 0.4 × (น้ำหนักจริง − anchor)  (0.4 = สัดส่วนของน้ำหนักส่วนเกินที่ยังเผาผลาญ)
+   anchor = น้ำหนักเป้าหมายถ้าอยู่ในช่วง BMI 18.5–25 และต่ำกว่าน้ำหนักจริง ไม่งั้น IBW (น้ำหนักที่ BMI 22 —
+   ใช้ BMI แทนสูตร Devine เพราะ Devine อิงส่วนสูงฝรั่งและคิดค่าเพี้ยนกับคนตัวเล็ก)
+   ------------------------------------------------------------ */
+var BMI_ABW_THRESHOLD = 25, IBW_BMI = 22, ABW_FACTOR = 0.4;
+function calculateBMI(weightKg, heightCm){
+  weightKg = Number(weightKg); heightCm = Number(heightCm);
+  if(!(weightKg>0) || !(heightCm>0)) return null;
+  var m = heightCm/100;
+  return weightKg/(m*m);
+}
+function idealBodyWeight(heightCm){
+  heightCm = Number(heightCm);
+  if(!(heightCm>0)) return null;
+  var m = heightCm/100;
+  return IBW_BMI*m*m;
+}
+/* คืน {kg, method:'actual'|'abw', bmi, anchorKg} — kg คือน้ำหนักที่ควรใช้คิด BMR/โปรตีน; null ถ้าข้อมูลไม่ครบ */
+function referenceWeight(weightKg, heightCm, goalWeightKg){
+  var bmi = calculateBMI(weightKg, heightCm);
+  if(bmi==null) return null;
+  weightKg = Number(weightKg);
+  if(bmi <= BMI_ABW_THRESHOLD) return {kg: weightKg, method: 'actual', bmi: bmi, anchorKg: null};
+  var goalBmi = calculateBMI(goalWeightKg, heightCm);
+  var anchor = (goalBmi!=null && goalBmi>=18.5 && goalBmi<=BMI_ABW_THRESHOLD && Number(goalWeightKg) < weightKg)
+    ? Number(goalWeightKg) : idealBodyWeight(heightCm);
+  return {kg: anchor + ABW_FACTOR*(weightKg - anchor), method: 'abw', bmi: bmi, anchorKg: anchor};
+}
+
 /* จุดเข้าเดียวสำหรับ BMR ของโปรไฟล์ผู้ใช้: ข้อมูลพื้นฐานต้องครบก่อน (ไม่งั้น null เหมือนเดิม)
-   แล้วใช้ Katch-McArdle ถ้ามี bodyFatPct ที่ผู้ใช้กรอกเอง ไม่งั้น Mifflin-St Jeor
-   รับ object {weightKg, heightCm, age, sex, bodyFatPct}  bodyFatPct ว่าง/null = ไม่ได้กรอก */
+   1) มี bodyFatPct ที่ผู้ใช้กรอกเอง → Katch-McArdle (คิดจากมวลไร้ไขมันอยู่แล้ว ไม่ต้องปรับน้ำหนัก)
+   2) ไม่งั้น Mifflin-St Jeor ด้วยน้ำหนักอ้างอิง: BMI ≤ 25 = น้ำหนักจริง, BMI > 25 = ABW (ดู referenceWeight)
+   รับ object {weightKg, heightCm, age, sex, bodyFatPct, goalWeightKg}  bodyFatPct/goalWeightKg ว่าง/null = ไม่ได้กรอก */
 function calculateBMRForProfile(p){
   var mifflin = calculateBMR(p);
   if(mifflin==null) return null;
-  if(p.bodyFatPct==null || p.bodyFatPct==='') return mifflin;
-  var katch = calculateBMRKatchMcArdle(p.weightKg, p.bodyFatPct);
-  return katch==null ? mifflin : katch;
+  if(p.bodyFatPct!=null && p.bodyFatPct!==''){
+    var katch = calculateBMRKatchMcArdle(p.weightKg, p.bodyFatPct);
+    if(katch!=null) return katch;
+  }
+  var ref = referenceWeight(p.weightKg, p.heightCm, p.goalWeightKg);
+  if(!ref || ref.method==='actual') return mifflin;
+  return calculateBMR(ref.kg, p.heightCm, p.age, p.sex);
+}
+
+/* ------------------------------------------------------------
+   recompDeficit — % ที่หักจากพลังงานที่ใช้ (และเพดาน kcal) ของ Recomposition แปรตาม BMI
+   คนผอม/สมส่วนต้องขาดน้อยเพื่อไม่เสียกล้าม คนอ้วนมีพลังงานสะสมมาก recomp ได้แม้ขาดมาก
+   ช่วง 22–24.9 ไม่ได้ระบุในโจทย์ — ใช้ค่ากลางระหว่างสองช่วงข้างเคียง (12%, 400 kcal)
+   ------------------------------------------------------------ */
+var RECOMP_DEFICIT_TIERS = [
+  {maxBmi: 22,       pct: 0.08, cap: 300},
+  {maxBmi: 25,       pct: 0.12, cap: 400},
+  {maxBmi: 30,       pct: 0.20, cap: 500},
+  {maxBmi: Infinity, pct: 0.25, cap: 800}
+];
+function recompDeficit(bmi){
+  bmi = Number(bmi);
+  if(!(bmi>0)) return null;
+  for(var i=0; i<RECOMP_DEFICIT_TIERS.length; i++){
+    if(bmi < RECOMP_DEFICIT_TIERS[i].maxBmi) return RECOMP_DEFICIT_TIERS[i];
+  }
+  return RECOMP_DEFICIT_TIERS[RECOMP_DEFICIT_TIERS.length-1];
+}
+
+/* ------------------------------------------------------------
+   calculateMacros — คิดเป็นกรัมตามลำดับ ไม่ใช่แบ่งเปอร์เซ็นต์ (กันคาร์บเฟ้อเมื่อแคลรวมสูง)
+     1) โปรตีน = 2.0 g × proteinRefKg      (น้ำหนักเป้า/IBW สำหรับ BMI > 25 — ผู้เรียกเป็นคนเลือก)
+     2) ไขมัน  = 0.8 g × fatRefKg (น้ำหนักปัจจุบัน) แล้วบีบให้อยู่ใน 20–30% ของแคลรวม
+     3) คาร์บ  = (kcal − โปรตีน×4 − ไขมัน×9) / 4  — ได้ส่วนที่เหลือทั้งหมด
+   ถ้าคาร์บเหลือต่ำกว่า CARB_MIN_G ให้ถอยทีละขั้น (ไม่ดันคาร์บขึ้นจนรวมเกินเป้าแบบเดิม):
+     a) ลดไขมันลงถึงพื้น 20%  b) ลดโปรตีนลงถึง 1.6 g/kg  c) คาร์บ = ส่วนที่เหลือ (ต่ำสุด 0 ไม่ติดลบ)
+   clamped = true เมื่อต้องถอยข้อใดข้อหนึ่ง
+   kcal ว่าง → คืนแค่โปรตีน (ไม่ fabricate ไขมัน/คาร์บ)
+   ------------------------------------------------------------ */
+var PROTEIN_G_PER_KG = 2.0, PROTEIN_MIN_G_PER_KG = 1.6, FAT_G_PER_KG = 0.8;
+var FAT_MIN_PCT = 0.20, FAT_MAX_PCT = 0.30, CARB_MIN_G = 50;
+function calculateMacros(kcal, proteinRefKg, fatRefKg){
+  proteinRefKg = Number(proteinRefKg);
+  fatRefKg = Number(fatRefKg) > 0 ? Number(fatRefKg) : proteinRefKg;
+  var hasRef = proteinRefKg > 0;
+  var proteinG = hasRef ? PROTEIN_G_PER_KG*proteinRefKg : 0;
+  if(kcal==null || kcal==='' || !isFinite(Number(kcal))){
+    return {proteinG: hasRef ? Math.round(proteinG) : null, fatG: null, carbG: null, clamped: false};
+  }
+  kcal = Number(kcal);
+  var fatMinG = kcal*FAT_MIN_PCT/9, fatMaxG = kcal*FAT_MAX_PCT/9;
+  var fatG = fatRefKg > 0 ? Math.min(fatMaxG, Math.max(fatMinG, FAT_G_PER_KG*fatRefKg)) : kcal*0.25/9; // ไม่รู้น้ำหนัก = กลางช่วง
+  function carbsLeft(){ return (kcal - proteinG*4 - fatG*9)/4; }
+  var clamped = false;
+  if(carbsLeft() < CARB_MIN_G && fatG > fatMinG){
+    fatG = Math.max(fatMinG, fatG - (CARB_MIN_G - carbsLeft())*4/9); clamped = true;
+  }
+  if(carbsLeft() < CARB_MIN_G && hasRef){
+    var proteinMinG = PROTEIN_MIN_G_PER_KG*proteinRefKg;
+    if(proteinG > proteinMinG){ proteinG = Math.max(proteinMinG, proteinG - (CARB_MIN_G - carbsLeft())); clamped = true; }
+  }
+  if(carbsLeft() < CARB_MIN_G) clamped = true;
+  var carbG = Math.max(0, carbsLeft());
+  return {proteinG: hasRef ? Math.round(proteinG) : null, fatG: Math.round(fatG), carbG: Math.round(carbG), clamped: clamped};
 }
 
 /* ------------------------------------------------------------
@@ -174,6 +268,11 @@ global.GymBroCalc = {
   calculateBMR: calculateBMR,
   calculateBMRKatchMcArdle: calculateBMRKatchMcArdle,
   calculateBMRForProfile: calculateBMRForProfile,
+  calculateBMI: calculateBMI,
+  idealBodyWeight: idealBodyWeight,
+  referenceWeight: referenceWeight,
+  recompDeficit: recompDeficit,
+  calculateMacros: calculateMacros,
   calculateTDEE: calculateTDEE,
   calculateFFM: calculateFFM,
   calculateEnergyAvailability: calculateEnergyAvailability,

@@ -550,13 +550,19 @@ function typedBodyFatPct(a){
   var v = parseFloat(a.Q14_val);
   return (a.Q14==='ทราบ (กรอกตัวเลข)' && v>=3 && v<=60) ? v : null;
 }
+/* น้ำหนักเป้าหมายที่ผู้ใช้ระบุ (Q13) — null ถ้าไม่ได้ระบุ */
+function goalWeightFromAnswers(a){
+  var v = parseFloat(a.Q13_val);
+  return (a.Q13==='ระบุ' && v>0) ? v : null;
+}
 function computeTDEE(a){
   var bmr = GymBroCalc.calculateBMRForProfile({
     weightKg: a.Q12,   // น้ำหนักตัว (kg)
     heightCm: a.Q11,   // ส่วนสูง (cm)
     age: a.Q10,        // อายุ (ปี)
     sex: a.Q9,         // 'ชาย' | 'หญิง'
-    bodyFatPct: typedBodyFatPct(a) // กรอกเอง → Katch-McArdle, ไม่งั้น Mifflin
+    bodyFatPct: typedBodyFatPct(a), // กรอกเอง → Katch-McArdle, ไม่งั้น Mifflin
+    goalWeightKg: goalWeightFromAnswers(a) // BMI > 25 → Mifflin ด้วย ABW (anchor = น้ำหนักเป้า/IBW)
   });
   var factor = GymBroCalc.activityFactorFromQ36(a.Q36); // null ถ้า Q36 ยังไม่ตอบ/ไม่รู้จัก
   return GymBroCalc.calculateTDEE({bmr: bmr, activityFactor: factor}); // null ถ้าข้อมูลไม่ครบ
@@ -606,17 +612,20 @@ function computeCalorieTarget(tdee, a, exKcal){
       directionLabel = 'เพิ่มกล้ามเนื้อ (surplus 10%'+exNote+')';
     }
   } else if(goal==='Recomposition (ลด+เพิ่มพร้อมกัน)'){
-    /* Recomp = กินขาดเล็กน้อยหรือใกล้เคียงพอดี + โปรตีนสูง + ฝึกเวท — ไม่กินเกิน
-       เปอร์เซ็นต์ที่หักคิดจากพลังงานที่ใช้รวมการฝึก (base) ไม่ใช่ TDEE เฉย ๆ ไม่งั้นวันฝึกขาดซ้ำสองชั้น (−5% กลายเป็น ~−10%) */
-    if(a.Q6==='ห่างมาก'){
-      target = Math.max(base*0.92, base-300);
-      directionLabel = 'Recomposition (ห่างเป้ามาก — หัก 8% แต่ไม่เกิน 300 kcal'+exNote+')';
-    } else if(a.Q6==='ใกล้เป้าหมายแล้ว'){
-      target = base*1.0; // ไขมันใกล้เป้าแล้ว — กินพอดีพลังงานที่ใช้
+    /* Recomp = กินขาด + โปรตีนสูง + ฝึกเวท — ไม่กินเกิน ขนาดที่หักแปรตาม BMI (GymBroCalc.recompDeficit):
+       BMI ต่ำขาดน้อยกันเสียกล้าม, BMI สูงขาดมากได้เพราะพลังงานสะสมเยอะ (เดิมล็อก 8%/300 ทำให้คนอ้วนแทบไม่ขาด)
+       เปอร์เซ็นต์ที่หักคิดจากพลังงานที่ใช้รวมการฝึก (base) ไม่ใช่ TDEE เฉย ๆ ไม่งั้นวันฝึกขาดซ้ำสองชั้น
+       BMI < 25 และตอบ Q6 "ใกล้เป้าหมายแล้ว" = กินพอดีพลังงานที่ใช้ (BMI ≥ 25 ยังหักตามช่วง BMI) */
+    var bmi = GymBroCalc.calculateBMI(a.Q12, a.Q11), tier = GymBroCalc.recompDeficit(bmi);
+    if(a.Q6==='ใกล้เป้าหมายแล้ว' && bmi!=null && bmi < 25){
+      target = base*1.0;
       directionLabel = 'Recomposition (ใกล้เป้าแล้ว — เท่าพลังงานที่ใช้รวมการฝึก'+exNote+')';
+    } else if(tier){
+      target = Math.max(base*(1 - tier.pct), base - tier.cap);
+      directionLabel = 'Recomposition (BMI '+fmt1(bmi)+' — หัก '+Math.round(tier.pct*100)+'% แต่ไม่เกิน '+fmtKcal(tier.cap)+' kcal'+exNote+')';
     } else {
-      target = Math.max(base*0.95, base-200); // "ห่างปานกลาง" หรือยังไม่ตอบ Q6
-      directionLabel = 'Recomposition (ห่างปานกลาง — หัก 5% แต่ไม่เกิน 200 kcal'+exNote+')';
+      target = Math.max(base*0.92, base-300); // ไม่มีน้ำหนัก/ส่วนสูง — ใช้ช่วงที่ขาดน้อยสุดไว้ก่อน
+      directionLabel = 'Recomposition (หัก 8% แต่ไม่เกิน 300 kcal'+exNote+')';
     }
   } else {
     target = base;
@@ -642,19 +651,17 @@ function computeCalorieTarget(tdee, a, exKcal){
   var floored = kcal > target;
   return {kcal: kcal, floored:floored, floor:floor, eaLimited:eaLimited, direction:directionLabel+(eaLimited?eaNote:'')};
 }
-function computeMacro(kcal, weightKg){
-  var proteinG = (weightKg>0) ? Math.round(2.0*weightKg) : null;
-  if(kcal==null || isNaN(kcal)){
-    return {proteinG:proteinG, fatG:null, carbG:null, clamped:false}; // ไม่ fabricate fat/carb ถ้าไม่มีเป้าแคลอรี่
-  }
-  var proteinKcal = (proteinG||0)*4;
-  var fatKcal = kcal*0.28;
-  var fatG = Math.round(fatKcal/9);
-  var carbKcal = kcal - proteinKcal - fatKcal;
-  var clamped = false;
-  if(carbKcal < 200){ carbKcal = 200; clamped = true; }
-  var carbG = Math.round(carbKcal/4);
-  return {proteinG:proteinG, fatG:fatG, carbG:carbG, clamped:clamped};
+/* proteinRefKg = น้ำหนักที่ใช้คิดโปรตีน 2 g/kg, fatRefKg = น้ำหนักปัจจุบันสำหรับไขมัน 0.8 g/kg (ไม่ส่ง = ใช้ proteinRefKg)
+   สูตรอยู่ใน GymBroCalc.calculateMacros: โปรตีน → ไขมัน → คาร์บได้ส่วนที่เหลือ (ไม่ติดลบ ไม่รวมเกินเป้า) */
+function computeMacro(kcal, proteinRefKg, fatRefKg){
+  return GymBroCalc.calculateMacros(kcal, proteinRefKg, fatRefKg);
+}
+/* น้ำหนักที่ใช้คิดโปรตีน: BMI ≤ 25 = น้ำหนักจริง, BMI > 25 = น้ำหนักเป้า (ถ้าอยู่ในช่วง BMI สุขภาพ) ไม่งั้น IBW
+   — 2 g × น้ำหนักรวมของคน 120 กก. = 240 g เกินความจำเป็นและเบียดคาร์บ (F-17) */
+function proteinRefKg(a, kg){
+  var ref = GymBroCalc.referenceWeight(kg, a.Q11, goalWeightFromAnswers(a));
+  if(!ref) return kg>0 ? kg : null;
+  return ref.method==='actual' ? ref.kg : ref.anchorKg;
 }
 
 var MEALS_MAP = {'2 มื้อ':2,'3 มื้อ':3,'4-5 มื้อ':4,'ไม่แน่นอน':3};
@@ -664,7 +671,7 @@ function computeTargets(a){
   var hasWeight = w>0;
   var tdee = computeTDEE(a); // null ถ้าข้อมูลไม่ครบ/ไม่ถูกต้อง — ไม่ fabricate ค่า
   var cal = computeCalorieTarget(tdee, a, hasWeight ? plannedExFromAnswers(a, w) : 0);
-  var macro = computeMacro(cal.kcal, hasWeight?w:null);
+  var macro = computeMacro(cal.kcal, hasWeight ? proteinRefKg(a, w) : null, hasWeight ? w : null);
   var water = hasWeight ? Math.min(4.0, Math.max(1.5, Math.round(w*0.035*10)/10)) : null;
   var already = WATER_NOW[a.Q43];
   if(water!=null && already && already > water) water = Math.min(4.0, already);
@@ -1261,7 +1268,7 @@ function ffmFromAnswers(a, kg, sex){
 }
 function pgBMR(p, kg){
   var a = state.answers || {};
-  return GymBroCalc.calculateBMRForProfile({weightKg:kg, heightCm:a.Q11, age:a.Q10, sex:pgSex(p), bodyFatPct:typedBodyFatPct(a)});
+  return GymBroCalc.calculateBMRForProfile({weightKg:kg, heightCm:a.Q11, age:a.Q10, sex:pgSex(p), bodyFatPct:typedBodyFatPct(a), goalWeightKg:goalWeightFromAnswers(a)});
 }
 /* กรอบน้ำหนัก (กก./สัปดาห์, ลบ = ลด) ถ้าทำตามแผน
    รักษาสุขภาพ: ศูนย์กลางที่ 0 ± 0.2% น้ำหนักตัว/สัปดาห์ (ไม่อิงเป้าแคลอรี่ จึงไม่พาเป้าไปทางลดไขมัน)
@@ -1648,7 +1655,7 @@ function pgApply(){
   var base = pg.baseDirection || t.kcalDirection || '';
   var nt = {};
   Object.keys(t).forEach(function(k){ nt[k] = t[k]; });
-  var macro = computeMacro(rec.kcal, t.proteinG ? t.proteinG/2 : bodyweightAsOf(today)); // คงเป้าโปรตีนเดิม
+  var macro = computeMacro(rec.kcal, t.proteinG ? t.proteinG/2 : bodyweightAsOf(today), bodyweightAsOf(today)); // คงเป้าโปรตีนเดิม
   nt.kcal = rec.kcal; nt.tdee = rec.tdee; nt.fatG = macro.fatG; nt.carbG = macro.carbG; nt.macroClamped = macro.clamped;
   nt.kcalDirection = base+' · ปรับตามผลจริงเมื่อ '+shortDateTH(today);
   p.targets = nt;
@@ -4320,7 +4327,7 @@ function calorieApply(){
   if(!u) return;
   var t = p.targets, nt = {}, today = todayISO();
   Object.keys(t).forEach(function(k){ nt[k] = t[k]; });
-  var macro = computeMacro(u.kcal, t.proteinG ? t.proteinG/2 : bodyweightAsOf(today)); // คงเป้าโปรตีนเดิม (2 ก./กก.)
+  var macro = computeMacro(u.kcal, t.proteinG ? t.proteinG/2 : bodyweightAsOf(today), bodyweightAsOf(today)); // คงเป้าโปรตีนเดิม (2 ก./กก.)
   nt.kcal = u.kcal; nt.tdee = u.tdee; nt.kcalDirection = u.direction; nt.kcalFloored = u.floored; nt.eaLimited = u.eaLimited;
   nt.fatG = macro.fatG; nt.carbG = macro.carbG; nt.macroClamped = macro.clamped;
   p.targets = nt;

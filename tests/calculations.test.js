@@ -183,5 +183,66 @@ test('missing exercise kcal counts as 0 (not a failure)', function(){
   assert.strictEqual(g.kcal, 1350);
 });
 
+console.log('Reference weight / ABW — BMI > 25 uses Adjusted Body Weight for Mifflin');
+test('BMI <= 25 keeps the actual weight and plain Mifflin', function(){
+  var p = {weightKg:70, heightCm:175, age:30, sex:'ชาย'};
+  assert.strictEqual(C.referenceWeight(70, 175).method, 'actual');
+  assert.strictEqual(C.calculateBMRForProfile(p), C.calculateBMR(p));
+});
+test('BMI > 25 without a goal weight: ABW = IBW(BMI 22) + 0.4 x excess', function(){
+  var ibw = 22*1.7*1.7, r = C.referenceWeight(100, 170);
+  assert.strictEqual(r.method, 'abw');
+  assert.ok(Math.abs(r.kg - (ibw + 0.4*(100 - ibw))) < 1e-9);
+  var bmr = C.calculateBMRForProfile({weightKg:100, heightCm:170, age:35, sex:'ชาย'});
+  assert.ok(Math.abs(bmr - C.calculateBMR(r.kg, 170, 35, 'ชาย')) < 1e-9);
+  assert.ok(bmr < C.calculateBMR(100, 170, 35, 'ชาย'));
+});
+test('a healthy goal weight is the ABW anchor; an unhealthy/higher one falls back to IBW', function(){
+  assert.strictEqual(C.referenceWeight(100, 170, 70).anchorKg, 70);
+  assert.ok(Math.abs(C.referenceWeight(100, 170, 45).anchorKg - 22*1.7*1.7) < 1e-9); // BMI 15.6
+  assert.ok(Math.abs(C.referenceWeight(100, 170, 110).anchorKg - 22*1.7*1.7) < 1e-9);
+});
+test('typed body fat (Katch-McArdle) wins over ABW', function(){
+  assert.strictEqual(C.calculateBMRForProfile({weightKg:100, heightCm:170, age:35, sex:'ชาย', bodyFatPct:30}),
+    C.calculateBMRKatchMcArdle(100, 30));
+});
+
+console.log('Recomp deficit tiers by BMI');
+test('8%/300, 12%/400, 20%/500, 25%/800 at the tier edges', function(){
+  [[21.9, 0.08, 300], [22, 0.12, 400], [24.9, 0.12, 400], [25, 0.20, 500], [29.9, 0.20, 500], [30, 0.25, 800], [45, 0.25, 800]]
+    .forEach(function(c){
+      var t = C.recompDeficit(c[0]);
+      assert.strictEqual(t.pct, c[1], 'bmi '+c[0]); assert.strictEqual(t.cap, c[2], 'bmi '+c[0]);
+    });
+  assert.strictEqual(C.recompDeficit(null), null);
+});
+
+console.log('Macros — protein g → fat g → carbs = remainder');
+test('normal case: 2 g/kg protein, 0.8 g/kg fat, carbs fill the rest, total = target', function(){
+  var m = C.calculateMacros(2500, 70, 70);
+  assert.deepStrictEqual(m, {proteinG:140, fatG:56, carbG:359, clamped:false});
+  assert.ok(Math.abs(m.proteinG*4 + m.fatG*9 + m.carbG*4 - 2500) <= 6);
+});
+test('heavy user: fat capped at 30% of kcal so it cannot crowd the plan', function(){
+  var m = C.calculateMacros(2000, 70, 130); // 0.8 x 130 = 104 g = 47% → capped
+  assert.strictEqual(m.fatG, Math.round(2000*0.30/9));
+});
+test('low target: fat drops to its 20% floor before protein is touched; carbs never negative', function(){
+  var m = C.calculateMacros(1100, 80, 80);
+  assert.strictEqual(m.clamped, true);
+  assert.ok(m.carbG >= 0);
+  assert.ok(m.fatG >= Math.round(1100*0.20/9));
+  assert.ok(m.proteinG >= Math.round(1.6*80));
+  assert.ok(m.proteinG*4 + m.fatG*9 + m.carbG*4 <= 1100 + 6, 'never above target when it fits');
+});
+test('impossible target: carbs clamp to 0, flagged', function(){
+  var m = C.calculateMacros(800, 120, 120);
+  assert.strictEqual(m.carbG, 0);
+  assert.strictEqual(m.clamped, true);
+});
+test('no kcal → protein only (no fabricated fat/carbs)', function(){
+  assert.deepStrictEqual(C.calculateMacros(null, 60), {proteinG:120, fatG:null, carbG:null, clamped:false});
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

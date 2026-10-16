@@ -120,7 +120,7 @@ private fun applyNewTarget(store: TrackStore, t: TrackData, ev: PgEval, today: S
     val tg = Tracking.targetsOf(t)
     store.patchProgram { raw ->
         val base = t.program.pg?.baseDirection?.takeIf { it.isNotEmpty() } ?: tg.kcalDirection
-        val macro = Generator.computeMacro(kcal.toDouble(), if (tg.proteinG != null && tg.proteinG != 0) tg.proteinG / 2.0 else Tracking.bodyweightAsOf(t, today))
+        val macro = Generator.computeMacro(kcal.toDouble(), if (tg.proteinG != null && tg.proteinG != 0) tg.proteinG / 2.0 else Tracking.bodyweightAsOf(t, today), Tracking.bodyweightAsOf(t, today))
         val curTargets = raw["targets"] as? JsonObject
             ?: TrackStore.json.encodeToJsonElement(com.gymbrodaily.nativeapp.domain.Targets.serializer(), tg) as JsonObject
         val nt = JsonObject(

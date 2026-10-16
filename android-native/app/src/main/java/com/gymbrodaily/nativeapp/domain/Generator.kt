@@ -128,9 +128,15 @@ object Generator {
         return issues
     }
 
+    /** น้ำหนักเป้าหมายที่ระบุ (Q13) — null ถ้าไม่ได้ระบุ (ตรงกับ goalWeightFromAnswers ของเว็บ) */
+    fun goalWeightFromAnswers(a: Answers): Double? {
+        val v = a.parseFloat("Q13_val")
+        return if (a.str("Q13") == "ระบุ" && v > 0) v else null
+    }
+
     /** adapter แปลงคำตอบไปเป็น input ของสูตรใน Calculations — ห้ามเขียนสูตรซ้ำที่นี่ */
     fun computeTDEE(a: Answers): Double? {
-        val bmr = Calculations.calculateBMRForProfile(a.number("Q12"), a.number("Q11"), a.number("Q10"), a.str("Q9"), ProgressGoal.typedBodyFatPct(a))
+        val bmr = Calculations.calculateBMRForProfile(a.number("Q12"), a.number("Q11"), a.number("Q10"), a.str("Q9"), ProgressGoal.typedBodyFatPct(a), goalWeightFromAnswers(a))
         val factor = Calculations.activityFactorFromQ36(a.str("Q36"))
         return Calculations.calculateTDEE(bmr, factor)
     }
@@ -161,10 +167,18 @@ object Generator {
                 else -> { target = base * 1.10; direction = "เพิ่มกล้ามเนื้อ (surplus 10%$exNote)" }
             }
             // Recomp: เปอร์เซ็นต์ที่หักคิดจากพลังงานที่ใช้รวมการฝึก (base) ไม่งั้นวันฝึกขาดซ้ำสองชั้น — ตรงกับเว็บ
-            "Recomposition (ลด+เพิ่มพร้อมกัน)" -> when (a.str("Q6")) {
-                "ห่างมาก" -> { target = max(base * 0.92, base - 300); direction = "Recomposition (ห่างเป้ามาก — หัก 8% แต่ไม่เกิน 300 kcal$exNote)" }
-                "ใกล้เป้าหมายแล้ว" -> { target = base * 1.0; direction = "Recomposition (ใกล้เป้าแล้ว — เท่าพลังงานที่ใช้รวมการฝึก$exNote)" }
-                else -> { target = max(base * 0.95, base - 200); direction = "Recomposition (ห่างปานกลาง — หัก 5% แต่ไม่เกิน 200 kcal$exNote)" }
+            // deficit แปรตาม BMI (Calculations.recompDeficit) — BMI < 25 และตอบ Q6 "ใกล้เป้าหมายแล้ว" = กินพอดีพลังงานที่ใช้
+            "Recomposition (ลด+เพิ่มพร้อมกัน)" -> {
+                val bmi = Calculations.calculateBMI(a.parseFloat("Q12"), a.parseFloat("Q11"))
+                val tier = Calculations.recompDeficit(bmi)
+                if (a.str("Q6") == "ใกล้เป้าหมายแล้ว" && bmi != null && bmi < 25) {
+                    target = base * 1.0; direction = "Recomposition (ใกล้เป้าแล้ว — เท่าพลังงานที่ใช้รวมการฝึก$exNote)"
+                } else if (tier != null) {
+                    target = max(base * (1 - tier.pct), base - tier.cap)
+                    direction = "Recomposition (BMI ${Tracking.fmt1(bmi!!)} — หัก ${jsRound(tier.pct * 100).toInt()}% แต่ไม่เกิน ${ProgressGoal.fmtKcal(tier.cap)} kcal$exNote)"
+                } else {
+                    target = max(base * 0.92, base - 300); direction = "Recomposition (หัก 8% แต่ไม่เกิน 300 kcal$exNote)"
+                }
             }
             else -> {
                 target = base
@@ -193,16 +207,16 @@ object Generator {
         return CalorieTarget(kcal, kcal > target, floorV, direction + eaNote, eaLimited)
     }
 
-    fun computeMacro(kcal: Double?, weightKg: Double?): Macro {
-        val proteinG = if (weightKg != null && weightKg > 0) jsRound(2.0 * weightKg).toInt() else null
-        if (kcal == null || kcal.isNaN()) return Macro(proteinG, null, null, false)
-        val proteinKcal = (proteinG ?: 0) * 4.0
-        val fatKcal = kcal * 0.28
-        val fatG = jsRound(fatKcal / 9).toInt()
-        var carbKcal = kcal - proteinKcal - fatKcal
-        var clamped = false
-        if (carbKcal < 200) { carbKcal = 200.0; clamped = true }
-        return Macro(proteinG, fatG, jsRound(carbKcal / 4).toInt(), clamped)
+    /** proteinRefKg = น้ำหนักที่ใช้คิดโปรตีน 2 g/kg, fatRefKg = น้ำหนักปัจจุบันสำหรับไขมัน 0.8 g/kg (null = ใช้ proteinRefKg) */
+    fun computeMacro(kcal: Double?, proteinRefKg: Double?, fatRefKg: Double? = null): Macro {
+        val m = Calculations.calculateMacros(kcal, proteinRefKg, fatRefKg)
+        return Macro(m.proteinG, m.fatG, m.carbG, m.clamped)
+    }
+
+    /** น้ำหนักที่ใช้คิดโปรตีน: BMI ≤ 25 = น้ำหนักจริง, BMI > 25 = น้ำหนักเป้า (ถ้าอยู่ช่วงสุขภาพ) ไม่งั้น IBW — ตรงกับ proteinRefKg ของเว็บ */
+    fun proteinRefKg(a: Answers, kg: Double): Double? {
+        val ref = Calculations.referenceWeight(kg, a.number("Q11"), goalWeightFromAnswers(a)) ?: return if (kg > 0) kg else null
+        return if (ref.method == "actual") ref.kg else ref.anchorKg
     }
 
     /**
@@ -223,7 +237,7 @@ object Generator {
         val hasWeight = w > 0
         val tdee = computeTDEE(a)
         val cal = computeCalorieTarget(tdee, a, if (hasWeight) plannedExFromAnswers(a, w, plan) else 0)
-        val macro = computeMacro(cal.kcal, if (hasWeight) w else null)
+        val macro = computeMacro(cal.kcal, if (hasWeight) proteinRefKg(a, w) else null, if (hasWeight) w else null)
         var water = if (hasWeight) min(4.0, max(1.5, jsRound(w * 0.035 * 10) / 10)) else null
         val already = a.str("Q43")?.let { Catalog.WATER_NOW[it] }
         if (water != null && already != null && already > water) water = min(4.0, already)

@@ -1,5 +1,8 @@
 package com.gymbrodaily.nativeapp.domain
 
+import kotlin.math.max
+import kotlin.math.min
+
 /* ============================================================
    Energy calculations (BMR / TDEE) — พอร์ตจาก calculations.js
    ------------------------------------------------------------
@@ -47,11 +50,97 @@ object Calculations {
         return 370 + 21.6 * (weightKg * (1 - bodyFatPct / 100))
     }
 
-    /** จุดเข้าเดียวสำหรับ BMR ของโปรไฟล์: ข้อมูลพื้นฐานต้องครบก่อน (ไม่งั้น null) แล้วใช้ Katch-McArdle ถ้ามี bodyFatPct ที่กรอกเอง ไม่งั้น Mifflin */
-    fun calculateBMRForProfile(weightKg: Double, heightCm: Double, age: Double, sex: String?, bodyFatPct: Double?): Double? {
+    /* BMI / น้ำหนักอ้างอิง (Adjusted Body Weight) — ตรงกับ calculations.js
+       BMI > 25 → ใช้ ABW = anchor + 0.4 × (น้ำหนักจริง − anchor) คิด BMR แทนน้ำหนักรวม (กัน TDEE เฟ้อ)
+       anchor = น้ำหนักเป้าหมายถ้า BMI 18.5–25 และต่ำกว่าน้ำหนักจริง ไม่งั้น IBW (น้ำหนักที่ BMI 22) */
+    const val BMI_ABW_THRESHOLD = 25.0
+    const val IBW_BMI = 22.0
+    const val ABW_FACTOR = 0.4
+
+    fun calculateBMI(weightKg: Double?, heightCm: Double?): Double? {
+        if (weightKg == null || heightCm == null || !(weightKg > 0) || !(heightCm > 0)) return null
+        val m = heightCm / 100
+        return weightKg / (m * m)
+    }
+
+    fun idealBodyWeight(heightCm: Double?): Double? {
+        if (heightCm == null || !(heightCm > 0)) return null
+        val m = heightCm / 100
+        return IBW_BMI * m * m
+    }
+
+    /** method = "actual" | "abw"; anchorKg เป็น null เมื่อใช้น้ำหนักจริง */
+    data class RefWeight(val kg: Double, val method: String, val bmi: Double, val anchorKg: Double?)
+
+    fun referenceWeight(weightKg: Double, heightCm: Double, goalWeightKg: Double?): RefWeight? {
+        val bmi = calculateBMI(weightKg, heightCm) ?: return null
+        if (bmi <= BMI_ABW_THRESHOLD) return RefWeight(weightKg, "actual", bmi, null)
+        val goalBmi = calculateBMI(goalWeightKg, heightCm)
+        val anchor = if (goalBmi != null && goalBmi >= 18.5 && goalBmi <= BMI_ABW_THRESHOLD && goalWeightKg!! < weightKg) goalWeightKg
+        else idealBodyWeight(heightCm) ?: return null
+        return RefWeight(anchor + ABW_FACTOR * (weightKg - anchor), "abw", bmi, anchor)
+    }
+
+    /**
+     * จุดเข้าเดียวสำหรับ BMR ของโปรไฟล์: ข้อมูลพื้นฐานต้องครบก่อน (ไม่งั้น null)
+     * 1) มี bodyFatPct ที่กรอกเอง → Katch-McArdle  2) ไม่งั้น Mifflin ด้วยน้ำหนักอ้างอิง (BMI > 25 = ABW)
+     */
+    fun calculateBMRForProfile(weightKg: Double, heightCm: Double, age: Double, sex: String?, bodyFatPct: Double?, goalWeightKg: Double? = null): Double? {
         val mifflin = calculateBMR(weightKg, heightCm, age, sex) ?: return null
-        if (bodyFatPct == null) return mifflin
-        return calculateBMRKatchMcArdle(weightKg, bodyFatPct) ?: mifflin
+        if (bodyFatPct != null) calculateBMRKatchMcArdle(weightKg, bodyFatPct)?.let { return it }
+        val ref = referenceWeight(weightKg, heightCm, goalWeightKg)
+        if (ref == null || ref.method == "actual") return mifflin
+        return calculateBMR(ref.kg, heightCm, age, sex)
+    }
+
+    /** ขนาด deficit ของ Recomposition ตาม BMI (ช่วง 22–24.9 ใช้ค่ากลาง 12%/400) */
+    data class RecompTier(val maxBmi: Double, val pct: Double, val cap: Int)
+    val RECOMP_DEFICIT_TIERS = listOf(
+        RecompTier(22.0, 0.08, 300), RecompTier(25.0, 0.12, 400),
+        RecompTier(30.0, 0.20, 500), RecompTier(Double.POSITIVE_INFINITY, 0.25, 800),
+    )
+
+    fun recompDeficit(bmi: Double?): RecompTier? {
+        if (bmi == null || !(bmi > 0)) return null
+        return RECOMP_DEFICIT_TIERS.firstOrNull { bmi < it.maxBmi } ?: RECOMP_DEFICIT_TIERS.last()
+    }
+
+    /** ผลมาโคร (กรัม) — carbG ไม่ติดลบ, clamped = ต้องถอยจากเป้าตั้งต้นเพื่อไม่ให้รวมเกินแคลอรี่เป้า */
+    data class MacroResult(val proteinG: Int?, val fatG: Int?, val carbG: Int?, val clamped: Boolean)
+
+    const val PROTEIN_G_PER_KG = 2.0
+    const val PROTEIN_MIN_G_PER_KG = 1.6
+    const val FAT_G_PER_KG = 0.8
+    const val FAT_MIN_PCT = 0.20
+    const val FAT_MAX_PCT = 0.30
+    const val CARB_MIN_G = 50.0
+
+    /**
+     * โปรตีน (g) → ไขมัน (g, บีบอยู่ใน 20–30% ของแคล) → คาร์บ = ส่วนที่เหลือ ÷ 4 — ตรงกับ calculateMacros ใน calculations.js
+     * คาร์บต่ำกว่า [CARB_MIN_G]: ลดไขมันถึงพื้น 20% → ลดโปรตีนถึง 1.6 g/kg → คาร์บ 0 (ไม่ติดลบ)
+     */
+    fun calculateMacros(kcal: Double?, proteinRefKg: Double?, fatRefKg: Double?): MacroResult {
+        val pRef = proteinRefKg?.takeIf { it > 0 }
+        val fRef = fatRefKg?.takeIf { it > 0 } ?: pRef
+        var proteinG = if (pRef != null) PROTEIN_G_PER_KG * pRef else 0.0
+        if (kcal == null || !kcal.isFinite()) {
+            return MacroResult(pRef?.let { jsRound(proteinG).toInt() }, null, null, false)
+        }
+        val fatMinG = kcal * FAT_MIN_PCT / 9
+        val fatMaxG = kcal * FAT_MAX_PCT / 9
+        var fatG = if (fRef != null) min(fatMaxG, max(fatMinG, FAT_G_PER_KG * fRef)) else kcal * 0.25 / 9
+        fun carbsLeft() = (kcal - proteinG * 4 - fatG * 9) / 4
+        var clamped = false
+        if (carbsLeft() < CARB_MIN_G && fatG > fatMinG) {
+            fatG = max(fatMinG, fatG - (CARB_MIN_G - carbsLeft()) * 4 / 9); clamped = true
+        }
+        if (carbsLeft() < CARB_MIN_G && pRef != null) {
+            val proteinMinG = PROTEIN_MIN_G_PER_KG * pRef
+            if (proteinG > proteinMinG) { proteinG = max(proteinMinG, proteinG - (CARB_MIN_G - carbsLeft())); clamped = true }
+        }
+        if (carbsLeft() < CARB_MIN_G) clamped = true
+        val carbG = max(0.0, carbsLeft())
+        return MacroResult(pRef?.let { jsRound(proteinG).toInt() }, jsRound(fatG).toInt(), jsRound(carbG).toInt(), clamped)
     }
 
     /** TDEE = BMR × Activity Factor */

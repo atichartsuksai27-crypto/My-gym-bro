@@ -253,7 +253,7 @@ object ProgressGoal {
     }
 
     fun bmr(t: TrackData, kg: Double): Double? =
-        Calculations.calculateBMRForProfile(kg, t.answers.number("Q11"), t.answers.number("Q10"), sex(t), typedBodyFatPct(t.answers))
+        Calculations.calculateBMRForProfile(kg, t.answers.number("Q11"), t.answers.number("Q10"), sex(t), typedBodyFatPct(t.answers), Generator.goalWeightFromAnswers(t.answers))
 
     fun weightPlan(t: TrackData, kg: Double): PgPlan {
         val p = t.program

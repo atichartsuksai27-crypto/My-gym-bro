@@ -117,4 +117,57 @@ class CalculationsTest {
         assertEquals(1350.0, noEx.minKcal, 0.0)
         assertEquals(1350.0, noEx.kcal, 0.0)
     }
+
+    // ---- ABW / recomp tiers / macros — พอร์ตจาก tests/calculations.test.js ----
+    @Test fun bmiUnderThresholdKeepsActualWeight() {
+        assertEquals("actual", C.referenceWeight(70.0, 175.0, null)!!.method)
+        assertEquals(C.calculateBMR(70.0, 175.0, 30.0, "ชาย")!!, C.calculateBMRForProfile(70.0, 175.0, 30.0, "ชาย", null)!!, 0.0)
+    }
+
+    @Test fun bmiOver25UsesAbwFromIbwOrHealthyGoal() {
+        val ibw = 22 * 1.7 * 1.7
+        val r = C.referenceWeight(100.0, 170.0, null)!!
+        assertEquals("abw", r.method)
+        assertEquals(ibw + 0.4 * (100 - ibw), r.kg, 1e-9)
+        assertEquals(C.calculateBMR(r.kg, 170.0, 35.0, "ชาย")!!, C.calculateBMRForProfile(100.0, 170.0, 35.0, "ชาย", null)!!, 1e-9)
+        assertEquals(70.0, C.referenceWeight(100.0, 170.0, 70.0)!!.anchorKg!!, 0.0)
+        assertEquals(ibw, C.referenceWeight(100.0, 170.0, 45.0)!!.anchorKg!!, 1e-9)
+        assertEquals(ibw, C.referenceWeight(100.0, 170.0, 110.0)!!.anchorKg!!, 1e-9)
+    }
+
+    @Test fun typedBodyFatBeatsAbw() =
+        assertEquals(C.calculateBMRKatchMcArdle(100.0, 30.0)!!, C.calculateBMRForProfile(100.0, 170.0, 35.0, "ชาย", 30.0)!!, 0.0)
+
+    @Test fun recompTiersAtEdges() {
+        listOf(Triple(21.9, 0.08, 300), Triple(22.0, 0.12, 400), Triple(24.9, 0.12, 400), Triple(25.0, 0.20, 500),
+            Triple(29.9, 0.20, 500), Triple(30.0, 0.25, 800), Triple(45.0, 0.25, 800)).forEach { (bmi, pct, cap) ->
+            val t = C.recompDeficit(bmi)!!
+            assertEquals("bmi $bmi", pct, t.pct, 0.0); assertEquals("bmi $bmi", cap, t.cap)
+        }
+        assertNull(C.recompDeficit(null))
+    }
+
+    @Test fun macrosNormalCase() {
+        val m = C.calculateMacros(2500.0, 70.0, 70.0)
+        assertEquals(Calculations.MacroResult(140, 56, 359, false), m)
+    }
+
+    @Test fun macrosFatCappedAt30Percent() =
+        assertEquals(jsRound(2000 * 0.30 / 9).toInt(), C.calculateMacros(2000.0, 70.0, 130.0).fatG)
+
+    @Test fun macrosLowTargetCutsFatBeforeProteinAndNeverNegative() {
+        val m = C.calculateMacros(1100.0, 80.0, 80.0)
+        assertTrue(m.clamped)
+        assertTrue(m.carbG!! >= 0)
+        assertTrue(m.fatG!! >= jsRound(1100 * 0.20 / 9).toInt())
+        assertTrue(m.proteinG!! >= jsRound(1.6 * 80).toInt())
+    }
+
+    @Test fun macrosImpossibleTargetClampsCarbsToZero() {
+        val m = C.calculateMacros(800.0, 120.0, 120.0)
+        assertEquals(0, m.carbG); assertTrue(m.clamped)
+    }
+
+    @Test fun macrosWithoutKcalReturnProteinOnly() =
+        assertEquals(Calculations.MacroResult(120, null, null, false), C.calculateMacros(null, 60.0, null))
 }

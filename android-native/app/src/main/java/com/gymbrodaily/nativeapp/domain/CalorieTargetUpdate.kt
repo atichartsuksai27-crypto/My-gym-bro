@@ -89,7 +89,7 @@ object CalorieTargetUpdate {
     fun applyTo(raw: JsonObject, t: TrackData, u: CalorieUpdate, today: String): JsonObject {
         val curTargets = raw["targets"] as? JsonObject ?: return raw
         val tg = Tracking.targetsOf(t)
-        val macro = Generator.computeMacro(u.kcal.toDouble(), if (tg.proteinG != null && tg.proteinG != 0) tg.proteinG / 2.0 else Tracking.bodyweightAsOf(t, today))
+        val macro = Generator.computeMacro(u.kcal.toDouble(), if (tg.proteinG != null && tg.proteinG != 0) tg.proteinG / 2.0 else Tracking.bodyweightAsOf(t, today), Tracking.bodyweightAsOf(t, today))
         val nt = JsonObject(
             curTargets + mapOf(
                 "kcal" to JsonPrimitive(u.kcal),

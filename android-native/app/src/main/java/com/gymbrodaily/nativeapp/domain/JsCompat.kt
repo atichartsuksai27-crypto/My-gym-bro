@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
-import kotlin.math.floor
+import kotlin.math.ceil
 
 /* ============================================================
    ตัวช่วยเลียนแบบการแปลงค่าของ JavaScript ให้ตรงกับเว็บแอปเดิมทุกกรณี
@@ -70,8 +70,13 @@ fun jsTruthy(e: JsonElement?): Boolean = when (e) {
     else -> true
 }
 
-/** Math.round ของ JS — ปัดครึ่งขึ้นไปทาง +∞ เสมอ (ต่างจาก Kotlin roundToInt ที่ปัดครึ่งออกจากศูนย์) */
-fun jsRound(x: Double): Double = floor(x + 0.5)
+/** Math.round ของ JS — ปัดครึ่งขึ้นไปทาง +∞ เสมอ (ต่างจาก Kotlin roundToInt ที่ปัดครึ่งออกจากศูนย์)
+ *  ใช้วิธีเดียวกับ V8 (ceil แล้วถอยหนึ่งถ้าเกินครึ่ง) ไม่ใช่ floor(x + 0.5) เพราะ x + 0.5 ปัดเศษทศนิยมเอง
+ *  เช่น 0.49999999999999994 + 0.5 = 1.0 ทำให้ได้ 1 ขณะที่ Math.round ได้ 0 */
+fun jsRound(x: Double): Double {
+    val r = ceil(x)
+    return if (r - 0.5 > x) r - 1 else r
+}
 
 /** NaN/Infinity ของ JS กลายเป็น null ตอน JSON.stringify — ใช้ก่อนเก็บค่าลงโมเดลที่จะซิงก์ */
 fun Double.finiteOrNull(): Double? = if (isFinite()) this else null
@@ -85,6 +90,7 @@ fun jsToFixed(x: Double, d: Int): String {
 /** x.toLocaleString() ของ JS (en-US): คั่นหลักพันด้วย "," ทศนิยมไม่เกิน 3 ตำแหน่ง */
 fun jsLocale(x: Double): String {
     if (x.isNaN()) return "NaN"
+    if (x.isInfinite()) return if (x > 0) "∞" else "-∞"
     val bd = java.math.BigDecimal(x).setScale(3, java.math.RoundingMode.HALF_UP).stripTrailingZeros()
     val neg = bd.signum() < 0
     val plain = bd.abs().toPlainString()

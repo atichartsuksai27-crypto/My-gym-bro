@@ -10,6 +10,30 @@ import org.junit.Test
 class CalculationsTest {
     private val C = Calculations
 
+    /** ค่าที่ได้จาก Math.round ใน node: ปัดครึ่งขึ้นทาง +∞, ติดลบครึ่งปัดขึ้น, และกรณีที่ floor(x + 0.5) เพี้ยน */
+    @Test fun jsRoundMatchesMathRound() {
+        val cases = mapOf(
+            2.5 to 3.0, 2.4999 to 2.0, -2.5 to -2.0, -2.6 to -3.0, -0.4 to 0.0, 0.5 to 1.0,
+            0.49999999999999994 to 0.0, 4503599627370497.0 to 4503599627370497.0, 1e21 to 1e21,
+        )
+        for ((x, want) in cases) assertEquals("round($x)", want, jsRound(x), 0.0)
+        assertTrue(jsRound(Double.NaN).isNaN())
+        assertEquals(Double.POSITIVE_INFINITY, jsRound(Double.POSITIVE_INFINITY), 0.0)
+    }
+
+    /** ค่าจาก node: String(x), x.toLocaleString(), [null, 30].join(" / ") */
+    @Test fun jsFormattingEdgeCases() {
+        assertEquals("0.0001", ProgressGoal.jsNum(0.0001))
+        assertEquals("0.5", ProgressGoal.jsNum(0.5))
+        assertEquals("12.5", ProgressGoal.jsNum(12.5))
+        assertEquals("2.2", ProgressGoal.jsNum(2.2))
+        assertEquals("5", ProgressGoal.jsNum(5.0))
+        assertEquals("∞", jsLocale(Double.POSITIVE_INFINITY))
+        assertEquals("-∞", jsLocale(Double.NEGATIVE_INFINITY))
+        assertEquals("1,234.568", jsLocale(1234.5678))
+        assertEquals(" / 30 วิ", Progression.setsText(listOf(SetEntry(null, 10.0), SetEntry(30.0, null)), "time"))
+    }
+
     @Test fun maleBmr() = assertEquals(1780.0, C.calculateBMR(80.0, 180.0, 30.0, "ชาย")!!, 0.0)
     @Test fun femaleBmr() = assertEquals(1320.25, C.calculateBMR(60.0, 165.0, 30.0, "หญิง")!!, 0.0)
 

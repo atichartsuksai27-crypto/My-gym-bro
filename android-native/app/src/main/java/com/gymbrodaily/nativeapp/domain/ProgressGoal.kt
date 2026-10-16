@@ -152,7 +152,12 @@ object ProgressGoal {
     fun rate(x: Double) = (if (x > 0) "+" else if (x < 0) "−" else "") + jsToFixed(abs(x), 2)
     fun pctTxt(x: Double) = (if (x > 0) "+" else if (x < 0) "−" else "") + jsToFixed(abs(x), 1) + "%"
     /** ตัวเลขแบบ String(n) ของ JS (5 → "5", 1.5 → "1.5") */
-    fun jsNum(x: Double): String = if (x == floor(x) && abs(x) < 1e15) x.toLong().toString() else x.toString()
+    fun jsNum(x: Double): String = when {
+        x == floor(x) && abs(x) < 1e15 -> x.toLong().toString()
+        // Double.toString ของ Kotlin ใช้รูป 1.0E-4 ตั้งแต่ < 1e-3 แต่ JS ใช้รูปเลขยกกำลังเมื่อ < 1e-6 เท่านั้น
+        x.isFinite() && abs(x) >= 1e-6 && abs(x) < 1e21 -> java.math.BigDecimal(x.toString()).stripTrailingZeros().toPlainString()
+        else -> x.toString()
+    }
 
     /* ---------- อ่านข้อมูลรายวัน ---------- */
     private fun logFor(t: TrackData, iso: String) = t.logs[iso]

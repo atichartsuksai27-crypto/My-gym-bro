@@ -197,7 +197,8 @@ object Progression {
         val cs = cleanSets(sets)
         if (cs.isEmpty()) return "—"
         fun r(s: SetEntry) = s.reps?.let { n(it) } ?: "?"
-        if (kind == "time") return cs.joinToString(" / ") { s -> s.weight?.let { n(it) } ?: "null" } + " วิ"
+        // Array.join ของ JS แปลง null เป็นสตริงว่าง (ต่างจากการต่อสตริงด้วย + ที่ได้ "null")
+        if (kind == "time") return cs.joinToString(" / ") { s -> s.weight?.let { n(it) } ?: "" } + " วิ"
         if (kind == "reps") return cs.joinToString(" / ") { r(it) } + " ครั้ง"
         val w0 = cs[0].weight
         return if (cs.all { it.weight == w0 }) "${w0?.let { n(it) } ?: "null"} กก. × " + cs.joinToString(" / ") { r(it) }

@@ -83,6 +83,28 @@ class DayActionsTest {
         assertFalse(forward.prog!!.reverted)
     }
 
+    /** node: w=[true,undefined]; w[-1]=true; w[NaN]=true; แล้ว !! ทุกช่อง → ยาว 2 = [true,false] */
+    @Test fun warmupNegativeIndexDoesNotThrowOrGrow() {
+        val a = ExerciseLog(warmup = listOf(true, null))
+        assertEquals(listOf(true, false), DayActions.setWarmup(a, -1, true).warmup)
+    }
+
+    /** reducer ต้องไม่แก้ state เดิม */
+    @Test fun inputsAreNeverMutated() {
+        val warm = ExerciseLog(warmup = listOf(true))
+        DayActions.setWarmup(warm, 3, true)
+        assertEquals(listOf<Boolean?>(true), warm.warmup)
+        val steps = mapOf("bp" to 2.5)
+        DayActions.withEquipStep(steps, "bp", null); DayActions.withEquipStep(steps, "sq", 5.0)
+        assertEquals(mapOf("bp" to 2.5), steps)
+        val log = DailyLog(date = "2026-10-17")
+        DayActions.completeSession(TrackData(Program()), "2026-10-17", null, log, true)
+        assertFalse(log.completed)
+        val st = StressLog(level = 3.0, note = "a")
+        DayActions.setStressLevel(st, 3); DayActions.stressNoteWithChip(st, "b")
+        assertEquals(StressLog(3.0, "a"), st)
+    }
+
     @Test fun warmupFlagsPadWithFalse() {
         val a = DayActions.setWarmup(null, 2, true)
         assertEquals(listOf(false, false, true), a.warmup)

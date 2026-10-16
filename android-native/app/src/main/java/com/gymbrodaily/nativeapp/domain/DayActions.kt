@@ -48,7 +48,8 @@ object DayActions {
     fun setWarmup(e: ExerciseLog?, idx: Int, checked: Boolean): ExerciseLog {
         val cur = e ?: ExerciseLog()
         val flags = (0 until max(cur.warmup.size, idx + 1)).map { cur.warmup.getOrNull(it) == true }.toMutableList()
-        flags[idx] = checked
+        // index ติดลบ/NaN ใน JS ตั้งเป็นพร็อพเพอร์ตีของ array ไม่ใช่สมาชิก (ความยาวไม่เปลี่ยน) — ที่นี่เลยไม่ตั้งค่าแทนที่จะ throw
+        if (idx >= 0) flags[idx] = checked
         return cur.copy(warmup = flags)
     }
 

@@ -397,7 +397,7 @@ var PG = ev('({fatTug:fatTug, pgCurrent:pgCurrent, pgRecommend:pgRecommend, pgSu
   ' calorieTargetUpdate:calorieTargetUpdate, calorieTargetText:calorieTargetText, calorieApply:calorieApply,' +
   ' getProgram:function(){ return track.program; }})');
 /* แผนเก่าที่เป้าล็อกด้วยสูตรเก่า — วนโหมดตามลำดับเคส (ไม่ใช้ตัวสุ่ม เพื่อไม่ขยับลำดับสุ่มของเคสอื่น):
-   0 = เป้าปัจจุบัน, 1 = เป้าเก่าต่ำกว่า, 2 = เป้าเก่าสูงกว่า, 3 = เก่าต่ำ+ธงเห็นแล้ว (วนทั้งสามชื่อ), 4 = เก่าต่ำ+calcV 2, 5 = เก่าสูง */
+   0 = เป้าปัจจุบัน, 1 = เป้าเก่าต่ำกว่า, 2 = เป้าเก่าสูงกว่า, 3 = เก่าต่ำ+ธงเห็นแล้ว (วนทั้งสามชื่อ), 4 = เก่าต่ำ+calcV 3 (รุ่นปัจจุบัน), 5 = เก่าสูง */
 var OLD_FLAGS = ['targetFormulaSeen', 'recompTargetSeen', 'calcTargetSeen'];
 function staleCalorie(pp, pc, tp){
   var mode = pc % 6, tg = pp.targets || {}, patch = {mode: mode, kcal: tg.kcal == null ? null : tg.kcal, tdee: tg.tdee == null ? null : tg.tdee, flag: null, calcV: null};
@@ -406,7 +406,7 @@ function staleCalorie(pp, pc, tp){
     if(mode === 2 || mode === 5){ patch.kcal = Math.round(tg.kcal * 1.25); }
   }
   if(mode === 3) patch.flag = OLD_FLAGS[Math.floor(pc / 6) % 3];
-  if(mode === 4) patch.calcV = 2;
+  if(mode === 4) patch.calcV = 3;
   var sp = JSON.parse(JSON.stringify(pp));
   if(sp.targets){ sp.targets.kcal = patch.kcal; sp.targets.tdee = patch.tdee; }
   if(patch.flag) sp[patch.flag] = true;

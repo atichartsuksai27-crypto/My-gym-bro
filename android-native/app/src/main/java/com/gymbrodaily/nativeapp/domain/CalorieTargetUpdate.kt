@@ -5,7 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /** สูตรเป้าแคลอรี่รุ่นปัจจุบัน — แผนที่ไม่มี calcV หรือ calcV ต่ำกว่านี้ถูกล็อกเป้าด้วยสูตรเก่า (ตรงกับ CALC_VERSION ใน app.js) */
-const val CALC_VERSION = 2
+const val CALC_VERSION = 3
 
 data class CalorieUpdate(val kcal: Int, val tdee: Int, val direction: String, val floored: Boolean, val eaLimited: Boolean)
 

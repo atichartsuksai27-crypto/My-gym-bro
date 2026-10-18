@@ -109,7 +109,7 @@ test('seen flags suppress the banner, including the legacy recompTargetSeen / ca
 test('plans PG already adjusted, plans stamped with the current formula, and differences < 50 kcal are skipped', function(){
   var adj = oldPlan('รักษาสุขภาพทั่วไป', {}, function(q){ q.pg = {adjustments:[{date:'2026-10-01', fromKcal:1500, toKcal:1600}]}; });
   assert.strictEqual(calorieTargetUpdate(adj), null);
-  var cur = oldPlan('รักษาสุขภาพทั่วไป', {}, function(q){ q.calcV = 2; });
+  var cur = oldPlan('รักษาสุขภาพทั่วไป', {}, function(q){ q.calcV = 3; });
   assert.strictEqual(calorieTargetUpdate(cur), null);
   var p = oldPlan('รักษาสุขภาพทั่วไป'), u = calorieTargetUpdate(p);
   p.targets.kcal = u.kcal + 49;

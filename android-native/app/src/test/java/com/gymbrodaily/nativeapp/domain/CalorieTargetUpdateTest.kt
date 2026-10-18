@@ -73,7 +73,7 @@ class CalorieTargetUpdateTest {
         val a = answers("รักษาสุขภาพทั่วไป")
         val adjusted = oldPlanRaw(a) { it["pg"] = buildJsonObject { put("adjustments", JsonArray(listOf(buildJsonObject { put("date", "2026-10-01") }))) } }
         assertNull(CalorieTargetUpdate.of(track(adjusted, a), today))
-        assertNull(CalorieTargetUpdate.of(track(oldPlanRaw(a) { it["calcV"] = JsonPrimitive(2) }, a), today))
+        assertNull(CalorieTargetUpdate.of(track(oldPlanRaw(a) { it["calcV"] = JsonPrimitive(CALC_VERSION) }, a), today))
     }
 
     @Test fun planWithoutCalcVIsEligibleOnceTheRealProgramDiffersByFiftyKcal() {

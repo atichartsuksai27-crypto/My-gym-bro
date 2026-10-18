@@ -4275,7 +4275,7 @@ function planUpdateBanner(p){
    คิดจากคำตอบแบบสอบถามปัจจุบัน + เป้าหมาย/เพศ/วันฝึกของแผน + น้ำหนักล่าสุด (ใช้ plannedEx จาก program จริง ไม่ใช่จากคำตอบ)
    ถ้าเสนอลดเป้า ต้องผ่านด่าน energy availability (applyEaGuard) ก่อน — ห้ามเสนอเป้าที่ EA ต่ำกว่าเกณฑ์ ดันกลับได้ไม่เกินเป้าเดิม
    ธง targetFormulaSeen แทน calcTargetSeen/recompTargetSeen เดิม (ยังอ่านสองตัวเก่าเป็น "เห็นแล้ว" เพื่อไม่ให้ banner ที่ผู้ใช้เคยกดข้ามกลับมาอีก) */
-var CALC_VERSION = 2;
+var CALC_VERSION = 3;
 function targetFormulaSeen(p){ return !!(p.targetFormulaSeen || p.calcTargetSeen || p.recompTargetSeen); }
 function calorieTargetUpdate(p){
   if(!p || !p.targets || (p.calcV||0) >= CALC_VERSION || targetFormulaSeen(p)) return null;

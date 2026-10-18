@@ -61,12 +61,22 @@ class CalorieTargetUpdateTest {
         assertTrue(CalorieTargetUpdate.text(t.program, u).contains("เดิมเป้าไม่รวมแคลที่เผาจากการฝึก"))
     }
 
-    @Test fun seenFlagsIncludingLegacyWebNamesSuppressTheBanner() {
+    @Test fun seenFlagIsTiedToTheFormulaVersion() {
         val a = answers("รักษาสุขภาพทั่วไป")
+        // 1) ไม่มีธง → เสนอ
+        assertNotNull("no flag", CalorieTargetUpdate.of(track(oldPlanRaw(a), a), today))
+        // 2) ธงบูลีนเก่า (ไม่มี V) = ข้ามไว้ตอนรุ่น 2 → CALC_VERSION > 2 เสนออีกครั้ง
+        assertTrue(CALC_VERSION > 2)
         listOf("targetFormulaSeen", "recompTargetSeen", "calcTargetSeen").forEach { flag ->
             val raw = oldPlanRaw(a) { it[flag] = JsonPrimitive(true) }
-            assertNull(flag, CalorieTargetUpdate.of(track(raw, a), today))
+            assertNotNull("legacy $flag must resurface", CalorieTargetUpdate.of(track(raw, a), today))
         }
+        // 3) targetFormulaSeenV = รุ่นปัจจุบัน → ไม่เสนอ
+        val current = oldPlanRaw(a) { it["targetFormulaSeen"] = JsonPrimitive(true); it["targetFormulaSeenV"] = JsonPrimitive(CALC_VERSION) }
+        assertNull("V = current", CalorieTargetUpdate.of(track(current, a), today))
+        // 4) targetFormulaSeenV = รุ่นเก่ากว่า → เสนออีกครั้ง แม้ธงบูลีนเป็น true
+        val older = oldPlanRaw(a) { it["targetFormulaSeen"] = JsonPrimitive(true); it["targetFormulaSeenV"] = JsonPrimitive(CALC_VERSION - 1) }
+        assertNotNull("V = older", CalorieTargetUpdate.of(track(older, a), today))
     }
 
     @Test fun adjustedOrCurrentFormulaPlansAreSkipped() {
@@ -110,12 +120,13 @@ class CalorieTargetUpdateTest {
         assertNull("หลังใช้แล้วไม่เสนอซ้ำ", CalorieTargetUpdate.of(track(out, a), today))
     }
 
-    @Test fun skipStampsTargetFormulaSeenAndNothingElse() {
+    @Test fun skipStampsTargetFormulaSeenAndItsVersionAndNothingElse() {
         val a = answers("รักษาสุขภาพทั่วไป")
         val raw = oldPlanRaw(a)
         val out = CalorieTargetUpdate.skipped(raw)
         assertTrue(out["targetFormulaSeen"]!!.jsonPrimitive.boolean)
-        assertEquals(raw.keys + "targetFormulaSeen", out.keys)
+        assertEquals(CALC_VERSION, out["targetFormulaSeenV"]!!.jsonPrimitive.int)
+        assertEquals(raw.keys + setOf("targetFormulaSeen", "targetFormulaSeenV"), out.keys)
         assertEquals(raw["targets"], out["targets"])
         assertNull(CalorieTargetUpdate.of(track(out, a), today))
     }
@@ -126,6 +137,8 @@ class CalorieTargetUpdateTest {
         )
         assertTrue(p.targetFormulaSeen && p.calcTargetSeen && p.recompTargetSeen)
         assertEquals(2, p.calcV)
+        assertNull(p.targetFormulaSeenV)
+        assertEquals(CALC_VERSION, lenient.decodeFromJsonElement<Program>(buildJsonObject { put("targetFormulaSeenV", CALC_VERSION) }).targetFormulaSeenV)
         assertFalse(CalorieTargetUpdate.seen(lenient.decodeFromJsonElement<Program>(buildJsonObject { })))
     }
 }

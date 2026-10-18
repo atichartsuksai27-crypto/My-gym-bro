@@ -46,6 +46,8 @@ data class Program(
     val targetFormulaSeen: Boolean = false,
     val calcTargetSeen: Boolean = false,
     val recompTargetSeen: Boolean = false,
+    /** CALC_VERSION ตอนที่กด "คงเป้าเดิม" — ธงข้างบนที่ไม่มีตัวนี้ถือเป็นรุ่น 2 (ดู CalorieTargetUpdate.seen) */
+    val targetFormulaSeenV: Int? = null,
 )
 
 @Serializable

@@ -21,8 +21,12 @@ data class CalorieUpdate(val kcal: Int, val tdee: Int, val direction: String, va
    ============================================================ */
 object CalorieTargetUpdate {
 
-    /** ธง "เห็นแล้ว": targetFormulaSeen + ชื่อเก่าสองตัวของเว็บ (calcTargetSeen / recompTargetSeen) — banner ที่เคยกดข้ามต้องไม่กลับมา */
-    fun seen(p: Program) = p.targetFormulaSeen || p.calcTargetSeen || p.recompTargetSeen
+    /** ธง "เห็นแล้ว" ผูกกับเวอร์ชันสูตร (ตรงกับ targetFormulaSeen ใน app.js): มี targetFormulaSeenV = เห็นแล้วเฉพาะเมื่อ V >= CALC_VERSION,
+     *  ไม่มี V แต่มีธงบูลีนเก่า (targetFormulaSeen / calcTargetSeen / recompTargetSeen) = ข้ามไว้ตอนรุ่น 2 → เห็นแล้วเฉพาะเมื่อ CALC_VERSION <= 2 */
+    fun seen(p: Program): Boolean {
+        p.targetFormulaSeenV?.let { return it >= CALC_VERSION }
+        return (p.targetFormulaSeen || p.calcTargetSeen || p.recompTargetSeen) && CALC_VERSION <= 2
+    }
 
     private fun usable(d: Double?) = d != null && d != 0.0 && !d.isNaN()
 
@@ -112,6 +116,7 @@ object CalorieTargetUpdate {
         )
     }
 
-    /** ผู้ใช้กด "คงเป้าเดิม" — ประทับ targetFormulaSeen (ชื่อที่เว็บใช้ด้วย) กัน banner ขึ้นซ้ำ; field อื่นไม่แตะ */
-    fun skipped(raw: JsonObject): JsonObject = JsonObject(raw + ("targetFormulaSeen" to JsonPrimitive(true)))
+    /** ผู้ใช้กด "คงเป้าเดิม" — ประทับ targetFormulaSeen + targetFormulaSeenV (ชื่อที่เว็บใช้ด้วย) กัน banner ขึ้นซ้ำ; field อื่นไม่แตะ */
+    fun skipped(raw: JsonObject): JsonObject =
+        JsonObject(raw + mapOf("targetFormulaSeen" to JsonPrimitive(true), "targetFormulaSeenV" to JsonPrimitive(CALC_VERSION)))
 }

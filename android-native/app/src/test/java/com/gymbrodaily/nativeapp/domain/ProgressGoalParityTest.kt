@@ -111,6 +111,7 @@ class ProgressGoalParityTest {
             targets = p.targets?.copy(kcal = intOrNull("kcal"), tdee = intOrNull("tdee")),
             calcV = intOrNull("calcV") ?: p.calcV,
             targetFormulaSeen = flag == "targetFormulaSeen",
+            targetFormulaSeenV = intOrNull("flagV"),
             recompTargetSeen = flag == "recompTargetSeen",
             calcTargetSeen = flag == "calcTargetSeen",
         )

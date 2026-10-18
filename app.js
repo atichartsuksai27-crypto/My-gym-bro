@@ -4276,7 +4276,13 @@ function planUpdateBanner(p){
    ถ้าเสนอลดเป้า ต้องผ่านด่าน energy availability (applyEaGuard) ก่อน — ห้ามเสนอเป้าที่ EA ต่ำกว่าเกณฑ์ ดันกลับได้ไม่เกินเป้าเดิม
    ธง targetFormulaSeen แทน calcTargetSeen/recompTargetSeen เดิม (ยังอ่านสองตัวเก่าเป็น "เห็นแล้ว" เพื่อไม่ให้ banner ที่ผู้ใช้เคยกดข้ามกลับมาอีก) */
 var CALC_VERSION = 3;
-function targetFormulaSeen(p){ return !!(p.targetFormulaSeen || p.calcTargetSeen || p.recompTargetSeen); }
+/* "คงเป้าเดิม" ผูกกับเวอร์ชันสูตร: targetFormulaSeenV = CALC_VERSION ตอนที่กดข้าม → เห็นแล้วเฉพาะเมื่อสูตรปัจจุบันไม่ใหม่กว่านั้น
+   ไม่มี targetFormulaSeenV แต่มีธงบูลีนเก่า (targetFormulaSeen/calcTargetSeen/recompTargetSeen) = ข้ามไว้ตอนสูตรรุ่น 2 → ไม่ใช่ "เห็นแล้ว" อีกเมื่อ CALC_VERSION > 2 */
+function targetFormulaSeen(p){
+  var v = parseFloat(p.targetFormulaSeenV);
+  if(isFinite(v)) return v >= CALC_VERSION;
+  return !!(p.targetFormulaSeen || p.calcTargetSeen || p.recompTargetSeen) && CALC_VERSION <= 2;
+}
 function calorieTargetUpdate(p){
   if(!p || !p.targets || (p.calcV||0) >= CALC_VERSION || targetFormulaSeen(p)) return null;
   if((pgState(p).adjustments||[]).length) return null;
@@ -4943,7 +4949,7 @@ document.addEventListener("click", function(ev){
   }
   if(act==='pg-apply'){ pgApply(); return; }
   if(act==='calorie-apply'){ calorieApply(); return; }
-  if(act==='calorie-skip'){ if(track.program){ track.program.targetFormulaSeen = true; persistProgram(); } render(); return; }
+  if(act==='calorie-skip'){ if(track.program){ track.program.targetFormulaSeen = true; track.program.targetFormulaSeenV = CALC_VERSION; persistProgram(); } render(); return; }
   if(act==='progress-ex'){ track.progressEx = el.getAttribute('data-ex'); render(); return; }
   if(act==='hard-restart'){
     lsRemove("gymbro_program"); lsRemove("gymbro_logs"); lsRemove("gymbro_weights"); lsRemove("gymbro_onb_proto"); lsRemove("gymbro_program_at"); lsRemove("gymbro_onb_at"); lsRemove("gymbro_fat_seen");

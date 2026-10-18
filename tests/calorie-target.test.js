@@ -100,16 +100,33 @@ test('Recomp plan whose old target was higher is offered a LOWER target with the
   assert.ok(u && u.kcal < p.targets.kcal - 50, JSON.stringify(u));
   assert.ok(/กินขาดเล็กน้อยเสมอ/.test(calorieTargetBanner(p)));
 });
-test('seen flags suppress the banner, including the legacy recompTargetSeen / calcTargetSeen', function(){
+var CALC_VERSION = H.ev('CALC_VERSION');
+test('seen flag is tied to the formula version: no flag / legacy boolean / targetFormulaSeenV = current / targetFormulaSeenV = older', function(){
+  // 1) ไม่มีธง → เสนอ
+  assert.ok(calorieTargetUpdate(oldPlan('รักษาสุขภาพทั่วไป')), 'no flag');
+  // 2) ธงบูลีนเก่า (ไม่มี V) = ข้ามไว้ตอนรุ่น 2 → CALC_VERSION > 2 เสนออีกครั้ง
   ['targetFormulaSeen', 'recompTargetSeen', 'calcTargetSeen'].forEach(function(flag){
     var p = oldPlan('รักษาสุขภาพทั่วไป', {}, function(q){ q[flag] = true; });
-    assert.strictEqual(calorieTargetUpdate(p), null, flag);
+    assert.ok(CALC_VERSION > 2);
+    assert.ok(calorieTargetUpdate(p), 'legacy '+flag+' must resurface at CALC_VERSION '+CALC_VERSION);
   });
+  // 3) targetFormulaSeenV = รุ่นปัจจุบัน → ไม่เสนอ (ไม่ว่าธงบูลีนจะมีหรือไม่)
+  assert.strictEqual(calorieTargetUpdate(oldPlan('รักษาสุขภาพทั่วไป', {}, function(q){ q.targetFormulaSeenV = CALC_VERSION; })), null, 'V = current');
+  assert.strictEqual(calorieTargetUpdate(oldPlan('รักษาสุขภาพทั่วไป', {}, function(q){ q.targetFormulaSeen = true; q.targetFormulaSeenV = CALC_VERSION; })), null, 'V = current + bool');
+  // 4) targetFormulaSeenV = รุ่นเก่ากว่า → เสนออีกครั้ง แม้ธงบูลีนเป็น true (ที่เว็บเขียนคู่กันเสมอ)
+  assert.ok(calorieTargetUpdate(oldPlan('รักษาสุขภาพทั่วไป', {}, function(q){ q.targetFormulaSeen = true; q.targetFormulaSeenV = CALC_VERSION - 1; })), 'V = older');
+});
+test('the calorie-skip handler in app.js stamps both targetFormulaSeen and targetFormulaSeenV = CALC_VERSION', function(){
+  // handler อยู่ใน click-dispatcher ที่เรียกผ่าน harness ไม่ได้ — ตรวจที่ซอร์ส (Kotlin ตรวจ CalorieTargetUpdate.skipped ตรง ๆ)
+  var src = require('fs').readFileSync(require('path').join(__dirname, '..', 'app.js'), 'utf8');
+  var m = /act==='calorie-skip'\)\{([^\n]*)\}/.exec(src);
+  assert.ok(m, 'calorie-skip handler not found');
+  assert.ok(/targetFormulaSeen\s*=\s*true/.test(m[1]) && /targetFormulaSeenV\s*=\s*CALC_VERSION/.test(m[1]), m[1]);
 });
 test('plans PG already adjusted, plans stamped with the current formula, and differences < 50 kcal are skipped', function(){
   var adj = oldPlan('รักษาสุขภาพทั่วไป', {}, function(q){ q.pg = {adjustments:[{date:'2026-10-01', fromKcal:1500, toKcal:1600}]}; });
   assert.strictEqual(calorieTargetUpdate(adj), null);
-  var cur = oldPlan('รักษาสุขภาพทั่วไป', {}, function(q){ q.calcV = 3; });
+  var cur = oldPlan('รักษาสุขภาพทั่วไป', {}, function(q){ q.calcV = CALC_VERSION; });
   assert.strictEqual(calorieTargetUpdate(cur), null);
   var p = oldPlan('รักษาสุขภาพทั่วไป'), u = calorieTargetUpdate(p);
   p.targets.kcal = u.kcal + 49;

@@ -397,19 +397,25 @@ var PG = ev('({fatTug:fatTug, pgCurrent:pgCurrent, pgRecommend:pgRecommend, pgSu
   ' calorieTargetUpdate:calorieTargetUpdate, calorieTargetText:calorieTargetText, calorieApply:calorieApply,' +
   ' getProgram:function(){ return track.program; }})');
 /* แผนเก่าที่เป้าล็อกด้วยสูตรเก่า — วนโหมดตามลำดับเคส (ไม่ใช้ตัวสุ่ม เพื่อไม่ขยับลำดับสุ่มของเคสอื่น):
-   0 = เป้าปัจจุบัน, 1 = เป้าเก่าต่ำกว่า, 2 = เป้าเก่าสูงกว่า, 3 = เก่าต่ำ+ธงเห็นแล้ว (วนทั้งสามชื่อ), 4 = เก่าต่ำ+calcV 3 (รุ่นปัจจุบัน), 5 = เก่าสูง */
-var OLD_FLAGS = ['targetFormulaSeen', 'recompTargetSeen', 'calcTargetSeen'];
+   0 = เป้าปัจจุบัน, 1 = เป้าเก่าต่ำกว่า, 2 = เป้าเก่าสูงกว่า, 3 = เก่าต่ำ+ธงเห็นแล้ว (วนห้าแบบ ดู SEEN_VARIANTS), 4 = เก่าต่ำ+calcV รุ่นปัจจุบัน, 5 = เก่าสูง */
+var CALC_VERSION = ev('CALC_VERSION');
+/* mode 3 วนห้าแบบ: ธงบูลีนเก่าสามชื่อ (ไม่มี V = รุ่น 2 → เสนออีกครั้งเมื่อ CALC_VERSION > 2), V = รุ่นปัจจุบัน (ไม่เสนอ), V = รุ่นก่อนหน้า (เสนอ) */
+var SEEN_VARIANTS = [
+  {flag: 'targetFormulaSeen', v: null}, {flag: 'recompTargetSeen', v: null}, {flag: 'calcTargetSeen', v: null},
+  {flag: 'targetFormulaSeen', v: CALC_VERSION}, {flag: 'targetFormulaSeen', v: CALC_VERSION - 1}
+];
 function staleCalorie(pp, pc, tp){
-  var mode = pc % 6, tg = pp.targets || {}, patch = {mode: mode, kcal: tg.kcal == null ? null : tg.kcal, tdee: tg.tdee == null ? null : tg.tdee, flag: null, calcV: null};
+  var mode = pc % 6, tg = pp.targets || {}, patch = {mode: mode, kcal: tg.kcal == null ? null : tg.kcal, tdee: tg.tdee == null ? null : tg.tdee, flag: null, flagV: null, calcV: null};
   if(tg.kcal != null){
     if(mode === 1 || mode === 3 || mode === 4){ patch.kcal = Math.round(tg.kcal * 0.82); patch.tdee = Math.round(tg.tdee * 0.85); }
     if(mode === 2 || mode === 5){ patch.kcal = Math.round(tg.kcal * 1.25); }
   }
-  if(mode === 3) patch.flag = OLD_FLAGS[Math.floor(pc / 6) % 3];
-  if(mode === 4) patch.calcV = 3;
+  if(mode === 3){ var sv = SEEN_VARIANTS[Math.floor(pc / 6) % SEEN_VARIANTS.length]; patch.flag = sv.flag; patch.flagV = sv.v; }
+  if(mode === 4) patch.calcV = CALC_VERSION;
   var sp = JSON.parse(JSON.stringify(pp));
   if(sp.targets){ sp.targets.kcal = patch.kcal; sp.targets.tdee = patch.tdee; }
   if(patch.flag) sp[patch.flag] = true;
+  if(patch.flagV != null) sp.targetFormulaSeenV = patch.flagV;
   if(patch.calcV != null) sp.calcV = patch.calcV;
   A.setTrack(tp(sp));
   var u = PG.calorieTargetUpdate(sp);

@@ -5,7 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /** สูตรเป้าแคลอรี่รุ่นปัจจุบัน — แผนที่ไม่มี calcV หรือ calcV ต่ำกว่านี้ถูกล็อกเป้าด้วยสูตรเก่า (ตรงกับ CALC_VERSION ใน app.js) */
-const val CALC_VERSION = 3
+const val CALC_VERSION = 4
 
 data class CalorieUpdate(val kcal: Int, val tdee: Int, val direction: String, val floored: Boolean, val eaLimited: Boolean)
 
@@ -60,7 +60,7 @@ object CalorieTargetUpdate {
         var eaLimited = cal.eaLimited
         if (old != null && kcal < old) {
             val ffm = ProgressGoal.ffmFromAnswers(a, kg, sex)
-            val g = ffm?.let { Calculations.applyEaGuard(kcal.toDouble(), p.goal, exDay.toDouble(), it.ffm, old.toDouble()) }
+            val g = ffm?.let { Calculations.applyEaGuard(kcal.toDouble(), p.goal, exDay.toDouble(), it.ffm, old.toDouble(), Calculations.calculateBMI(kg, a.number("Q11"))) }
             if (g != null && ffm != null && g.blocked && g.kcal > kcal) {
                 kcal = g.kcal.toInt(); floored = true; eaLimited = true
                 direction += " · ไม่ลดต่ำกว่า ${ProgressGoal.fmtKcal(kcal)} kcal เพราะ energy availability จะต่ำกว่า ${g.minEA.toInt()} kcal/กก. มวลไร้ไขมัน (FFM ~${Tracking.fmt1(ffm.ffm)} กก. — ${ffm.src})"

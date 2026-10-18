@@ -190,10 +190,10 @@ object Generator {
         val kg = a.parseFloat("Q12")
         val ffm = if (kg > 0) ProgressGoal.ffmFromAnswers(a, kg, sex) else null
         val afterSex = if (floorV != null && target < floorV) floorV else target
-        val guard = ffm?.let { Calculations.applyEaGuard(afterSex, a.str("Q1"), ex.toDouble(), it.ffm, base) }
+        val guard = ffm?.let { Calculations.applyEaGuard(afterSex, a.str("Q1"), ex.toDouble(), it.ffm, base, Calculations.calculateBMI(kg, a.number("Q11"))) }
         val kcal = guard?.kcal ?: afterSex
         val eaLimited = guard != null && guard.kcal > afterSex
-        if (guard != null) {
+        if (guard != null && !guard.skipped) {
             val eaFloor = min(guard.minKcal, base)
             if (floorV == null || eaFloor > floorV) floorV = eaFloor
         }

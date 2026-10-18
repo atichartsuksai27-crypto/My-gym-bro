@@ -154,6 +154,8 @@ object Calculations {
        EA_MIN_CUT = พื้นระหว่างลดไขมัน, EA_MIN_NON_CUT = พื้นสำหรับเป้าที่ไม่ได้ตั้งใจให้ขาด (รักษา/Recomp/เพิ่มกล้าม) */
     const val EA_MIN_CUT = 30.0
     const val EA_MIN_NON_CUT = 35.0
+    /** BMI (น้ำหนักจริง) ตั้งแต่ค่านี้ขึ้นไปข้ามด่าน EA — ขอบเดียวกับช่วง Recomp สุดท้ายของ recompDeficit (ตรงกับ EA_SKIP_BMI ใน calculations.js) */
+    const val EA_SKIP_BMI = 30.0
 
     fun calculateFFM(weightKg: Double, bodyFatPct: Double): Double? {
         if (!(weightKg > 0) || !(bodyFatPct >= 0 && bodyFatPct < 100)) return null
@@ -173,7 +175,7 @@ object Calculations {
     }
 
     /** ผลของด่าน EA กลาง — ea = EA ของ kcal ที่ส่งเข้ามา (ก่อนดัน), kcal = เป้าหลังดัน */
-    data class EaGuard(val kcal: Double, val blocked: Boolean, val ea: Double, val minKcal: Double, val minEA: Double)
+    data class EaGuard(val kcal: Double, val blocked: Boolean, val ea: Double, val minKcal: Double, val minEA: Double, val skipped: Boolean = false)
 
     /**
      * ด่านกลางของ energy availability (ตรงกับ GymBroCalc.applyEaGuard ใน calculations.js) — ใช้ตอนสร้างแผน, ตอนเสนอเป้าใหม่ให้แผนเก่า
@@ -181,12 +183,14 @@ object Calculations {
      * maxKcal = เพดานที่ห้ามดันขึ้นไปเกิน (null = ดันถึง minKcal เต็ม ๆ) · minKcal ปัดขึ้นเป็นหลัก 10 kcal
      * คืน null ถ้าข้อมูลไม่ครบ (kcal ว่าง/ไม่ใช่ตัวเลข, FFM ≤ 0) — ไม่คืน 0 หรือผ่านเงียบ ๆ
      */
-    fun applyEaGuard(kcal: Double?, goal: String?, exPerDay: Double?, ffmKg: Double?, maxKcal: Double? = null): EaGuard? {
+    fun applyEaGuard(kcal: Double?, goal: String?, exPerDay: Double?, ffmKg: Double?, maxKcal: Double? = null, bmi: Double? = null): EaGuard? {
         if (kcal == null || !kcal.isFinite()) return null
         val minEA = if (goal == "ลดไขมัน") EA_MIN_CUT else EA_MIN_NON_CUT
         val raw = minIntakeForEA(minEA, exPerDay, ffmKg) ?: return null
         val ea = calculateEnergyAvailability(kcal, exPerDay, ffmKg) ?: return null
         val minKcal = Math.ceil(raw / 10) * 10
+        // bmi (น้ำหนักจริง) ≥ EA_SKIP_BMI = ข้ามด่านทุกเป้าหมาย: คืนเป้าเดิม ไม่ดันขึ้น ไม่บล็อกการลด (ตรงกับ calculations.js) — พื้นตามเพศที่ผู้เรียกใส่เองยังอยู่
+        if (bmi != null && !bmi.isNaN() && bmi >= EA_SKIP_BMI) return EaGuard(kcal, false, ea, minKcal, minEA, true)
         val blocked = kcal < minKcal
         val cap = maxKcal?.takeIf { it.isFinite() } ?: minKcal
         val out = if (blocked) maxOf(kcal, minOf(minKcal, cap)) else kcal

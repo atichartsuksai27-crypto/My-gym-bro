@@ -229,6 +229,27 @@ for(var ti = 0; ti < 600; ti++){
       targetCases.push({answers: a, plan: plain(tp), expected: plain(A.computeTargets(a))});
     });
 })();
+/* BMI ขอบ 30 (ด่าน EA ถูกข้ามเมื่อ BMI >= 30 จากน้ำหนักจริง): ชาย 170 ซม. 86.4 / 86.7 / 100 กก. (BMI 29.9 / 30.0 / 34.6) และหญิง 160 ซม. 76 / 77 / 82 กก.
+   ทุกเป้าหมาย — ตรึง eaLimited / kcalDirection / carbG ทั้งสองฝั่ง (เคสตายตัว ต่อท้ายสุด ไม่ขยับลำดับสุ่ม) */
+(function(){
+  var base = {Q16:'นักกีฬา-เทรนมานาน', Q20:'ฟิตเนส-ยิม', Q22:'ครบมาก', Q36:'นั่งโต๊ะเป็นหลัก', Q2:DAYS.slice(0, 5), Q3:'45-60 นาที', Q4a:'เข้มข้น', Q6:'ห่างปานกลาง', Q5b:'ได้ (เน้นสร้างกล้ามให้เร็ว)', Q37:7};
+  var people = [
+    {Q9:'ชาย', Q10:35, Q11:170, kgs:[86.4, 86.7, 100]},
+    {Q9:'หญิง', Q10:30, Q11:160, kgs:[76, 77, 82]}
+  ];
+  var goals = ['ลดไขมัน', 'Recomposition (ลด+เพิ่มพร้อมกัน)', 'รักษาสุขภาพทั่วไป', 'เพิ่มกล้ามเนื้อ'];
+  people.forEach(function(pe){
+    pe.kgs.forEach(function(kg){
+      goals.forEach(function(g){
+        var a = JSON.parse(JSON.stringify(base));
+        a.Q9 = pe.Q9; a.Q10 = pe.Q10; a.Q11 = pe.Q11; a.Q12 = kg; a.Q1 = g;
+        var tp = {manualPick: {}, unlockedEx: {}, forceLowTier: {}, splitOverride: null, trainDays: null, cardioDays: [], cardioMinByDay: {}, intensity: {}};
+        setState({plan: tp, answers: a});
+        targetCases.push({answers: a, plan: plain(tp), expected: plain(A.computeTargets(a))});
+      });
+    });
+  });
+})();
 seed = savedSeed;
 
 /* ---------- calculations / benchmark cases ---------- */

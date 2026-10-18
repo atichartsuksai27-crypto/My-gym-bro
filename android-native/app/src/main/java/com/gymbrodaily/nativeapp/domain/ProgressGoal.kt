@@ -683,7 +683,7 @@ object ProgressGoal {
             val ffm = ffm(t, ev.refKg)
             if (ffm != null && k < tg.kcal) {
                 // เพดาน = เป้าเดิม (ไม่ดันขึ้นเหนือเป้าเดิมเอง) — ด่านกลางเดียวกับตอนสร้างแผน/เสนอเป้าใหม่ให้แผนเก่า
-                val g = Calculations.applyEaGuard(k.toDouble(), t.program.goal, ev.plan.exPerDay.toDouble(), ffm.ffm, tg.kcal.toDouble())
+                val g = Calculations.applyEaGuard(k.toDouble(), t.program.goal, ev.plan.exPerDay.toDouble(), ffm.ffm, tg.kcal.toDouble(), Calculations.calculateBMI(ev.refKg, t.answers.number("Q11")))
                 if (g != null && g.blocked) {
                     val wouldBe = k
                     val minEA = g.minEA; val eaNew = g.ea

@@ -142,6 +142,52 @@ class CalculationsTest {
         assertEquals(1350.0, noEx.kcal, 0.0)
     }
 
+    /* ---------- applyEaGuard — BMI >= 30 ข้ามด่าน (พอร์ตจาก tests/calculations.test.js) ---------- */
+
+    @Test fun eaGuardBmi299IsGatedButBmi30And346AreSkippedForEveryGoal() {
+        // FFM 66.6, ฝึก 228: เกณฑ์ลดไขมัน 30*66.6+228 = 2226 → 2230, เกณฑ์อื่น 35*66.6+228 = 2559 → 2560
+        listOf("ลดไขมัน" to 2230.0, "Recomposition (ลด+เพิ่มพร้อมกัน)" to 2560.0, "รักษาสุขภาพทั่วไป" to 2560.0, "เพิ่มกล้ามเนื้อ" to 2560.0).forEach { (goal, min) ->
+            val at299 = C.applyEaGuard(1900.0, goal, 228.0, 66.6, null, 29.9)!!
+            assertTrue("$goal 29.9", at299.blocked)
+            assertFalse("$goal 29.9", at299.skipped)
+            assertEquals("$goal 29.9", min, at299.kcal, 0.0)
+            listOf(30.0, 34.6, 45.0).forEach { bmi ->
+                val g = C.applyEaGuard(1900.0, goal, 228.0, 66.6, null, bmi)!!
+                assertTrue("$goal $bmi", g.skipped)
+                assertFalse("$goal $bmi", g.blocked)
+                assertEquals("$goal $bmi เป้าไม่ถูกแตะ", 1900.0, g.kcal, 0.0)
+                assertEquals((1900.0 - 228.0) / 66.6, g.ea, 1e-9)
+                assertEquals(min, g.minKcal, 0.0)
+            }
+        }
+    }
+
+    @Test fun eaGuardSkipIgnoresMaxKcalAndNeverMovesTheTarget() {
+        assertEquals(3200.0, C.applyEaGuard(3200.0, "รักษาสุขภาพทั่วไป", 228.0, 66.6, 2500.0, 34.6)!!.kcal, 0.0)
+        assertEquals(1900.0, C.applyEaGuard(1900.0, "ลดไขมัน", 228.0, 66.6, 3000.0, 34.6)!!.kcal, 0.0)
+    }
+
+    @Test fun eaGuardMissingOrInvalidBmiKeepsTheGateAndExactly30Skips() {
+        listOf(null, Double.NaN, 0.0, 29.99).forEach { bmi ->
+            val g = C.applyEaGuard(1900.0, "ลดไขมัน", 228.0, 66.6, null, bmi)!!
+            assertTrue("bmi=$bmi", g.blocked)
+            assertFalse("bmi=$bmi", g.skipped)
+        }
+        assertEquals(30.0, C.EA_SKIP_BMI, 0.0)
+        assertTrue(C.applyEaGuard(1900.0, "ลดไขมัน", 228.0, 66.6, null, 30.0)!!.skipped)
+    }
+
+    @Test fun eaGuardIncompleteDataIsStillNullAtHighBmi() {
+        assertNull(C.applyEaGuard(null, "ลดไขมัน", 200.0, 45.0, null, 35.0))
+        assertNull(C.applyEaGuard(1500.0, "ลดไขมัน", 200.0, 0.0, null, 35.0))
+    }
+
+    @Test fun eaGuardWomanFatLossBmi299GatedBmi32Skipped() {
+        // FFM 49.3, ฝึก 187: เกณฑ์ 30*49.3+187 = 1666 → 1670
+        assertEquals(1670.0, C.applyEaGuard(1500.0, "ลดไขมัน", 187.0, 49.3, null, 29.9)!!.kcal, 0.0)
+        assertEquals(1500.0, C.applyEaGuard(1500.0, "ลดไขมัน", 187.0, 49.3, null, 32.0)!!.kcal, 0.0)
+    }
+
     // ---- ABW / recomp tiers / macros — พอร์ตจาก tests/calculations.test.js ----
     @Test fun bmiUnderThresholdKeepsActualWeight() {
         assertEquals("actual", C.referenceWeight(70.0, 175.0, null)!!.method)

@@ -219,6 +219,8 @@ function calculateTDEE(a, b){
    คืน null ถ้าข้อมูลไม่ครบ/ไม่ถูกต้อง — ไม่คืน 0 กลบ error
    ------------------------------------------------------------ */
 var EA_MIN_CUT = 30, EA_MIN_NON_CUT = 35;
+/* BMI (น้ำหนักจริง) ตั้งแต่ค่านี้ขึ้นไปข้ามด่าน EA — ขอบเดียวกับช่วง Recomp สุดท้ายของ recompDeficit (bmi < 30 ใช้ 20%/500, ≥ 30 ใช้ 25%/800) */
+var EA_SKIP_BMI = 30;
 function calculateFFM(weightKg, bodyFatPct){
   weightKg = Number(weightKg); bodyFatPct = Number(bodyFatPct);
   if(!(weightKg>0) || !(bodyFatPct>=0 && bodyFatPct<100)) return null;
@@ -246,9 +248,13 @@ function minIntakeForEA(minEA, exerciseKcal, ffmKg){
    maxKcal (ไม่บังคับ) = เพดานที่ห้ามดันขึ้นไปเกิน — ตอนสร้างแผนคือพลังงานที่ใช้รวมการฝึก (ไม่บังคับให้กินเกินที่ใช้),
    ตอนปรับเป้าคือเป้าเดิม; ไม่ส่ง = ดันถึง minKcal เต็ม ๆ
    minKcal ปัดขึ้นเป็นหลัก 10 kcal (ค่าที่แสดงให้ผู้ใช้เห็น) — blocked = ก่อนดัน kcal ต่ำกว่า minKcal (ไม่ว่าดันได้จริงหรือไม่)
-   คืน {kcal, blocked, ea, minKcal, minEA} โดย ea = EA ของ kcal ที่ส่งเข้ามา (ก่อนดัน)
+   bmi (ไม่บังคับ, คิดจากน้ำหนักจริง — ตัวเดียวกับที่ recompDeficit ใช้เลือกช่วง) ≥ EA_SKIP_BMI (30) = ข้ามด่านทุกเป้าหมาย:
+   FFM ของคน BMI สูงมากจนเกณฑ์ kcal/กก. FFM ดันเป้ากลับเกือบเท่าพลังงานที่ใช้ ทำให้ตาราง deficit ไม่มีผล (ตัวอย่าง BMI 34.6 Recomp หัก 25% → ขาดจริง ~12 kcal)
+   พื้นขั้นต่ำตามเพศ 1,500/1,200 ที่ผู้เรียกใส่เองยังอยู่ — ข้ามแล้วคืน {kcal เดิม, blocked:false, skipped:true} (ไม่ดันขึ้น ไม่บล็อกการลด)
+   ไม่ส่ง bmi / คิดไม่ได้ = ใช้ด่านตามเดิม
+   คืน {kcal, blocked, ea, minKcal, minEA, skipped} โดย ea = EA ของ kcal ที่ส่งเข้ามา (ก่อนดัน)
    คืน null ถ้าข้อมูลไม่ครบ (kcal ว่าง/ไม่ใช่ตัวเลข, FFM ≤ 0) — ไม่คืน 0 หรือผ่านเงียบ ๆ */
-function applyEaGuard(kcal, goal, exPerDay, ffmKg, maxKcal){
+function applyEaGuard(kcal, goal, exPerDay, ffmKg, maxKcal, bmi){
   if(kcal==null || kcal==='') return null;
   kcal = Number(kcal);
   if(!isFinite(kcal)) return null;
@@ -256,12 +262,14 @@ function applyEaGuard(kcal, goal, exPerDay, ffmKg, maxKcal){
   var raw = minIntakeForEA(minEA, exPerDay, ffmKg);
   var ea = calculateEnergyAvailability(kcal, exPerDay, ffmKg);
   if(raw==null || ea==null) return null;
-  var minKcal = Math.ceil(raw/10)*10, blocked = kcal < minKcal, out = kcal;
+  var minKcal = Math.ceil(raw/10)*10;
+  if(bmi!=null && bmi!=='' && Number(bmi) >= EA_SKIP_BMI) return {kcal: kcal, blocked: false, ea: ea, minKcal: minKcal, minEA: minEA, skipped: true};
+  var blocked = kcal < minKcal, out = kcal;
   if(blocked){
     var cap = (maxKcal!=null && maxKcal!=='' && isFinite(Number(maxKcal))) ? Number(maxKcal) : minKcal;
     out = Math.max(kcal, Math.min(minKcal, cap));
   }
-  return {kcal: out, blocked: blocked, ea: ea, minKcal: minKcal, minEA: minEA};
+  return {kcal: out, blocked: blocked, ea: ea, minKcal: minKcal, minEA: minEA, skipped: false};
 }
 
 global.GymBroCalc = {
@@ -280,6 +288,7 @@ global.GymBroCalc = {
   applyEaGuard: applyEaGuard,
   EA_MIN_CUT: EA_MIN_CUT,
   EA_MIN_NON_CUT: EA_MIN_NON_CUT,
+  EA_SKIP_BMI: EA_SKIP_BMI,
   getActivityFactor: getActivityFactor,
   activityFactorFromQ36: activityFactorFromQ36,
   ACTIVITY_FACTORS: ACTIVITY_FACTORS,

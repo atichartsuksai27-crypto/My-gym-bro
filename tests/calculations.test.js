@@ -183,6 +183,49 @@ test('missing exercise kcal counts as 0 (not a failure)', function(){
   assert.strictEqual(g.kcal, 1350);
 });
 
+console.log('applyEaGuard — BMI >= 30 skips the gate (bmi from actual weight)');
+test('BMI 29.9 still hits the gate; 30.0 and 34.6 skip it for every goal', function(){
+  // FFM 66.6, training 228: cut min = 30*66.6+228 = 2226, non-cut min = 35*66.6+228 = 2559
+  [['ลดไขมัน', 2230], ['Recomposition (ลด+เพิ่มพร้อมกัน)', 2560], ['รักษาสุขภาพทั่วไป', 2560], ['เพิ่มกล้ามเนื้อ', 2560]].forEach(function(row){
+    var goal = row[0], min = row[1];
+    var low = 1900;
+    var at299 = C.applyEaGuard(low, goal, 228, 66.6, undefined, 29.9);
+    assert.strictEqual(at299.blocked, true, goal+' 29.9');
+    assert.strictEqual(at299.skipped, false, goal+' 29.9');
+    assert.strictEqual(at299.kcal, min, goal+' 29.9 pushed to minKcal');
+    [30.0, 34.6, 45].forEach(function(bmi){
+      var g = C.applyEaGuard(low, goal, 228, 66.6, undefined, bmi);
+      assert.strictEqual(g.skipped, true, goal+' '+bmi);
+      assert.strictEqual(g.blocked, false, goal+' '+bmi);
+      assert.strictEqual(g.kcal, low, goal+' '+bmi+' target untouched');
+      assert.ok(Math.abs(g.ea - (low-228)/66.6) < 1e-9, 'ea still reported');
+      assert.strictEqual(g.minKcal, min, 'minKcal still reported for display');
+    });
+  });
+});
+test('skip never lowers or raises a target, and ignores maxKcal', function(){
+  assert.strictEqual(C.applyEaGuard(3200, 'รักษาสุขภาพทั่วไป', 228, 66.6, 2500, 34.6).kcal, 3200);
+  assert.strictEqual(C.applyEaGuard(1900, 'ลดไขมัน', 228, 66.6, 3000, 34.6).kcal, 1900);
+});
+test('missing / invalid bmi keeps the gate (conservative); exactly 30 skips', function(){
+  [undefined, null, '', NaN, 0, 29.99].forEach(function(bmi){
+    var g = C.applyEaGuard(1900, 'ลดไขมัน', 228, 66.6, undefined, bmi);
+    assert.strictEqual(g.blocked, true, String(bmi));
+    assert.strictEqual(g.skipped, false, String(bmi));
+  });
+  assert.strictEqual(C.EA_SKIP_BMI, 30);
+  assert.strictEqual(C.applyEaGuard(1900, 'ลดไขมัน', 228, 66.6, undefined, 30).skipped, true);
+});
+test('incomplete data still returns null even for BMI >= 30', function(){
+  assert.strictEqual(C.applyEaGuard(null, 'ลดไขมัน', 200, 45, undefined, 35), null);
+  assert.strictEqual(C.applyEaGuard(1500, 'ลดไขมัน', 200, 0, undefined, 35), null);
+});
+test('female, fat loss: BMI 29.9 gated, 32 skipped', function(){
+  // FFM 49.3, training 187: min = 30*49.3+187 = 1666 → 1670
+  assert.strictEqual(C.applyEaGuard(1500, 'ลดไขมัน', 187, 49.3, undefined, 29.9).kcal, 1670);
+  assert.strictEqual(C.applyEaGuard(1500, 'ลดไขมัน', 187, 49.3, undefined, 32).kcal, 1500);
+});
+
 console.log('Reference weight / ABW — BMI > 25 uses Adjusted Body Weight for Mifflin');
 test('BMI <= 25 keeps the actual weight and plain Mifflin', function(){
   var p = {weightKg:70, heightCm:175, age:30, sex:'ชาย'};

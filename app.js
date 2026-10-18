@@ -636,9 +636,9 @@ function computeCalorieTarget(tdee, a, exKcal){
   // ชั้นที่ 1: พื้นตามเพศ  ชั้นที่ 2: ด่าน energy availability กลาง (GymBroCalc.applyEaGuard — ดันขึ้นอย่างเดียว ไม่เกิน base)
   var kg = parseFloat(a.Q12), ffm = kg>0 ? ffmFromAnswers(a, kg, a.Q9) : null;
   var afterSex = (floor!=null && target < floor) ? floor : target;
-  var guard = ffm ? GymBroCalc.applyEaGuard(afterSex, goal, ex, ffm.ffm, base) : null;
+  var guard = ffm ? GymBroCalc.applyEaGuard(afterSex, goal, ex, ffm.ffm, base, GymBroCalc.calculateBMI(kg, a.Q11)) : null; // BMI ≥ 30 (น้ำหนักจริง) ข้ามด่าน
   var kcal = guard ? guard.kcal : afterSex, eaLimited = !!guard && guard.kcal > afterSex, eaNote = '';
-  if(guard){
+  if(guard && !guard.skipped){
     var eaFloor = Math.min(guard.minKcal, base);
     if(floor==null || eaFloor > floor) floor = eaFloor;
   }
@@ -1608,7 +1608,7 @@ function pgRecommend(p, ev){
        ถ้าเป้าใหม่ต่ำกว่านั้น ไม่ลด (ไม่ดันขึ้นเหนือเป้าเดิมเอง) แล้วบอกเหตุผล */
     var ffm = pgFFM(p, ev.refKg);
     if(ffm && kcal < t.kcal){
-      var g = GymBroCalc.applyEaGuard(kcal, p.goal, ev.plan.exPerDay, ffm.ffm, t.kcal); // เพดาน = เป้าเดิม (ไม่ดันขึ้นเหนือเป้าเดิมเอง)
+      var g = GymBroCalc.applyEaGuard(kcal, p.goal, ev.plan.exPerDay, ffm.ffm, t.kcal, GymBroCalc.calculateBMI(ev.refKg, (state.answers||{}).Q11)); // เพดาน = เป้าเดิม (ไม่ดันขึ้นเหนือเป้าเดิมเอง)
       if(g && g.blocked){
         var kept = g.kcal, minEA = g.minEA, eaNew = g.ea;
         out.eaBlocked = {minEA:minEA, ea:eaNew, wouldBe:kcal, minKcal:g.minKcal, ffm:Math.round(ffm.ffm*10)/10, src:ffm.src};
@@ -4275,7 +4275,7 @@ function planUpdateBanner(p){
    คิดจากคำตอบแบบสอบถามปัจจุบัน + เป้าหมาย/เพศ/วันฝึกของแผน + น้ำหนักล่าสุด (ใช้ plannedEx จาก program จริง ไม่ใช่จากคำตอบ)
    ถ้าเสนอลดเป้า ต้องผ่านด่าน energy availability (applyEaGuard) ก่อน — ห้ามเสนอเป้าที่ EA ต่ำกว่าเกณฑ์ ดันกลับได้ไม่เกินเป้าเดิม
    ธง targetFormulaSeen แทน calcTargetSeen/recompTargetSeen เดิม (ยังอ่านสองตัวเก่าเป็น "เห็นแล้ว" เพื่อไม่ให้ banner ที่ผู้ใช้เคยกดข้ามกลับมาอีก) */
-var CALC_VERSION = 3;
+var CALC_VERSION = 4;
 /* "คงเป้าเดิม" ผูกกับเวอร์ชันสูตร: targetFormulaSeenV = CALC_VERSION ตอนที่กดข้าม → เห็นแล้วเฉพาะเมื่อสูตรปัจจุบันไม่ใหม่กว่านั้น
    ไม่มี targetFormulaSeenV แต่มีธงบูลีนเก่า (targetFormulaSeen/calcTargetSeen/recompTargetSeen) = ข้ามไว้ตอนสูตรรุ่น 2 → ไม่ใช่ "เห็นแล้ว" อีกเมื่อ CALC_VERSION > 2 */
 function targetFormulaSeen(p){
@@ -4299,7 +4299,7 @@ function calorieTargetUpdate(p){
   var kcal = Math.round(cal.kcal), old = p.targets.kcal, direction = cal.direction, floored = cal.floored, eaLimited = cal.eaLimited;
   if(old!=null && kcal < old){
     var ffm = ffmFromAnswers(a, kg, a.Q9);
-    var g = ffm ? GymBroCalc.applyEaGuard(kcal, p.goal, exDay, ffm.ffm, old) : null;
+    var g = ffm ? GymBroCalc.applyEaGuard(kcal, p.goal, exDay, ffm.ffm, old, GymBroCalc.calculateBMI(kg, a.Q11)) : null;
     if(g && g.blocked && g.kcal > kcal){
       kcal = g.kcal; floored = true; eaLimited = true;
       direction += ' · ไม่ลดต่ำกว่า '+fmtKcal(kcal)+' kcal เพราะ energy availability จะต่ำกว่า '+g.minEA+' kcal/กก. มวลไร้ไขมัน (FFM ~'+fmt1(ffm.ffm)+' กก. — '+ffm.src+')';

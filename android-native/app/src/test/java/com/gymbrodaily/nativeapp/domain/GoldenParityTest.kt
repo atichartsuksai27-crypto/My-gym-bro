@@ -24,7 +24,7 @@ class GoldenParityTest {
         assertEquals(1500, loadGolden("generator.json").size)
         assertEquals(300, loadGolden("calculations.json").size)
         assertEquals(300, loadGolden("benchmarks.json").size)
-        assertEquals(607, loadGolden("targets.json").size) // 600 สุ่ม + 7 เคส P4 ตายตัว
+        assertEquals(631, loadGolden("targets.json").size) // 600 สุ่ม + 7 เคส P4 ตายตัว + 24 เคสขอบ BMI 30
     }
 
     /** กันเทสต์ผ่านแบบหลอกๆ — ตัวเทียบต้องจับความต่างได้จริง */

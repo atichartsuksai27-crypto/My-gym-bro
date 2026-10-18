@@ -187,6 +187,25 @@ test('step 3 (pgRecommend): repeated downward adjustments at BMI >= 30 are not b
   assert.ok(Math.min.apply(null, seen) >= 1500);
   assert.ok(seen[seen.length - 1] === 1500 || seen.length < 12, 'settles at the floor: '+seen.join(','));
 });
+test('step 3 (pgRecommend), woman BMI >= 30: repeated adjustments never drop below 1200 and never by more than 150 at a time', function(){
+  var a = p4('ลดไขมัน', {Q10:30, Q11:160, Q12:82});
+  H.setState({plan:plan(), answers:a});
+  var p = H.plain(buildSnapshot(a)); p.startWeight = 82; p.sex = 'หญิง'; p.goal = 'ลดไขมัน'; p.startDate = '2026-09-01'; p.planId = 'x';
+  H.setTrack({program:p, logs:{}, weights:{}});
+  var kcal = 1700, seen = [], blocked = 0;
+  for(var i = 0; i < 12; i++){
+    p.targets.kcal = kcal;
+    var out = H.ev('pgRecommend')(p, {energy:{implied:1100, exAct:150}, weight:{level:'anomaly'}, persisted:true, refKg:82,
+      plan:{c:-0.8, exPerDay:150}, strength:{level:'ok'}, causes:[], adh:{stressLog:[]}});
+    if(out.eaBlocked) blocked++;
+    if(out.kcal == null) break;
+    assert.ok(kcal - out.kcal <= 150, 'step '+i+': '+kcal+' -> '+out.kcal);
+    assert.ok(out.kcal >= 1200, 'sex floor: '+out.kcal);
+    kcal = out.kcal; seen.push(kcal);
+  }
+  assert.strictEqual(blocked, 0);
+  assert.ok(seen.length >= 2 && kcal < 1700, 'it did lower: '+seen.join(','));
+});
 test('step 3 control: BMI < 30 is still blocked by the gate (unchanged behaviour)', function(){
   var a = p4('รักษาสุขภาพทั่วไป', {Q12:52});
   H.setState({plan:plan(), answers:a});
@@ -196,6 +215,35 @@ test('step 3 control: BMI < 30 is still blocked by the gate (unchanged behaviour
   var out = H.ev('pgRecommend')(p, {energy:{implied:1500, exAct:200}, weight:{level:'anomaly'}, persisted:true, refKg:52,
     plan:{c:-0.5, exPerDay:200}, strength:{level:'ok'}, causes:[], adh:{stressLog:[]}});
   assert.ok(out.eaBlocked, 'normal-BMI woman is still protected');
+});
+
+test('plans already on calcV 3: BMI < 30 sees no second banner (target differs < 50 kcal), BMI >= 30 does', function(){
+  function v3Plan(a, v3Kcal){
+    H.setState({plan:plan(), answers:a});
+    var p = H.plain(buildSnapshot(a)); p.startWeight = parseFloat(a.Q12); p.sex = a.Q9; p.goal = a.Q1; p.startDate = '2026-09-01'; p.planId = 'x';
+    p.calcV = 3; p.targets.kcal = v3Kcal;
+    H.setTrack({program:p, logs:{}, weights:{}});
+    return p;
+  }
+  H.setState({plan:plan(), answers:{}});
+  // BMI < 30: สูตรรุ่น 3 กับ 4 ให้เป้าเดียวกัน (ด่าน EA ทำงานเหมือนเดิม) → เป้ารุ่น 3 = เป้าปัจจุบัน → ไม่ขึ้นแบนเนอร์
+  [man(RECOMP, 86.4), man('ลดไขมัน', 86.4), p4('ลดไขมัน', {Q12:70})].forEach(function(a, i){
+    H.setState({plan:plan(), answers:{}});
+    var p = v3Plan(a, computeTargets(a).kcal);
+    assert.strictEqual(calorieTargetUpdate(p), null, 'BMI<30 case '+i);
+  });
+  // BMI >= 30: เป้ารุ่น 3 = เป้าที่ถูกด่าน EA ดันขึ้น (คิดซ้ำด้วย applyEaGuard แบบไม่ส่ง bmi = พฤติกรรมรุ่น 3) → เป้ารุ่น 4 ต่ำกว่า >= 50 → เสนอ
+  [[man(RECOMP, 100), 2560], [p4('ลดไขมัน', {Q10:30, Q11:160, Q12:82}), null]].forEach(function(row, i){
+    var a = row[0];
+    H.setState({plan:plan(), answers:{}});
+    var t4 = computeTargets(a), ffm = ffmFromAnswers(a, parseFloat(a.Q12), a.Q9);
+    var v3 = Math.round(C.applyEaGuard(t4.kcal, a.Q1, plannedEx(a, parseFloat(a.Q12)), ffm.ffm, t4.tdee + Math.round(plannedEx(a, parseFloat(a.Q12)))).kcal);
+    if(row[1] != null) assert.strictEqual(v3, row[1], 'v3 target of the 100 kg man');
+    assert.ok(v3 - t4.kcal >= 50, 'v3 '+v3+' vs v4 '+t4.kcal);
+    var u = calorieTargetUpdate(v3Plan(a, v3));
+    assert.ok(u, 'BMI >= 30 case '+i+' sees the banner again');
+    assert.strictEqual(u.kcal, t4.kcal);
+  });
 });
 
 console.log('calorieTargetUpdate — banner for plans made before the current formula');

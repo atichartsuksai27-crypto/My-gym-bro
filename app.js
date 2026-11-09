@@ -1875,6 +1875,7 @@ function fmt1(n){ return (Math.round(n*10)/10).toFixed(1); }
 
 function currentView(){
   if(!track.program || state.editPlan) return 'onboarding';
+  if(libUI.open) return 'library'; // หน้าคลังท่าเป็นสถานะชั่วคราว ไม่เก็บใน state.nav (ไม่ persist/ไม่ sync)
   var v = state.nav||'today';
   var allowed = ['today','schedule','progress','plan'];
   if(realUser()) allowed.push('coach'); // ต้อง login ก่อนเท่านั้น (ต้องมี access token ส่งไป /api/coach)
@@ -2041,6 +2042,11 @@ function renderNav(view){
      (เอาอีเมลยาวๆ ออกจากแถบหลัก ไม่ให้ไปเบียดเมนูเหมือนหน้าตาเดิม) */
   var html = '<div class="appbar">'+
     '<div class="appbar-brand"><span class="brand-mark"></span><span>Gymbro Daily</span></div>';
+  // ทางเข้าคลังท่าบนมือถือ: ปุ่มไอคอนบน app bar (ไม่เพิ่มแท็บล่าง ซึ่งมี 5 แท็บอยู่แล้วเมื่อล็อกอิน)
+  if(!locked && track.program){
+    html += '<button type="button" class="appbar-lib'+(view==='library'?' on':'')+'" data-lib-open-page aria-label="คลังท่าออกกำลังกาย"'+
+      (view==='library'?' aria-current="page"':'')+'>'+libIcon('book')+'</button>';
+  }
   if(realUser()){
     var email = auth.session.user.email || '';
     html += '<button type="button" class="acct-btn'+(acctOpen?' open':'')+'" data-act="acct-toggle" aria-label="บัญชีของฉัน">'+
@@ -2072,6 +2078,11 @@ function renderNav(view){
       '<span class="nl">'+esc(it.label)+'</span><span class="nl-s">'+esc(it.short||it.label)+'</span>'+cnt+'</button>';
   });
   html += '</div>';
+  // ทางเข้าคลังท่าบนเดสก์ท็อป: เมนูแยกใต้แท็บหลัก (มือถือซ่อนกล่องนี้ ใช้ปุ่มบน app bar แทน)
+  if(!locked && track.program){
+    html += '<div class="nav-lib"><button type="button" class="nav-item'+(view==='library'?' active':'')+'" data-lib-open-page'+
+      (view==='library'?' aria-current="page"':'')+'><span class="nd"></span><span class="nl">คลังท่าออกกำลังกาย</span></button></div>';
+  }
 
   if(!locked && track.program){
     var st = streakOf(track.program);
@@ -4597,6 +4608,612 @@ function renderOnboarding(){
 }
 
 /* ============================================================
+   คลังท่าออกกำลังกาย — ข้อมูล + หน้าจอ (พอร์ตจาก android-native: LibraryCatalog.kt, ExerciseLibrary.kt,
+   ExercisePicker.kt GuideBlock, BodyMap.kt) ใช้เฉพาะหน้าคลัง ไม่มีผลกับตัวสร้างตาราง
+   ============================================================ */
+/* ---- ข้อมูลคลังท่า: สร้างอัตโนมัติจาก android-native/.../domain/LibraryCatalog.kt (คัดลอกตรงตัวอักษร) ---- */
+/* ท่าเสริมดิบ 77 ท่า (id ขึ้นต้น "x") — ตัดท่าที่ชื่อซ้ำ EXERCISES ด้วย LIBRARY_EXTRA ด้านล่าง ห้ามตัดมือ */
+var LIBRARY_RAW_EXTRA = [
+  {"id":"xsq1","pattern":"squat","tier":1,"equip":"bodyweight","th":"Wall Sit","sub":"นั่งพิงกำแพงค้างท่า"},
+  {"id":"xsq2","pattern":"squat","tier":2,"equip":"bodyweight","th":"Split Squat","sub":"สควอทแยกขาหน้า-หลังอยู่กับที่"},
+  {"id":"xsq3","pattern":"squat","tier":2,"equip":"bodyweight","th":"Reverse Lunge","sub":"ลันจ์ก้าวถอยหลัง"},
+  {"id":"xsq4","pattern":"squat","tier":2,"equip":"machine","th":"Leg Extension Machine","sub":"เครื่องเตะขาเหยียดเข่า เน้นต้นขาหน้า"},
+  {"id":"xsq5","pattern":"squat","tier":3,"equip":"dumbbell","th":"Walking Lunge (Dumbbell)","sub":"ลันจ์เดินถือดัมเบล"},
+  {"id":"xsq6","pattern":"squat","tier":3,"equip":"dumbbell","th":"Bulgarian Split Squat","sub":"สควอทเท้าหลังพักบนเก้าอี้/ม้านั่ง"},
+  {"id":"xsq7","pattern":"squat","tier":3,"equip":"machine","th":"Hack Squat Machine","sub":"เครื่องแฮคสควอท"},
+  {"id":"xsq8","pattern":"squat","tier":3,"equip":"bodyweight","th":"Jump Squat","sub":"สควอทกระโดด (เน้นพลัง)"},
+  {"id":"xsq9","pattern":"squat","tier":4,"equip":"barbell","th":"Barbell Front Squat","sub":"สควอทบาร์เบลด้านหน้า"},
+  {"id":"xhg1","pattern":"hinge","tier":1,"equip":"bodyweight","th":"Back Extension (Bodyweight)","sub":"นอนคว่ำเหยียดหลังล่าง/สะโพก"},
+  {"id":"xhg2","pattern":"hinge","tier":2,"equip":"bodyweight","th":"Single-Leg Glute Bridge","sub":"สะพานสะโพกขาเดียว"},
+  {"id":"xhg3","pattern":"hinge","tier":2,"equip":"machine","th":"Lying Leg Curl Machine","sub":"เครื่องนอนคว่ำงอเข่า เน้นหลังขา"},
+  {"id":"xhg4","pattern":"hinge","tier":2,"equip":"machine","th":"Seated Leg Curl Machine","sub":"เครื่องนั่งงอเข่า เน้นหลังขา"},
+  {"id":"xhg5","pattern":"hinge","tier":2,"equip":"cable","th":"Cable Pull-Through","sub":"ดึงเคเบิลผ่านขา เน้นสะโพก"},
+  {"id":"xhg6","pattern":"hinge","tier":3,"equip":"dumbbell","th":"Single-Leg Romanian Deadlift","sub":"RDL ขาเดียวถือดัมเบล"},
+  {"id":"xhg7","pattern":"hinge","tier":3,"equip":"kettlebell","th":"Kettlebell Swing","sub":"สวิงเคตเทิลเบลล์"},
+  {"id":"xhg8","pattern":"hinge","tier":3,"equip":"barbell","th":"Barbell Hip Thrust","sub":"ฮิปทรัสต์บาร์เบล"},
+  {"id":"xhg9","pattern":"hinge","tier":4,"equip":"barbell","th":"Barbell Good Morning","sub":"กู๊ดมอร์นิ่งบาร์เบล"},
+  {"id":"xhg10","pattern":"hinge","tier":4,"equip":"barbell","th":"Sumo Deadlift","sub":"เดดลิฟต์ท่าซูโม่ (ยืนกว้าง)"},
+  {"id":"xhp1","pattern":"hpush","tier":1,"equip":"bodyweight","th":"Incline Push-up","sub":"พุชอัพมือสูง (วางมือบนม้านั่ง/โต๊ะ)"},
+  {"id":"xhp2","pattern":"hpush","tier":2,"equip":"bodyweight","th":"Push-up","sub":"พุชอัพมาตรฐาน"},
+  {"id":"xhp3","pattern":"hpush","tier":2,"equip":"dumbbell","th":"Dumbbell Fly","sub":"ฟลายดัมเบลนอนราบ"},
+  {"id":"xhp4","pattern":"hpush","tier":2,"equip":"machine","th":"Pec Deck Machine","sub":"เครื่องเพคเด็ค (บีบอก)"},
+  {"id":"xhp5","pattern":"hpush","tier":2,"equip":"cable","th":"Cable Crossover","sub":"ครอสโอเวอร์เคเบิล"},
+  {"id":"xhp6","pattern":"hpush","tier":3,"equip":"dumbbell","th":"Incline Dumbbell Press","sub":"ดันดัมเบลบนม้านั่งเอียง เน้นอกบน"},
+  {"id":"xhp7","pattern":"hpush","tier":3,"equip":"bodyweight","th":"Decline Push-up","sub":"พุชอัพเท้าสูง"},
+  {"id":"xhp8","pattern":"hpush","tier":4,"equip":"barbell","th":"Incline Barbell Bench Press","sub":"เบนช์เพรสบาร์เบลม้านั่งเอียง"},
+  {"id":"xhl1","pattern":"hpull","tier":2,"equip":"dumbbell","th":"One-Arm Dumbbell Row","sub":"พายดัมเบลข้างเดียว"},
+  {"id":"xhl2","pattern":"hpull","tier":2,"equip":"machine","th":"Chest-Supported Row Machine","sub":"เครื่องพายเอนอกพักกับเบาะ"},
+  {"id":"xhl3","pattern":"hpull","tier":2,"equip":"pullupbar","th":"Inverted Row","sub":"พายตัวใต้บาร์ (ตัวลอยเฉียง)"},
+  {"id":"xhl4","pattern":"hpull","tier":3,"equip":"barbell","th":"T-Bar Row","sub":"พายทีบาร์"},
+  {"id":"xvl1","pattern":"vpull","tier":2,"equip":"cable","th":"Straight-Arm Pulldown","sub":"ดึงเคเบิลแขนตรง เน้นหลังกว้าง"},
+  {"id":"xvl2","pattern":"vpull","tier":2,"equip":"machine","th":"Close-Grip Lat Pulldown","sub":"ลัทดาวน์จับแคบ"},
+  {"id":"xvl3","pattern":"vpull","tier":3,"equip":"pullupbar","th":"Negative Pull-up","sub":"ดึงข้อแบบลดตัวช้า ๆ (ฝึกก่อนดึงข้อเต็ม)"},
+  {"id":"xvl4","pattern":"vpull","tier":4,"equip":"pullupbar","th":"Chin-up","sub":"ดึงข้อมือหงาย เน้นไบเซปร่วม"},
+  {"id":"xvp1","pattern":"vpush","tier":3,"equip":"dumbbell","th":"Arnold Press","sub":"อาร์โนลด์เพรส (ดันไหล่พร้อมหมุนข้อมือ)"},
+  {"id":"xvp2","pattern":"vpush","tier":4,"equip":"barbell","th":"Barbell Push Press","sub":"พุชเพรสบาร์เบล (ใช้ขาช่วยส่งแรง)"},
+  {"id":"xdl1","pattern":"delts","tier":2,"equip":"dumbbell","th":"Dumbbell Lateral Raise","sub":"ยกดัมเบลไปด้านข้าง เน้นไหล่ข้าง"},
+  {"id":"xdl2","pattern":"delts","tier":2,"equip":"dumbbell","th":"Dumbbell Front Raise","sub":"ยกดัมเบลไปด้านหน้า"},
+  {"id":"xdl3","pattern":"delts","tier":2,"equip":"dumbbell","th":"Rear Delt Fly","sub":"ก้มกางแขนดัมเบล เน้นไหล่หลัง"},
+  {"id":"xdl4","pattern":"delts","tier":2,"equip":"machine","th":"Reverse Pec Deck","sub":"เครื่องเพคเด็คย้อนกลับ เน้นไหล่หลัง"},
+  {"id":"xdl5","pattern":"delts","tier":2,"equip":"cable","th":"Face Pull","sub":"ดึงเคเบิลเข้าหน้า เน้นไหล่หลัง/สะบัก"},
+  {"id":"xdl6","pattern":"delts","tier":2,"equip":"dumbbell","th":"Dumbbell Shrug","sub":"ยักไหล่ดัมเบล"},
+  {"id":"xdl7","pattern":"delts","tier":3,"equip":"cable","th":"Cable Lateral Raise","sub":"ยกไหล่ข้างด้วยเคเบิล"},
+  {"id":"xdl8","pattern":"delts","tier":3,"equip":"barbell","th":"Barbell Shrug","sub":"ยักไหล่บาร์เบล"},
+  {"id":"xco1","pattern":"core","tier":1,"equip":"bodyweight","th":"Crunch","sub":"ครันช์"},
+  {"id":"xco2","pattern":"core","tier":1,"equip":"bodyweight","th":"Bird Dog","sub":"เบิร์ดด็อก (ยกแขนขาสลับข้างบนสี่เหลี่ยม)"},
+  {"id":"xco3","pattern":"core","tier":2,"equip":"bodyweight","th":"Side Plank","sub":"แพลงก์ด้านข้าง"},
+  {"id":"xco4","pattern":"core","tier":2,"equip":"bodyweight","th":"Bicycle Crunch","sub":"ครันช์ปั่นจักรยาน"},
+  {"id":"xco5","pattern":"core","tier":2,"equip":"bodyweight","th":"Russian Twist","sub":"บิดลำตัวนั่งเอนหลัง"},
+  {"id":"xco6","pattern":"core","tier":2,"equip":"bodyweight","th":"Mountain Climber","sub":"ปีนเขา (วิ่งอยู่กับที่ท่าวิดพื้น)"},
+  {"id":"xco7","pattern":"core","tier":2,"equip":"bodyweight","th":"Lying Leg Raise","sub":"นอนหงายยกขา"},
+  {"id":"xco8","pattern":"core","tier":2,"equip":"cable","th":"Pallof Press","sub":"ดันเคเบิลต้านการบิดลำตัว"},
+  {"id":"xco9","pattern":"core","tier":3,"equip":"cable","th":"Cable Crunch","sub":"ครันช์คุกเข่าดึงเคเบิล"},
+  {"id":"xco10","pattern":"core","tier":3,"equip":"bodyweight","th":"Hollow Body Hold","sub":"ค้างท่าเรือ (นอนหงายยกแขนขาลอย)"},
+  {"id":"xbc1","pattern":"biceps","tier":2,"equip":"dumbbell","th":"Hammer Curl","sub":"แฮมเมอร์เคิร์ล (จับแนวตั้ง)"},
+  {"id":"xbc2","pattern":"biceps","tier":2,"equip":"dumbbell","th":"Concentration Curl","sub":"คอนเซนเทรชันเคิร์ลนั่งศอกพักต้นขา"},
+  {"id":"xbc3","pattern":"biceps","tier":3,"equip":"dumbbell","th":"Incline Dumbbell Curl","sub":"เคิร์ลดัมเบลบนม้านั่งเอียง"},
+  {"id":"xbc4","pattern":"biceps","tier":3,"equip":"barbell","th":"EZ-Bar Curl","sub":"เคิร์ลบาร์โค้งอีแซด"},
+  {"id":"xbc5","pattern":"biceps","tier":3,"equip":"barbell","th":"Reverse Barbell Curl","sub":"เคิร์ลบาร์เบลมือคว่ำ เน้นปลายแขน"},
+  {"id":"xtc1","pattern":"triceps","tier":2,"equip":"bodyweight","th":"Close-Grip Push-up","sub":"พุชอัพมือชิด"},
+  {"id":"xtc2","pattern":"triceps","tier":2,"equip":"dumbbell","th":"Dumbbell Kickback","sub":"เตะหลังดัมเบลก้มตัว"},
+  {"id":"xtc3","pattern":"triceps","tier":2,"equip":"cable","th":"Rope Pushdown","sub":"กดเคเบิลแบบเชือก"},
+  {"id":"xtc4","pattern":"triceps","tier":3,"equip":"bodyweight","th":"Diamond Push-up","sub":"พุชอัพมือเพชร"},
+  {"id":"xtc5","pattern":"triceps","tier":3,"equip":"barbell","th":"Skull Crusher","sub":"สกัลครัชเชอร์ (นอนเหยียดแขนบาร์เบล)"},
+  {"id":"xcf1","pattern":"calves","tier":1,"equip":"bodyweight","th":"Standing Calf Raise (Bodyweight)","sub":"เขย่งปลายเท้ายืนน้ำหนักตัว"},
+  {"id":"xcf2","pattern":"calves","tier":2,"equip":"bodyweight","th":"Single-Leg Calf Raise","sub":"เขย่งปลายเท้าขาเดียว"},
+  {"id":"xcf3","pattern":"calves","tier":2,"equip":"dumbbell","th":"Dumbbell Calf Raise","sub":"เขย่งปลายเท้าถือดัมเบล"},
+  {"id":"xcf4","pattern":"calves","tier":2,"equip":"machine","th":"Seated Calf Raise Machine","sub":"เครื่องนั่งยกส้นเท้า"},
+  {"id":"xcf5","pattern":"calves","tier":3,"equip":"machine","th":"Standing Calf Raise Machine","sub":"เครื่องยืนยกส้นเท้า"},
+  {"id":"xcd1","pattern":"cardio","tier":1,"equip":"bodyweight","th":"Jumping Jacks","sub":"กระโดดตบ"},
+  {"id":"xcd2","pattern":"cardio","tier":1,"equip":"bodyweight","th":"High Knees","sub":"วิ่งยกเข่าสูงอยู่กับที่"},
+  {"id":"xcd3","pattern":"cardio","tier":1,"equip":"machine","th":"Stationary Bike","sub":"จักรยานนั่งปั่นในร่ม"},
+  {"id":"xcd4","pattern":"cardio","tier":2,"equip":"machine","th":"Rowing Machine","sub":"เครื่องพายเรือ"},
+  {"id":"xcd5","pattern":"cardio","tier":2,"equip":"machine","th":"Treadmill Run","sub":"วิ่งบนลู่"},
+  {"id":"xcd6","pattern":"cardio","tier":2,"equip":"bodyweight","th":"Jump Rope","sub":"กระโดดเชือก"},
+  {"id":"xcd7","pattern":"cardio","tier":3,"equip":"bodyweight","th":"Burpee","sub":"เบอร์พี"}
+];
+var LIBRARY_EXTRA_GROUPS = ["biceps","triceps","delts","calves","cardio"];
+var LIBRARY_GROUP_LABEL_EXTRA = {"delts":"Delts & Traps — ไหล่ข้าง / ไหล่หลัง / บ่า","calves":"Calves — น่อง","cardio":"Cardio — คาร์ดิโอ / ทั้งตัว"};
+var LIBRARY_GROUP_SHORT_EXTRA = {"delts":"ไหล่ข้าง/หลัง","calves":"น่อง","cardio":"คาร์ดิโอ"};
+var LIBRARY_EXTRA_CAUTION = {"เข่า":["xsq2","xsq3","xsq4","xsq5","xsq6","xsq7","xsq8","xsq9","xcd2","xcd6","xcd7","xcd5"],"ไหล่":["xvp1","xvp2","xhp8","xhp6","xhp3","xdl1","xdl2","xtc5","xcd7","xvl3","xvl4"],"หลัง":["xhg6","xhg7","xhg8","xhg9","xhg10","xhl4","xvp2","xsq9","xcd7","xhg1","xco5"],"ข้อมือ":["xhp2","xhp7","xtc1","xtc4","xbc4","xbc5","xcd7","xco6","xco3","xhg7"],"หัวใจ-หลอดเลือด":["xsq9","xhg9","xhg10","xhp8","xvp2","xhl4","xvl4","xcd7","xcd2","xcd6","xhg7"]};
+var LIBRARY_RISK_LABEL = ["เสี่ยงต่ำ","เสี่ยงปานกลาง","เสี่ยงสูง"];
+var LIBRARY_SUITS_BY_TIER = {"1":"เหมาะกับมือใหม่ หรือคนที่กลับมาออกกำลังกายหลังหยุดไปนาน","2":"เหมาะกับคนที่ฝึกมาแล้วสักระยะและคุมฟอร์มพื้นฐานได้","3":"เหมาะกับคนที่ฝึกสม่ำเสมอและฟอร์มนิ่งแล้ว ไม่แนะนำให้มือใหม่ลอง","4":"สำหรับผู้ฝึกขั้นสูง ควรมีเทรนเนอร์หรือคนช่วยดูแลตอนเริ่มทำ"};
+var LIBRARY_TIP_BY_EQUIP = {"barbell":"บาร์เบลน้ำหนักหนัก ควรมีคนช่วยสปอตหรือตั้งเซฟตี้บาร์ก่อนเริ่มเซ็ต","dumbbell":"เลือกน้ำหนักที่คุมได้ตลอดเซ็ต และวางดัมเบลลงช้าๆ ไม่โยน","machine":"ปรับที่นั่งและแกนเครื่องให้พอดีตัวก่อนเริ่ม และเริ่มจากน้ำหนักเบา","cable":"ตรวจว่าเคเบิลและตัวล็อกแน่นก่อนเริ่ม ไม่ใช้น้ำหนักเหวี่ยง","kettlebell":"จับให้แน่นและเว้นพื้นที่รอบตัวให้โล่ง เพราะน้ำหนักเหวี่ยงได้","pullupbar":"ตรวจว่าบาร์แข็งแรง และลงจากบาร์อย่างช้าๆ ไม่ปล่อยตัวหล่น","bodyweight":"ใช้น้ำหนักตัวเอง คุมจังหวะให้ช้าและนิ่ง ไม่ต้องรีบทำให้ครบ"};
+var LIBRARY_TIP_BY_GROUP = {"squat":"ให้เข่าชี้ไปทางเดียวกับปลายเท้า และไม่ปล่อยเข่าบิดเข้าด้านใน","hinge":"รักษาหลังให้ตรงตลอดการเคลื่อนไหว ถ้าหลังเริ่มโค้งให้ลดน้ำหนักทันที","hpush":"ไม่ล็อกศอกแรงตอนดันสุด และไม่เด้งน้ำหนักออกจากหน้าอก","hpull":"ดึงด้วยหลังไม่ใช่แขน และไม่ใช้แรงเหวี่ยงจากลำตัว","vpull":"เริ่มดึงจากหัวไหล่ลง ไม่ปล่อยตัวทิ้งน้ำหนักตอนยืดแขนสุด","vpush":"ไม่แอ่นหลังตอนดันเหนือศีรษะ และหยุดถ้าไหล่รู้สึกเจ็บแปลบ","core":"หายใจต่อเนื่อง ไม่กลั้นหายใจ และไม่ให้หลังส่วนล่างแอ่น","biceps":"ไม่แกว่งตัวช่วย ศอกอยู่ใกล้ลำตัว","triceps":"ล็อกศอกให้อยู่กับที่ ไม่กางศอกออก ระวังข้อศอกถ้าเริ่มปวด","delts":"เลือกน้ำหนักเบา ไม่ยกเกินระดับไหล่ และไม่ใช้แรงเหวี่ยง","calves":"เคลื่อนไหวเต็มช่วงอย่างช้าๆ ทรงตัวให้มั่น ถ้าตะคริวให้หยุดยืดก่อน","cardio":"วอร์มอัพก่อนเสมอ และหยุดทันทีถ้าเวียนหัว แน่นหน้าอก หรือหายใจไม่ทัน"};
+/* ความเสี่ยงรายท่า [ระดับ, เหตุผล] — 2 = สูง, 1 = ปานกลาง, ไม่อยู่ในตาราง = ต่ำ (ยังไม่ผ่านการตรวจจากผู้เชี่ยวชาญ) */
+var LIBRARY_RISK = {
+  "sq4":[2,"บาร์หนักอยู่บนหลัง ถ้าเสียหลักหรือลุกไม่ไหวอาจติดใต้บาร์ และภาระต่อหลังส่วนล่าง/เข่าสูง ควรมีเซฟตี้บาร์หรือคนสปอต"],
+  "sq3d":[2,"น้ำหนักกดลงเหนือลำตัว สะโพกงอลึกจนหลังส่วนล่างโค้งง่าย และถ้าล็อกเข่าหรือพลาดตอนปลดตัวล็อก ขาอาจโดนกดทับ"],
+  "xsq9":[2,"บาร์อยู่หน้าไหล่ ต้องยืดอกและข้อมือยืดหยุ่นพอ ถ้าตัวพับบาร์จะหลุดไปข้างหน้า"],
+  "hg4":[2,"ภาระต่อกระดูกสันหลังสูง ถ้าหลังโค้งตอนล้าเสี่ยงบาดเจ็บหลังได้ง่าย"],
+  "xhg10":[2,"ยกน้ำหนักมากจากพื้นด้วยท่ากว้าง ภาระต่อหลังและสะโพกสูง ถ้าหลังโค้งตอนล้าเสี่ยงบาดเจ็บ"],
+  "xhg9":[2,"บาร์อยู่บนหลังขณะก้มตัว ถ้าหลังโค้งหรือน้ำหนักเกินกำลัง หลังส่วนล่างรับแรงเต็มที่"],
+  "hp4":[2,"บาร์อยู่เหนืออก ถ้ายกไม่ขึ้นแล้วไม่มีคนสปอตหรือเซฟตี้ บาร์ทับอกได้"],
+  "xhp8":[2,"บาร์อยู่เหนือหน้าอกส่วนบนและคอ ไหล่รับภาระสูง ถ้ายกไม่ขึ้นบาร์ทับตัวได้ ควรมีคนสปอต"],
+  "tc4":[2,"บาร์เหนืออกและแคบ ข้อมือกับข้อศอกรับภาระสูง ถ้ายกไม่ขึ้นบาร์ทับตัวได้ ควรมีคนสปอต"],
+  "vp4":[2,"บาร์อยู่เหนือศีรษะ ไหล่รับภาระสูงและหลังส่วนล่างแอ่นง่ายเมื่อล้า"],
+  "xvp2":[2,"ใช้แรงเหวี่ยงดันบาร์ขึ้นเหนือศีรษะ แรงกระแทกต่อไหล่และหลังสูง ต้องคุมจังหวะแม่น"],
+  "hl4":[2,"ก้มตัวทำมุมค้างไว้ตลอดเซ็ตพร้อมบาร์หนัก ถ้าหลังโค้งภาระต่อหลังส่วนล่างสูง"],
+  "xtc5":[2,"บาร์ลงมาใกล้หน้าผากและข้อศอกรับภาระหนัก ถ้าข้อศอกล้าหรือพลาดบาร์ตกใส่หน้าได้"],
+  "sq3":[1,"ถ้าลงลึกจนก้นยกหรือหลังโค้ง หลังส่วนล่างรับแรงมาก และห้ามล็อกเข่าตอนดันสุด"],
+  "sq3c":[1,"ถ้างอสะโพกลึกเกินจนหลังโค้ง หลังส่วนล่างรับแรงมาก และห้ามล็อกเข่าตอนดันสุด"],
+  "sq3b":[1,"ต้องทรงตัวขาเดียวพร้อมก้าวขึ้นที่สูง เสี่ยงล้มและเข่าบิดถ้าล้า"],
+  "xsq4":[1,"แรงเฉือนที่เข่าสูงเมื่อเหยียดสุด ไม่เหมาะกับคนปวดเข่าเรื้อรัง"],
+  "xsq5":[1,"เดินพร้อมน้ำหนักต้องทรงตัวดี เข่าและสะโพกรับแรงต่อเนื่อง"],
+  "xsq6":[1,"ขาหลังยกสูง ทรงตัวยาก เข่าหน้ารับแรงมาก"],
+  "xsq7":[1,"เข่ารับแรงมากเมื่อลงลึก และหลังโค้งได้ถ้าเบาะไม่พอดีตัว"],
+  "xsq8":[1,"มีแรงกระแทกตอนลงพื้นต่อเข่าและข้อเท้า"],
+  "hg2":[1,"ก้มตัวพร้อมน้ำหนัก ถ้าหลังโค้งหลังส่วนล่างรับแรง"],
+  "hg3b":[1,"ลูกบอลลื่นไถลได้ถ้าวางเท้าไม่มั่น เสี่ยงล้ม"],
+  "xhg6":[1,"ทรงตัวขาเดียวขณะก้มตัว เสี่ยงเสียหลักและหลังโค้งถ้าล้า"],
+  "xhg7":[1,"เหวี่ยงน้ำหนักอย่างรวดเร็ว ต้องใช้สะโพกไม่ใช่หลัง ถ้าฟอร์มพลาดหลังส่วนล่างรับแรงมาก"],
+  "xhg8":[1,"บาร์กดทับสะโพก ควรมีแผ่นรองและตั้งตัวให้มั่นก่อนเริ่ม ถ้าแอ่นหลังเกินหลังส่วนล่างรับแรง"],
+  "hp3":[1,"ดัมเบลหนักอาจหลุดมือหรือเสียหลักตอนยกขึ้น/วางลง ควรมีคนช่วยส่งเมื่อน้ำหนักมาก"],
+  "xhp3":[1,"ไหล่และอกถูกยืดมากตอนเปิดแขน ถ้าลงลึกหรือน้ำหนักเกินเสี่ยงไหล่บาดเจ็บ"],
+  "xhp6":[1,"ดัมเบลหนักเหนือหน้าอกส่วนบน ไหล่รับภาระมากกว่าเบนช์ราบ"],
+  "xhp7":[1,"ไหล่และข้อมือรับน้ำหนักตัวมากขึ้นกว่าพุชอัพปกติ"],
+  "xhl4":[1,"ก้มตัวพร้อมบาร์หนัก ถ้าหลังโค้งหลังส่วนล่างรับแรง"],
+  "vl3":[1,"ไหล่ถูกยืดมากเหนือศีรษะ ถ้าน้ำหนักเกินเสี่ยงไหล่บาดเจ็บ"],
+  "vl4":[1,"ต้องรับน้ำหนักตัวทั้งหมด ไหล่และข้อศอกรับแรงมาก ไม่เหมาะกับคนที่ยังดึงน้ำหนักตัวไม่ไหว"],
+  "xvl3":[1,"ตอนลงช้าไหล่และข้อศอกรับน้ำหนักตัวเต็ม ถ้าปล่อยตัวหล่นเสี่ยงบาดเจ็บ"],
+  "xvl4":[1,"จับหงายทำให้ข้อศอกและไบเซปรับภาระมากกว่าพูลอัพ"],
+  "vp3":[1,"ดัมเบลอยู่เหนือศีรษะ ไหล่รับภาระและหลังแอ่นง่ายเมื่อล้า"],
+  "xvp1":[1,"ไหล่หมุนขณะรับน้ำหนักเหนือศีรษะ ต้องคุมจังหวะ ถ้าฝืนไหล่บาดเจ็บง่าย"],
+  "co3":[1,"บิดลำตัวพร้อมแรงต้าน ถ้าใช้น้ำหนักเกินหลังส่วนล่างรับแรงบิด"],
+  "co3b":[1,"หลังส่วนล่างแอ่นง่ายเมื่อแกนกลางล้า ไหล่รับภาระด้วย"],
+  "co4":[1,"ห้อยตัวด้วยแขนและยกขา ไหล่และหลังส่วนล่างรับแรง ถ้าแกว่งตัวเสี่ยงบาดเจ็บ"],
+  "bc4":[1,"ถ้าแกว่งตัวช่วยยก หลังส่วนล่างรับแรง และข้อมือรับภาระต่อเนื่อง"],
+  "xbc5":[1,"จับคว่ำมือทำให้ข้อมือและข้อศอกรับภาระมากกว่าปกติ"],
+  "tc2":[1,"ไหล่ด้านหน้าถูกยืดและรับแรงมากตอนลงลึก เสี่ยงไหล่บาดเจ็บถ้าลงต่ำเกิน"],
+  "tc3":[1,"ข้อศอกและไหล่ยืดเหนือศีรษะพร้อมน้ำหนัก ถ้าน้ำหนักเกินข้อศอกเจ็บง่าย"],
+  "xtc4":[1,"ข้อมือและข้อศอกรับน้ำหนักตัวในมุมแคบ"],
+  "xcd2":[1,"มีแรงกระแทกซ้ำๆ ต่อเข่าและข้อเท้า"],
+  "xcd4":[1,"ถ้าฟอร์มพลาดจะโค้งหลังเมื่อดึง ควรเรียนรู้จังหวะขา-ลำตัว-แขนก่อนเพิ่มความเร็ว"],
+  "xcd5":[1,"มีแรงกระแทกต่อเข่า และเสี่ยงล้มถ้าเร่งความเร็วเกินความคุ้นเคย"],
+  "xcd6":[1,"มีแรงกระแทกต่อเข่าและข้อเท้า และเสี่ยงสะดุดเชือก"],
+  "xcd7":[1,"แรงกระแทกสูงและเปลี่ยนท่าเร็ว ข้อมือ เข่า และหลังส่วนล่างรับแรงเมื่อล้า"]
+};
+/* แผนที่กล้ามเนื้อ: สร้างจาก android-native/tools/bodymap/figures.js — [g, d, m] (m=1 สะท้อนซ้าย-ขวาที่แกน x=50) viewBox 100x200 */
+var BODYMAP_FIGURES = {
+  maleFront:[
+    ["base","M50,28 L45,28 C41,30.5 35,30.5 30,32 C25.5,33.5 23.5,38 23.5,43 L25.5,51 C29,52 33,52 35,56 C36,64 37,72 37.5,80 C36.5,86 35.5,92 35.5,98 L50,103 Z",1],
+    ["base","M24,38 C21,44 20.5,52 20,60 C19.5,64 19,67 18.5,70 C17.5,78 16,86 15,93 L20.5,94 C22,87 24,80 26,73 C27,69 28,66 28.5,63 C30,58 31,53 31.5,48 Z",1],
+    ["base","M17,92.5 C19.5,92 21.5,93.5 21.5,96.5 C21.5,100.5 20,104 17.5,104 C15,104 14,100.5 14.5,97 C14.8,94.5 15.8,93 17,92.5 Z",1],
+    ["base","M35.5,96 C34,109 34,123 35.5,136 C36,144 35,154 35.5,164 C36,174 36.5,182 37,189 L44.5,189 C45,180 46,170 46.5,160 C47,150 47.5,143 47.5,138 C48.5,126 49.5,113 50,102 Z",1],
+    ["base","M37,188 L44.5,188 L45.5,195 L33.5,195 C33.5,191.5 35,189 37,188 Z",1],
+    ["fore","M19.5,69 C18.5,76 17,84 16,91 L20,92 C22,85 24.5,77 27.5,69 C25,68 21.5,68 19.5,69 Z",1],
+    ["base","M45.5,21 L54.5,21 L55.5,30 L44.5,30 Z",0],
+    ["base","M50,4 C55.5,4 58.5,8 58.5,13.5 C58.5,18.5 56.5,22.5 52.5,24.5 L47.5,24.5 C43.5,22.5 41.5,18.5 41.5,13.5 C41.5,8 44.5,4 50,4 Z",0],
+    ["base","M42,12 C40.5,12 40,14 40.5,16 C41,17.5 42,17.5 42.5,17 Z",1],
+    ["delts","M45,29 C42,31 38.5,32 35.5,32.5 L45.5,33.5 Z",1],
+    ["vpush","M34,32 C28.5,32 24.5,36 24.5,43 C24.5,46 25.5,48 26.5,49 C28.5,44 31.5,40 36.5,38 C37.5,35.5 36.5,33 34,32 Z",1],
+    ["hpush","M49.5,34 L39,34 C37.5,36 36.5,38 36.5,40 C35.5,43.5 35.5,46.5 36.5,48.5 C40.5,52 46,52 49.5,50 Z",1],
+    ["biceps","M21.5,50 C20.5,55 20.5,60 21,65 C23.5,67 26.5,66.5 28,64 C29.5,59 30.5,54 31,49 C28,46.5 23.5,46.5 21.5,50 Z",1],
+    ["core","M44.2,53 L55.8,53 L55.3,80 C53,85 47,85 44.7,80 Z",0],
+    ["core","M42.6,53 L37.3,51 C37.3,59 38.3,68 39.3,75 L43.6,81 Z",1],
+    ["squat","M37,98 C35.5,110 35.5,122 37,133 C39,136.5 44,136.5 46.5,133 C47.5,123 48.6,112 49.4,103 Z",1],
+    ["calves","M37.5,142 C36.3,151 36.8,161 38.2,171 L43.2,171 C45.2,161 46.2,151 46,142 C43,140.5 40,140.5 37.5,142 Z",1],
+    ["line","M42.5,106 C41.5,116 41.8,125 43.5,133",1],
+    ["line","M50,54 L50,82 M44.8,60 L55.2,60 M44.8,67 L55.2,67 M44.8,74 L55.2,74",0]
+  ],
+  maleBack:[
+    ["base","M50,28 L45,28 C41,30.5 35,30.5 30,32 C25.5,33.5 23.5,38 23.5,43 L25.5,51 C29,52 33,52 35,56 C36,64 37,72 37.5,80 C36.5,86 35.5,92 35.5,98 L50,103 Z",1],
+    ["base","M24,38 C21,44 20.5,52 20,60 C19.5,64 19,67 18.5,70 C17.5,78 16,86 15,93 L20.5,94 C22,87 24,80 26,73 C27,69 28,66 28.5,63 C30,58 31,53 31.5,48 Z",1],
+    ["base","M17,92.5 C19.5,92 21.5,93.5 21.5,96.5 C21.5,100.5 20,104 17.5,104 C15,104 14,100.5 14.5,97 C14.8,94.5 15.8,93 17,92.5 Z",1],
+    ["base","M35.5,96 C34,109 34,123 35.5,136 C36,144 35,154 35.5,164 C36,174 36.5,182 37,189 L44.5,189 C45,180 46,170 46.5,160 C47,150 47.5,143 47.5,138 C48.5,126 49.5,113 50,102 Z",1],
+    ["base","M37,188 L44.5,188 L45.5,195 L33.5,195 C33.5,191.5 35,189 37,188 Z",1],
+    ["fore","M19.5,69 C18.5,76 17,84 16,91 L20,92 C22,85 24.5,77 27.5,69 C25,68 21.5,68 19.5,69 Z",1],
+    ["base","M45.5,21 L54.5,21 L55.5,30 L44.5,30 Z",0],
+    ["base","M50,4 C55.5,4 58.5,8 58.5,13.5 C58.5,18.5 56.5,22.5 52.5,24.5 L47.5,24.5 C43.5,22.5 41.5,18.5 41.5,13.5 C41.5,8 44.5,4 50,4 Z",0],
+    ["base","M42,12 C40.5,12 40,14 40.5,16 C41,17.5 42,17.5 42.5,17 Z",1],
+    ["delts","M46,25 L54,25 C56,29 60,31 64.5,32 L50,37 L35.5,32 C40,31 44,29 46,25 Z",0],
+    ["hpull","M37,33.5 L50,38.5 L63,33.5 L58,47 L50,56 L42,47 Z",0],
+    ["delts","M34,32 C28.5,32 24.5,36 24.5,43 C24.5,46 25.5,48 26.5,49 C28.5,44 31.5,40 36,38 C36.5,35.5 36,33 34,32 Z",1],
+    ["vpull","M37,37.5 L41.5,48 L49.4,57 L49.4,67 L43.5,75 C38.5,67 36.5,57 36.5,47 Z",1],
+    ["hinge","M44,76 L50,68.5 L56,76 L56.5,85 L43.5,85 Z",0],
+    ["triceps","M21.5,50 C20.5,55 20.5,60 21,65 C23.5,67 26.5,66.5 28,64 C29.5,59 30.5,54 31,49 C28,46.5 23.5,46.5 21.5,50 Z",1],
+    ["hinge","M49.4,86 L42,86 C37.5,88 35.8,93.5 36.6,99.5 C38.6,104.5 45,105.5 49.4,102.5 Z",1],
+    ["hinge","M37,104.5 C40,107 45,108 49.4,105.5 C49,115 48,125 46.5,134 L38,134 C36,124 35.5,114 37,104.5 Z",1],
+    ["calves","M37.5,141 C35,148 35,156 37.5,163 L39,172 L43.5,172 L45.2,163 C47.5,156 47.5,148 45.7,141 C43,139.5 40,139.5 37.5,141 Z",1]
+  ],
+  femaleFront:[
+    ["hair","M50,2.5 C57.5,2.5 61,8 60.5,15 C60.3,19 61,23 63,27 C59,28.5 56.5,26 56,22 C57.5,18 57.5,12 54.5,9.5 C51.5,11.5 47,12 43.5,12 C42.5,16 42.5,20 44,22 C43.5,26 41,28.5 37,27 C39,23 39.7,19 39.5,15 C39,8 42.5,2.5 50,2.5 Z",0],
+    ["base","M50,28.5 L45.5,28.5 C42,30.5 37,31 32.5,32.5 C28.5,34 27,38 27,43 L28.5,50 C31.5,52 34,55 35,59 C36.5,65 39,70 39.5,74 C37.5,80 33.5,86 32,93 C31.5,96 31.5,99 32,101 L50,105 Z",1],
+    ["base","M28,39 C25,45 24.5,52 24,59 C23.5,63 23,67 22.5,70 C21.5,78 20,86 19,93 L23.5,94 C25,87 27,80 28.5,73 C29.5,69 30.5,66 31,63 C32.3,58 33.2,53 33.6,48 Z",1],
+    ["base","M21,92.5 C23.3,92 25,93.5 25,96.5 C25,100 23.6,103.5 21.3,103.5 C19,103.5 18,100 18.5,97 C18.8,94.5 19.8,93 21,92.5 Z",1],
+    ["base","M32,99 C31.5,112 33.5,125 36,137 C37,145 36,154 36.5,164 C37,174 37.5,182 38,189 L44.5,189 C45,180 46,170 46.3,160 C46.6,150 47,143 47.3,138 C48.5,126 49.5,114 50,104 Z",1],
+    ["base","M38,188 L44.5,188 L45.3,194.5 L35,194.5 C35,191.5 36.3,189 38,188 Z",1],
+    ["fore","M23.3,69 C22.3,76 21,84 20,91 L23.3,92 C25,85 27.2,77 29.7,69 C27.6,68 25,68 23.3,69 Z",1],
+    ["base","M46.5,21 L53.5,21 L54.5,30 L45.5,30 Z",0],
+    ["base","M50,5 C55,5 57.8,9 57.8,14 C57.8,19 55.8,22.5 52.3,24.5 L47.7,24.5 C44.2,22.5 42.2,19 42.2,14 C42.2,9 45,5 50,5 Z",0],
+    ["hair","M43.5,12 C47,12 51.5,11.5 54.5,9.5 C55.5,11 56.5,12.5 57,14 C57.5,10 55,5.5 50,5.5 C45.5,5.5 43,8.5 43.5,12 Z",0],
+    ["delts","M45.7,29.5 C43,31 40,32 37.5,32.5 L46,33.5 Z",1],
+    ["vpush","M36.5,33 C31.5,33 28,36.5 28,42.5 C28,45 28.8,47 29.8,48 C31.5,44 34,40.5 38.5,38.5 C39.3,36 38.6,33.8 36.5,33 Z",1],
+    ["hpush","M49.5,35 L41,35 C39,37 38,39.5 38,42.5 C37.5,47 39.5,51 43.5,52 C46.5,52.5 48.5,51.5 49.5,50 Z",1],
+    ["biceps","M25.2,50 C24.3,55 24.3,60 24.7,64.5 C26.8,66.5 29.4,66 30.6,63.5 C31.9,59 32.8,54 33.2,49.5 C30.6,47 27,47 25.2,50 Z",1],
+    ["core","M45.3,55 L54.7,55 L54.3,80 C52.5,84.5 47.5,84.5 45.7,80 Z",0],
+    ["core","M43.8,55 L39.3,53.5 C38.8,61 39.8,69 40.6,75 L44.6,81 Z",1],
+    ["squat","M33.8,101 C33,112 35,123 37.2,133.5 C39.4,137 44,137 46.6,133.5 C47.6,124 48.7,113 49.4,105 Z",1],
+    ["calves","M38.2,142 C37,151 37.5,161 38.8,171 L43.4,171 C45.2,161 46,151 45.9,142 C43.3,140.5 40.6,140.5 38.2,142 Z",1],
+    ["line","M42,108 C41,118 41.5,126 43.3,133.5",1],
+    ["line","M50,56 L50,82 M45.8,63 L54.2,63 M45.8,70.5 L54.2,70.5",0]
+  ],
+  femaleBack:[
+    ["hair","M50,2.5 C57.5,2.5 61,8 60.5,15 C60.3,19 61,23 63,27 C59,28.5 56.5,26 56,22 C57.5,18 57.5,12 54.5,9.5 C51.5,11.5 47,12 43.5,12 C42.5,16 42.5,20 44,22 C43.5,26 41,28.5 37,27 C39,23 39.7,19 39.5,15 C39,8 42.5,2.5 50,2.5 Z",0],
+    ["base","M50,28.5 L45.5,28.5 C42,30.5 37,31 32.5,32.5 C28.5,34 27,38 27,43 L28.5,50 C31.5,52 34,55 35,59 C36.5,65 39,70 39.5,74 C37.5,80 33.5,86 32,93 C31.5,96 31.5,99 32,101 L50,105 Z",1],
+    ["base","M28,39 C25,45 24.5,52 24,59 C23.5,63 23,67 22.5,70 C21.5,78 20,86 19,93 L23.5,94 C25,87 27,80 28.5,73 C29.5,69 30.5,66 31,63 C32.3,58 33.2,53 33.6,48 Z",1],
+    ["base","M21,92.5 C23.3,92 25,93.5 25,96.5 C25,100 23.6,103.5 21.3,103.5 C19,103.5 18,100 18.5,97 C18.8,94.5 19.8,93 21,92.5 Z",1],
+    ["base","M32,99 C31.5,112 33.5,125 36,137 C37,145 36,154 36.5,164 C37,174 37.5,182 38,189 L44.5,189 C45,180 46,170 46.3,160 C46.6,150 47,143 47.3,138 C48.5,126 49.5,114 50,104 Z",1],
+    ["base","M38,188 L44.5,188 L45.3,194.5 L35,194.5 C35,191.5 36.3,189 38,188 Z",1],
+    ["fore","M23.3,69 C22.3,76 21,84 20,91 L23.3,92 C25,85 27.2,77 29.7,69 C27.6,68 25,68 23.3,69 Z",1],
+    ["base","M46.5,21 L53.5,21 L54.5,30 L45.5,30 Z",0],
+    ["base","M50,5 C55,5 57.8,9 57.8,14 C57.8,19 55.8,22.5 52.3,24.5 L47.7,24.5 C44.2,22.5 42.2,19 42.2,14 C42.2,9 45,5 50,5 Z",0],
+    ["delts","M46.5,25 L53.5,25 C55.5,29 58.5,31 62,32.5 L50,36.5 L38,32.5 C41.5,31 44.5,29 46.5,25 Z",0],
+    ["hpull","M39.5,34 L50,38 L60.5,34 L56.6,46.5 L50,55 L43.4,46.5 Z",0],
+    ["delts","M36.5,33 C31.5,33 28,36.5 28,42.5 C28,45 28.8,47 29.8,48 C31.5,44 34,40.5 38.2,38.5 C38.8,36 38.4,33.8 36.5,33 Z",1],
+    ["vpull","M39.3,37.5 L42.8,47.5 L49.4,56 L49.4,66 L44.3,73 C40.5,66 38.6,57 38.6,47 Z",1],
+    ["hinge","M44.8,74 L50,67.5 L55.2,74 L56,83 L44,83 Z",0],
+    ["triceps","M25.2,50 C24.3,55 24.3,60 24.7,64.5 C26.8,66.5 29.4,66 30.6,63.5 C31.9,59 32.8,54 33.2,49.5 C30.6,47 27,47 25.2,50 Z",1],
+    ["hinge","M49.4,84 L42.5,84 C35.5,86.5 33,93 34,100 C37.5,106 45,107 49.4,103.5 Z",1],
+    ["hinge","M35.6,106 C39,108.5 45,109.5 49.4,106.5 C49,116 48,126 46.6,134.5 L38,134.5 C36,124.5 35,115 35.6,106 Z",1],
+    ["calves","M38.2,141 C35.8,148 35.8,156 38.2,163 L39.6,172 L43.8,172 L45.4,163 C47.6,156 47.6,148 45.8,141 C43.3,139.5 40.6,139.5 38.2,141 Z",1]
+  ]
+};
+
+/* ---- logic คลังท่า (ตรงกับ LibraryCatalog.kt) — ใช้เฉพาะหน้าคลัง ตัวสร้างตารางไม่เห็นท่าเสริมเหล่านี้ ----
+   ห้ามรวม LIBRARY_EXTRA เข้า EXERCISES: selectionFor/pickByTier/buildPlanSnapshot อ่าน EXERCISES ตรงๆ
+   การเพิ่มท่าเข้ากลุ่มเดิมจะเปลี่ยนผลการเลือกท่าอัตโนมัติ และ golden ฝั่ง Android จะล้ม */
+var LIBRARY_EXTRA = LIBRARY_RAW_EXTRA.filter(function(x){
+  var name = x.th.toLowerCase();
+  return !EXERCISES.some(function(e){ return e.th.toLowerCase() === name; });
+});
+var LIBRARY_ALL = EXERCISES.concat(LIBRARY_EXTRA);
+var LIBRARY_EXTRA_IDS = {};
+LIBRARY_EXTRA.forEach(function(e){ LIBRARY_EXTRA_IDS[e.id] = true; });
+function isLibraryOnly(id){ return LIBRARY_EXTRA_IDS[id] === true; }
+
+/* ลำดับกลุ่ม = PATTERN_ORDER เดิม (ลำดับคีย์ของ PATTERN_LABEL) แล้วต่อด้วยกลุ่มที่มีเฉพาะในคลัง */
+var LIBRARY_GROUP_ORDER = Object.keys(PATTERN_LABEL).concat(LIBRARY_EXTRA_GROUPS.filter(function(g){ return !PATTERN_LABEL[g]; }));
+var LIBRARY_GROUP_LABEL = Object.assign({}, PATTERN_LABEL, LIBRARY_GROUP_LABEL_EXTRA);
+var LIBRARY_GROUP_SHORT = Object.assign({}, PATTERN_SHORT, LIBRARY_GROUP_SHORT_EXTRA);
+
+var LIBRARY_EQUIP_LABEL = {
+  bodyweight:'น้ำหนักตัว', dumbbell:'ดัมเบล', barbell:'บาร์เบล', machine:'เครื่อง',
+  cable:'เคเบิล', pullupbar:'บาร์โหน', stepper:'สเต็ปเปอร์', yogaball:'ลูกบอลโยคะ',
+  abroller:'ล้อโรลหน้าท้อง', kettlebell:'เคตเทิลเบลล์'
+};
+
+/* สีประจำกลุ่ม — จัดใหม่ให้เข้าธีมเว็บ (น้ำเงินเข้ม) แต่แยกกลุ่มออกจากกันได้ กลุ่มอื่นใช้สีหลักของธีม */
+var LIBRARY_GROUP_COLOR = {
+  squat:'#60a5fa', hinge:'#fbbf24', hpush:'#f472b6', hpull:'#2dd4bf', vpull:'#a78bfa', vpush:'#fb923c',
+  core:'#4ade80', biceps:'#22d3ee', triceps:'#f87171', delts:'#bef264', calves:'#cbd5e1', cardio:'#e11d48'
+};
+function libraryGroupColor(p){ return LIBRARY_GROUP_COLOR[p] || 'var(--accent)'; }
+
+function libraryById(id){
+  for(var i=0; i<LIBRARY_ALL.length; i++) if(LIBRARY_ALL[i].id === id) return LIBRARY_ALL[i];
+  return null;
+}
+/* อาการบาดเจ็บที่ท่านี้ควรระวัง: ท่าเดิมใช้ EXCLUSION_MAP ท่าเสริมใช้ LIBRARY_EXTRA_CAUTION */
+function libraryCautionsFor(id){
+  var map = isLibraryOnly(id) ? LIBRARY_EXTRA_CAUTION : EXCLUSION_MAP;
+  return Object.keys(map).filter(function(k){ return map[k].indexOf(id) > -1; });
+}
+/* {risk 0/1/2, suits, tips[], why} — risk/why จาก LIBRARY_RISK (ไม่อยู่ในตาราง = เสี่ยงต่ำ) */
+function libraryGuideFor(e){
+  var r = LIBRARY_RISK[e.id] || [0, ''];
+  var tips = [LIBRARY_TIP_BY_EQUIP[e.equip], LIBRARY_TIP_BY_GROUP[e.pattern]].filter(function(t){ return t != null; });
+  return {risk:r[0], riskLabel:LIBRARY_RISK_LABEL[r[0]], suits:LIBRARY_SUITS_BY_TIER[e.tier] || '', tips:tips, why:r[1]};
+}
+/* ท่าที่วัดเป็นเวลา (วินาที) ไม่ใช่จำนวนครั้ง */
+function libraryIsTimeBased(e){
+  return !!e.timed || e.pattern === 'cardio' || e.id === 'xsq1' || (isLibraryOnly(e.id) && e.pattern === 'core');
+}
+function libraryDefaultSetsReps(e, goal){
+  if(e.pattern === 'cardio') return '3 x 60 วิ';
+  if(libraryIsTimeBased(e)) return '3 x 30-45 วิ';
+  return repSchemeFor(goal);
+}
+/* ค้นหาแบบ contains ไม่สนตัวพิมพ์ ใน ชื่อ / คำอธิบาย / ชื่อกลุ่มเต็ม / ชื่ออุปกรณ์ */
+function libraryMatches(e, q){
+  var needle = String(q || '').trim().toLowerCase();
+  if(!needle) return true;
+  return [e.th, e.sub, LIBRARY_GROUP_LABEL[e.pattern] || '', LIBRARY_EQUIP_LABEL[e.equip] || ''].some(function(s){
+    return String(s).toLowerCase().indexOf(needle) > -1;
+  });
+}
+/* id ของท่า → ชื่อเซสชันในแผนปัจจุบันที่มีท่านี้ */
+function libraryPlanSessions(){
+  var out = {};
+  var p = track.program;
+  ((p && p.sessions) || []).forEach(function(s){
+    (s.exercises || []).forEach(function(x){
+      if(!x || !x.id) return;
+      (out[x.id] = out[x.id] || []);
+      if(out[x.id].indexOf(s.key) < 0) out[x.id].push(s.key);
+    });
+  });
+  return out;
+}
+function libraryFilter(f, mine){
+  return LIBRARY_ALL.filter(function(e){
+    return libraryMatches(e, f.query) && (!f.group || e.pattern === f.group) && (!f.equip || e.equip === f.equip) &&
+      (!f.onlyMine || !!mine[e.id]);
+  });
+}
+/* จัดกลุ่มตาม LIBRARY_GROUP_ORDER และเรียงในกลุ่มตาม tier (เรียงแบบคงลำดับเดิมเมื่อ tier เท่ากัน) */
+function libraryGrouped(list){
+  return LIBRARY_GROUP_ORDER.map(function(g){
+    var items = list.map(function(e, i){ return {e:e, i:i}; }).filter(function(x){ return x.e.pattern === g; })
+      .sort(function(a, b){ return (a.e.tier - b.e.tier) || (a.i - b.i); }).map(function(x){ return x.e; });
+    return {g:g, items:items};
+  }).filter(function(x){ return x.items.length; });
+}
+
+/* ---- หน้าจอคลังท่า: สถานะชั่วคราวทั้งหมด (ไม่บันทึกลง localStorage/Supabase) ---- */
+var libUI = {open:false, query:'', group:null, equip:null, onlyMine:false, female:null, openId:null};
+
+function libFemale(){
+  if(libUI.female != null) return libUI.female;
+  var sex = (state.answers && state.answers.Q9) || (track.program && track.program.sex);
+  return sex === 'หญิง';
+}
+function libNum(n){ n = Number(n); return (Math.round(n*10)/10 % 1 === 0) ? String(Math.round(n*10)/10) : (Math.round(n*10)/10).toFixed(1); }
+function libTierMeter(tier, color, cls){
+  var h = '<span class="lib-tier '+(cls||'')+'" aria-hidden="true" style="--gc:'+color+'">';
+  for(var i=1; i<=4; i++) h += '<i'+(i<=tier?' class="on"':'')+'></i>';
+  return h + '</span>';
+}
+function libBadge(e, cls){
+  return '<span class="lib-badge '+(cls||'')+'" style="--gc:'+libraryGroupColor(e.pattern)+'" aria-hidden="true">'+e.tier+'</span>';
+}
+var LIB_IC = {
+  search:'<path d="M4 11a7 7 0 1 0 14 0a7 7 0 1 0 -14 0 M16 16l4 4"/>',
+  clear:'<path d="M7 7l10 10M17 7L7 17"/>',
+  chevron:'<path d="M9 6l6 6-6 6"/>',
+  back:'<path d="M15 5l-7 7 7 7"/>',
+  book:'<path d="M5 4.5h10.5a3 3 0 0 1 3 3V20H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h10.5"/><path d="M9 8.5h6"/>'
+};
+function libIcon(k, cls){
+  return '<svg class="'+(cls||'lib-ic')+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+LIB_IC[k]+'</svg>';
+}
+
+/* แผนที่กล้ามเนื้อ: decor (base/hair/fore/line) แตะไม่ได้ · มัดกล้ามเนื้อ = กลุ่มท่า
+   ชิ้นท้ายใน array วาดทับชิ้นก่อน จึงเป็นตัวที่รับคลิกเมื่อซ้อนกัน (ตรงกับ lastOrNull ของ Android) */
+var LIB_DECOR = {base:1, hair:1, fore:1, line:1};
+function libFigureSVG(parts, label){
+  var sel = libUI.group;
+  var h = '<figure class="lib-fig"><svg viewBox="0 0 100 200" role="img" aria-label="แผนที่กล้ามเนื้อ'+label+'">';
+  parts.forEach(function(p){
+    var g = p[0], d = p[1], mirror = p[2] === 1;
+    var one;
+    if(LIB_DECOR[g]){
+      one = '<path class="lib-d lib-d-'+g+'" d="'+d+'"/>';
+    } else {
+      var op = sel == null ? 0.85 : (sel === g ? 1 : 0.15);
+      one = '<path class="lib-m'+(sel===g?' sel':'')+'" data-lib-group="'+g+'" d="'+d+'" style="fill:'+libraryGroupColor(g)+';fill-opacity:'+op+'"/>';
+    }
+    h += one;
+    if(mirror) h += '<g transform="matrix(-1 0 0 1 100 0)">'+one+'</g>';
+  });
+  return h + '</svg><figcaption>'+label+'</figcaption></figure>';
+}
+
+function libDynHTML(){
+  var mine = libraryPlanSessions();
+  var hasMine = Object.keys(mine).length > 0;
+  var female = libFemale();
+  var figs = female ? [BODYMAP_FIGURES.femaleFront, BODYMAP_FIGURES.femaleBack] : [BODYMAP_FIGURES.maleFront, BODYMAP_FIGURES.maleBack];
+  var g = libUI.group;
+  var caption = g ? esc(LIBRARY_GROUP_LABEL[g] || g)+' · '+LIBRARY_ALL.filter(function(e){ return e.pattern === g; }).length+' ท่า'
+                  : 'แตะกล้ามเนื้อเพื่อดูท่าของมัดนั้น';
+
+  var h = '<section class="card lib-map" aria-label="แผนที่กล้ามเนื้อ">'+
+    '<div class="lib-sex" role="group" aria-label="รูปร่าง">'+
+      '<button type="button" class="lib-chip'+(!female?' on':'')+'" data-lib-sex="m" aria-pressed="'+(!female)+'">ชาย</button>'+
+      '<button type="button" class="lib-chip'+(female?' on':'')+'" data-lib-sex="f" aria-pressed="'+female+'">หญิง</button>'+
+    '</div>'+
+    '<p class="lib-map-cap" aria-live="polite"'+(g?' style="color:'+libraryGroupColor(g)+'"':'')+'>'+caption+'</p>'+
+    '<div class="lib-figs">'+libFigureSVG(figs[0], 'ด้านหน้า')+libFigureSVG(figs[1], 'ด้านหลัง')+'</div>'+
+  '</section>';
+
+  h += '<div class="lib-filters">'+
+    '<div class="lib-chips" role="group" aria-label="กรองตามกลุ่มกล้ามเนื้อ">'+
+      '<button type="button" class="lib-chip'+(!g && !libUI.onlyMine?' on':'')+'" data-lib-all aria-pressed="'+(!g && !libUI.onlyMine)+'">ทั้งหมด</button>'+
+      (hasMine ? '<button type="button" class="lib-chip lib-chip-mine'+(libUI.onlyMine?' on':'')+'" data-lib-mine aria-pressed="'+libUI.onlyMine+'">★ ในแผนของฉัน</button>' : '')+
+      LIBRARY_GROUP_ORDER.map(function(k){
+        return '<button type="button" class="lib-chip'+(g===k?' on':'')+'" data-lib-chip="'+k+'" aria-pressed="'+(g===k)+'">'+
+          '<span class="lib-dot" style="background:'+libraryGroupColor(k)+'"></span>'+esc(LIBRARY_GROUP_SHORT[k] || k)+'</button>';
+      }).join('')+
+    '</div>'+
+    '<div class="lib-chips lib-chips-sm" role="group" aria-label="กรองตามอุปกรณ์">'+
+      Object.keys(LIBRARY_EQUIP_LABEL).map(function(k){
+        return '<button type="button" class="lib-chip'+(libUI.equip===k?' on':'')+'" data-lib-equip="'+k+'" aria-pressed="'+(libUI.equip===k)+'">'+esc(LIBRARY_EQUIP_LABEL[k])+'</button>';
+      }).join('')+
+    '</div>'+
+  '</div>';
+
+  var groups = libraryGrouped(libraryFilter(libUI, mine));
+  h += '<div id="lib-results" class="lib-results">';
+  if(!groups.length){
+    h += '<div class="lib-empty"><p><b>ไม่พบท่าที่ตรงกับตัวกรอง</b></p>'+
+      '<button type="button" class="linkbtn" data-lib-reset>ล้างตัวกรองทั้งหมด</button></div>';
+  }
+  groups.forEach(function(x){
+    var color = libraryGroupColor(x.g);
+    h += '<section class="lib-group" aria-label="'+esc(LIBRARY_GROUP_LABEL[x.g] || x.g)+'">'+
+      '<h2 class="lib-group-h" style="--gc:'+color+'"><span>'+esc(LIBRARY_GROUP_LABEL[x.g] || x.g)+'</span><span class="lib-count">'+x.items.length+'</span></h2>';
+    x.items.forEach(function(e){
+      var inPlan = !!mine[e.id];
+      h += '<button type="button" class="lib-row" data-lib-open="'+esc(e.id)+'">'+
+        libBadge(e)+
+        '<span class="lib-row-main"><span class="lib-row-t">'+esc(e.th)+'</span><span class="lib-row-s">'+esc(e.sub)+'</span>'+
+          '<span class="lib-row-meta">'+libTierMeter(e.tier, libraryGroupColor(e.pattern))+'<span class="sr-only">Tier '+e.tier+'</span>'+
+          '<span>'+esc(LIBRARY_EQUIP_LABEL[e.equip] || e.equip)+'</span>'+
+          (inPlan ? '<span class="lib-star">★ ในแผน</span>' : '')+'</span></span>'+
+        libIcon('chevron', 'lib-chev')+'</button>';
+    });
+    h += '</section>';
+  });
+  return h + '</div>';
+}
+
+function renderLibrary(){
+  var html = '<div class="page-head lib-head"><div>'+
+      '<div class="eyebrow">คลังท่า</div><h1>คลังท่าออกกำลังกาย</h1>'+
+      '<div class="sub">'+LIBRARY_ALL.length+' ท่า · '+LIBRARY_GROUP_ORDER.length+' กลุ่มกล้ามเนื้อ · '+TIER_ORDER.length+' ระดับความยาก</div></div>'+
+      '<div class="head-actions"><button type="button" class="btn" data-lib-close-page>'+libIcon('back','lib-ic-sm')+'กลับ</button></div>'+
+    '</div>'+
+    '<div class="lib-search">'+libIcon('search')+
+      '<input type="search" id="libSearch" autocomplete="off" placeholder="ค้นหาท่า กลุ่มกล้ามเนื้อ หรืออุปกรณ์" aria-label="ค้นหาท่า กลุ่มกล้ามเนื้อ หรืออุปกรณ์" value="'+esc(libUI.query)+'">'+
+      '<button type="button" class="lib-clear" data-lib-clear aria-label="ล้างคำค้นหา"'+(libUI.query?'':' hidden')+'>'+libIcon('clear')+'</button>'+
+    '</div>'+
+    '<div id="lib-dyn">'+libDynHTML()+'</div>'+
+    '<div id="lib-sheet-root">'+libSheetHTML()+'</div>';
+  document.getElementById('page').innerHTML = html;
+}
+/* อัปเดตเฉพาะส่วนที่เปลี่ยน — ไม่แตะช่องค้นหา (กันเคอร์เซอร์/คีย์บอร์ดมือถือหลุด) */
+function libRefresh(){
+  var dyn = document.getElementById('lib-dyn');
+  if(dyn) dyn.innerHTML = libDynHTML();
+  var clr = document.querySelector('[data-lib-clear]');
+  if(clr) clr.hidden = !libUI.query;
+}
+function libScrollToResults(){
+  var el = document.getElementById('lib-results');
+  if(el && el.scrollIntoView) el.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+/* ---- หน้ารายละเอียดท่า (dialog: bottom sheet บนมือถือ / กล่องกลางจอบนเดสก์ท็อป) ---- */
+function libGuideHTML(e){
+  var g = libraryGuideFor(e);
+  var cautions = libraryCautionsFor(e.id);
+  var injuries = (state.answers && Array.isArray(state.answers.Q26)) ? state.answers.Q26 : [];
+  var hit = cautions.filter(function(c){ return injuries.indexOf(c) > -1; });
+  var h = '<div class="lib-guide lib-risk-'+g.risk+'">'+
+    '<div class="lib-guide-top"><span class="lib-risk-pill">'+esc(g.riskLabel)+'</span><span class="lib-muted">ระดับ Tier '+e.tier+'</span></div>'+
+    (g.why ? '<p class="lib-why">'+esc(g.why)+'</p>' : '')+
+    '<h4>เหมาะกับใคร</h4><p>'+esc(g.suits)+'</p>'+
+    '<h4>ข้อควรระวัง</h4>'+
+    g.tips.map(function(t){ return '<p>• '+esc(t)+'</p>'; }).join('')+
+    (cautions.length ? '<p>• ระวังถ้ามีอาการที่ '+esc(cautions.join(' · '))+'</p>' : '')+
+    (hit.length ? '<p class="lib-hit" role="note">ตรงกับอาการที่คุณแจ้งไว้ ('+esc(hit.join(' · '))+') — ไม่แนะนำให้เลือกท่านี้ ถ้าจะทำควรปรึกษาแพทย์หรือเทรนเนอร์ก่อน</p>' : '')+
+    '<p class="lib-disclaimer">ระดับความเสี่ยงเป็นแนวทางกลางๆ ยังไม่ผ่านการตรวจจากผู้เชี่ยวชาญ</p>'+
+  '</div>';
+  return h;
+}
+function libSheetHTML(){
+  var id = libUI.openId;
+  var e = id ? libraryById(id) : null;
+  if(!e) return '';
+  var color = libraryGroupColor(e.pattern);
+  var mine = libraryPlanSessions();
+  var siblings = LIBRARY_ALL.map(function(x, i){ return {x:x, i:i}; }).filter(function(o){ return o.x.pattern === e.pattern; })
+    .sort(function(a, b){ return (a.x.tier - b.x.tier) || (a.i - b.i); }).map(function(o){ return o.x; });
+  var hist = exerciseHistory(id);
+
+  var h = '<div class="lib-backdrop" data-lib-backdrop>'+
+    '<div class="lib-sheet" role="dialog" aria-modal="true" aria-labelledby="lib-sheet-title" style="--gc:'+color+'">'+
+    '<button type="button" class="lib-x" data-lib-close aria-label="ปิดรายละเอียดท่า">'+libIcon('clear')+'</button>'+
+    '<div class="lib-sheet-head">'+libBadge(e, 'lib-badge-lg')+
+      '<h2 id="lib-sheet-title">'+esc(e.th)+'</h2><p class="lib-sheet-sub">'+esc(e.sub)+'</p>'+
+      '<div class="lib-pills">'+
+        '<span class="lib-pill lib-pill-group">'+esc(LIBRARY_GROUP_SHORT[e.pattern] || e.pattern)+'</span>'+
+        '<span class="lib-pill">'+esc(LIBRARY_EQUIP_LABEL[e.equip] || e.equip)+'</span>'+
+        (isLibraryOnly(id) ? '<span class="lib-pill">เฉพาะคลัง</span>' : '')+
+        (mine[id] ? '<span class="lib-pill lib-pill-star">★ '+esc(mine[id].join(' · '))+'</span>' : '')+
+      '</div></div>';
+
+  h += '<section class="lib-block"><h3>ระดับความยาก</h3>'+
+    '<div class="lib-tier-row"><b style="color:'+color+'">Tier '+e.tier+'</b><span>'+esc(TIER_LABEL[e.tier] || '')+'</span></div>'+
+    libTierMeter(e.tier, color, 'lib-tier-lg')+
+    '<p class="lib-muted">'+esc(TIER_DESC[e.tier] || '')+'</p></section>';
+
+  h += '<section class="lib-block"><h3>คำแนะนำ</h3>'+libGuideHTML(e)+'</section>';
+
+  if(hist.length){
+    var best = hist[0];
+    hist.forEach(function(r){ if(r.e1rm > best.e1rm) best = r; });
+    var last = hist[hist.length-1];
+    h += '<section class="lib-block"><h3>สถิติของคุณ</h3><div class="lib-stats">'+
+      '<div class="lib-stat"><span>บันทึกแล้ว</span><b>'+hist.length+' วัน</b></div>'+
+      '<div class="lib-stat"><span>e1RM สูงสุด</span><b style="color:'+color+'">'+libNum(best.e1rm)+' kg</b><small>'+esc(shortDateTH(best.date))+'</small></div>'+
+      '</div><p class="lib-muted">ล่าสุด '+esc(shortDateTH(last.date))+' · '+libNum(last.weight)+' kg'+(last.reps!=null ? ' × '+libNum(last.reps) : '')+'</p></section>';
+  }
+
+  h += '<section class="lib-block"><h3>ท่าในกลุ่มเดียวกัน (ง่าย → ยาก)</h3><div class="lib-sibs">'+
+    siblings.map(function(s){
+      var cur = s.id === id;
+      return '<button type="button" class="lib-sib'+(cur?' cur':'')+'"'+(cur?' disabled aria-current="true"':' data-lib-open="'+esc(s.id)+'"')+'>'+
+        libBadge(s, 'lib-badge-sm')+'<span class="lib-row-main"><span class="lib-row-t">'+esc(s.th)+'</span>'+
+        '<span class="lib-row-s">'+esc(LIBRARY_EQUIP_LABEL[s.equip] || s.equip)+'</span></span>'+
+        (mine[s.id] ? '<span class="lib-star" aria-label="อยู่ในแผน">★</span>' : '')+'</button>';
+    }).join('')+'</div></section>';
+
+  h += '<p class="lib-muted lib-foot">ℹ️ ปรึกษาเทรนเนอร์ก่อนทำจริง เพื่อฟอร์มที่ถูกต้องเป๊ะรายท่า</p>';
+  return h + '</div></div>';
+}
+var libReturnFocusId = null;
+function libOpenSheet(id, fromEl){
+  if(fromEl && !libUI.openId) libReturnFocusId = fromEl.getAttribute('data-lib-open');
+  libUI.openId = id;
+  var root = document.getElementById('lib-sheet-root');
+  if(!root) return;
+  root.innerHTML = libSheetHTML();
+  document.body.classList.add('lib-locked');
+  var sheet = root.querySelector('.lib-sheet');
+  if(sheet) sheet.scrollTop = 0;
+  var x = root.querySelector('[data-lib-close]');
+  if(x) x.focus();
+}
+function libCloseSheet(){
+  libUI.openId = null;
+  var root = document.getElementById('lib-sheet-root');
+  if(root) root.innerHTML = '';
+  document.body.classList.remove('lib-locked');
+  if(libReturnFocusId){
+    var b = document.querySelector('#lib-dyn [data-lib-open="'+libReturnFocusId+'"]');
+    if(b) b.focus();
+  }
+  libReturnFocusId = null;
+}
+function openLibrary(){
+  libUI.open = true; libUI.openId = null; acctOpen = false;
+  render(true);
+}
+function closeLibrary(){
+  libUI.open = false; libUI.openId = null;
+  document.body.classList.remove('lib-locked');
+  render(true);
+}
+
+document.addEventListener('click', function(ev){
+  var t = ev.target;
+  if(!t || !t.closest) return;
+  if(t.closest('[data-lib-open-page]')){ openLibrary(); return; }
+  if(!libUI.open) return;
+  var el;
+  if(t.closest('[data-lib-close-page]')){ closeLibrary(); return; }
+  if(t.closest('[data-lib-close]')){ libCloseSheet(); return; }
+  if((el = t.closest('[data-lib-open]'))){ libOpenSheet(el.getAttribute('data-lib-open'), el); return; }
+  if(t.hasAttribute && t.hasAttribute('data-lib-backdrop')){ libCloseSheet(); return; }
+  if((el = t.closest('[data-lib-group]'))){
+    var g = el.getAttribute('data-lib-group');
+    var picking = libUI.group !== g;
+    libUI.group = picking ? g : null;
+    libUI.onlyMine = false;
+    libRefresh();
+    if(picking) libScrollToResults();
+    return;
+  }
+  if((el = t.closest('[data-lib-sex]'))){ libUI.female = el.getAttribute('data-lib-sex') === 'f'; libRefresh(); return; }
+  if(t.closest('[data-lib-all]')){ libUI.group = null; libUI.onlyMine = false; libRefresh(); return; }
+  if(t.closest('[data-lib-mine]')){ libUI.onlyMine = !libUI.onlyMine; libRefresh(); return; }
+  if((el = t.closest('[data-lib-chip]'))){ var k = el.getAttribute('data-lib-chip'); libUI.group = libUI.group === k ? null : k; libRefresh(); return; }
+  if((el = t.closest('[data-lib-equip]'))){ var q = el.getAttribute('data-lib-equip'); libUI.equip = libUI.equip === q ? null : q; libRefresh(); return; }
+  if(t.closest('[data-lib-clear]')){
+    libUI.query = '';
+    var s = document.getElementById('libSearch');
+    if(s){ s.value = ''; s.focus(); }
+    libRefresh(); return;
+  }
+  if(t.closest('[data-lib-reset]')){
+    libUI.query = ''; libUI.group = null; libUI.equip = null; libUI.onlyMine = false;
+    var s2 = document.getElementById('libSearch');
+    if(s2) s2.value = '';
+    libRefresh(); return;
+  }
+});
+document.addEventListener('input', function(ev){
+  if(!ev.target || ev.target.id !== 'libSearch') return;
+  libUI.query = ev.target.value;
+  libRefresh();
+});
+document.addEventListener('keydown', function(ev){
+  if(ev.key === 'Escape' && libUI.open && libUI.openId){ ev.preventDefault(); libCloseSheet(); }
+});
+
+/* ============================================================
    RENDER DISPATCH + EVENTS
    ============================================================ */
 function captureFocus(){
@@ -4869,6 +5486,7 @@ function render(toTop){
   else if(view==='progress') renderProgress();
   else if(view==='plan') renderPlan();
   else if(view==='coach') renderCoach();
+  else if(view==='library') renderLibrary();
   restoreFocus(f);
   if(toTop) window.scrollTo({top:0, behavior:"auto"});
 }
@@ -4929,7 +5547,7 @@ function numInRange(v, lo, hi){
   return {value:n, valid:true};
 }
 
-function goto(view){ state.nav = view; track.openDate=null; track.saveStatus=''; track.schedDraft=null; track.schedMsg=''; acctOpen=false; persist(); render(true); }
+function goto(view){ libUI.open = false; libUI.openId = null; document.body.classList.remove('lib-locked'); state.nav = view; track.openDate=null; track.saveStatus=''; track.schedDraft=null; track.schedMsg=''; acctOpen=false; persist(); render(true); }
 
 document.addEventListener("click", function(ev){
   var el = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;

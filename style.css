@@ -1201,3 +1201,182 @@ input:focus{box-shadow:0 0 0 3px rgba(59,130,246,.25);}
   .lp-nums .lp-field:first-child{grid-column:1 / -1;}
   .lp-signup{padding:24px 18px;}
 }
+
+/* ============================================================
+   คลังท่าออกกำลังกาย (renderLibrary ใน app.js) — ใช้ token/ธีมเว็บปัจจุบัน
+   ============================================================ */
+.sr-only{position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;}
+:root{--lib-base:#273452; --lib-hair:#141c2e; --lib-fore:#33415f;}
+
+/* ทางเข้า */
+.nav-lib{display:flex; flex-direction:column; padding-top:10px; border-top:1px solid var(--border);}
+.appbar-lib{display:none;}
+@media (max-width:900px){
+  .nav-lib{display:none;}
+  .appbar-lib{
+    display:grid; place-items:center; margin-left:auto; width:36px; height:36px; border-radius:var(--r-sm);
+    border:1px solid var(--border-strong); background:transparent; color:var(--text-2); cursor:pointer;
+  }
+  .appbar-lib .lib-ic{width:20px; height:20px;}
+  .appbar-lib.on{color:var(--accent-hover); border-color:var(--accent); background:var(--accent-soft);}
+  .appbar-lib + .acct-btn{margin-left:10px;}
+}
+
+.lib-ic{width:20px; height:20px; flex:0 0 auto;}
+.lib-ic-sm{width:16px; height:16px;}
+.lib-head .btn{gap:6px;}
+
+/* ค้นหา */
+.lib-search{
+  display:flex; align-items:center; gap:10px; height:52px; padding:0 8px 0 18px; margin-bottom:16px;
+  border-radius:var(--r-pill); background:var(--surface-2); border:1px solid var(--border-strong);
+  color:var(--text-3);
+}
+.lib-search:focus-within{border-color:var(--accent); box-shadow:0 0 0 3px rgba(59,130,246,.25);}
+.lib-search input{
+  flex:1; min-width:0; height:100%; border:none; background:transparent; color:var(--text);
+  font:inherit; font-size:15.5px; outline:none; max-width:none; padding:0;
+}
+.lib-search input::-webkit-search-cancel-button{display:none;}
+.lib-clear{display:grid; place-items:center; width:38px; height:38px; border-radius:50%; border:none; background:transparent; color:var(--text-2); cursor:pointer;}
+.lib-clear:hover{background:var(--surface); color:var(--text);}
+.lib-clear[hidden]{display:none;}
+
+/* แผนที่กล้ามเนื้อ */
+.lib-map{display:flex; flex-direction:column; align-items:center; gap:10px; padding:18px 20px 14px;}
+.lib-sex{display:flex; gap:8px;}
+.lib-map-cap{font-weight:600; font-size:14.5px; color:var(--text-2); text-align:center; min-height:1.6em;}
+.lib-figs{display:grid; grid-template-columns:1fr 1fr; gap:12px; width:100%; max-width:440px;}
+.lib-fig{margin:0; display:flex; flex-direction:column; align-items:center; gap:4px;}
+.lib-fig svg{width:100%; max-height:420px; aspect-ratio:1/2; display:block;}
+.lib-fig figcaption{font-size:12.5px; color:var(--text-3); font-weight:500;}
+.lib-d{pointer-events:none;}
+.lib-d-base{fill:var(--lib-base);}
+.lib-d-hair{fill:var(--lib-hair);}
+.lib-d-fore{fill:var(--lib-fore); stroke:var(--bg); stroke-width:.9;}
+.lib-d-line{fill:none; stroke:var(--bg); stroke-opacity:.55; stroke-width:.7;}
+.lib-m{stroke:var(--bg); stroke-width:.9; cursor:pointer; transition:fill-opacity .25s ease;}
+.lib-m.sel{stroke:#fff;}
+.lib-m:hover{filter:brightness(1.18);}
+
+/* ชิปตัวกรอง */
+.lib-filters{display:flex; flex-direction:column; gap:8px; margin:16px 0 6px;}
+.lib-chips{display:flex; flex-wrap:wrap; gap:8px;}
+.lib-chip{
+  display:inline-flex; align-items:center; gap:7px; height:36px; padding:0 14px; border-radius:var(--r-pill);
+  border:1px solid var(--border-strong); background:transparent; color:var(--text-2); font:inherit; font-size:13.5px; font-weight:500;
+  cursor:pointer; white-space:nowrap;
+}
+.lib-chips-sm .lib-chip{height:32px; font-size:12.5px; padding:0 12px;}
+.lib-chip:hover{border-color:var(--accent); color:var(--text);}
+.lib-chip.on{background:var(--grad-accent, var(--accent)); border-color:transparent; color:#fff; box-shadow:var(--glow, none);}
+.lib-chip-mine{color:var(--branch-ink);}
+.lib-dot{width:9px; height:9px; border-radius:50%; flex:0 0 auto;}
+.lib-chip.on .lib-dot{box-shadow:0 0 0 2px rgba(255,255,255,.85);}
+@media (max-width:900px){
+  /* มือถือ: ชิปเลื่อนแนวนอนแถวเดียว ไม่ให้ดันรายการลงไปไกล */
+  .lib-chips{flex-wrap:nowrap; overflow-x:auto; margin:0 -12px; padding:2px 12px; scrollbar-width:none;}
+  .lib-chips::-webkit-scrollbar{display:none;}
+}
+
+/* รายการ */
+.lib-results{scroll-margin-top:12px; padding-bottom:12px;}
+@media (max-width:900px){ .lib-results{scroll-margin-top:calc(var(--appbar-h) + env(safe-area-inset-top) + 8px);} }
+.lib-group{margin-top:6px;}
+.lib-group-h{
+  position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:10px; margin:0 -4px; padding:12px 4px 8px;
+  background:var(--bg); font-size:15.5px; font-weight:700; color:var(--gc); font-style:normal; text-transform:none;
+}
+.lib-group-h span:first-child{flex:1; min-width:0;}
+@media (max-width:900px){ .lib-group-h{top:calc(var(--appbar-h) + env(safe-area-inset-top));} }
+.lib-count{color:var(--text-3); font-size:13px; font-weight:500;}
+.lib-row{
+  display:flex; align-items:center; gap:14px; width:100%; margin:0 0 6px; padding:12px 14px; text-align:left;
+  border-radius:var(--r-lg); border:1px solid var(--border); background:var(--grad-card, var(--surface)); color:var(--text);
+  font:inherit; cursor:pointer; transition:border-color .15s, transform .15s;
+}
+.lib-row:hover{border-color:var(--accent-line);}
+.lib-row:focus-visible,.lib-sib:focus-visible,.lib-chip:focus-visible,.lib-m:focus-visible{outline:2px solid var(--accent-hover); outline-offset:2px;}
+.lib-badge{
+  flex:0 0 auto; display:grid; place-items:center; width:46px; height:46px; border-radius:50%;
+  background:var(--gc); color:#0b1222; font-weight:800; font-size:17px; font-style:italic;
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--gc) 25%, transparent);
+}
+.lib-badge-lg{width:84px; height:84px; font-size:30px;}
+.lib-badge-sm{width:34px; height:34px; font-size:13px;}
+.lib-row-main{flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;}
+.lib-row-t{font-weight:600; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.lib-row-s{font-size:13px; color:var(--text-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.lib-row-meta{display:flex; align-items:center; gap:10px; font-size:12px; color:var(--text-3); margin-top:3px; flex-wrap:wrap;}
+.lib-star{color:var(--branch-ink); font-weight:600;}
+.lib-chev{width:18px; height:18px; color:var(--text-4); flex:0 0 auto;}
+.lib-tier{display:inline-flex; gap:3px; width:48px;}
+.lib-tier i{flex:1; height:4px; border-radius:4px; background:var(--surface-2);}
+.lib-tier i.on{background:var(--gc);}
+.lib-tier-lg{width:100%; gap:5px;}
+.lib-tier-lg i{height:8px;}
+.lib-empty{text-align:center; padding:48px 16px; display:flex; flex-direction:column; align-items:center; gap:8px;}
+.lib-empty b{font-size:17px;}
+
+/* รายละเอียดท่า */
+body.lib-locked{overflow:hidden;}
+.lib-backdrop{
+  position:fixed; inset:0; z-index:80; background:rgba(2,6,16,.72); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px);
+  display:flex; align-items:center; justify-content:center; padding:24px;
+}
+.lib-sheet{
+  position:relative; width:100%; max-width:560px; max-height:calc(100vh - 48px); overflow-y:auto; overscroll-behavior:contain;
+  background:var(--surface); border:1px solid var(--border-strong); border-radius:22px; padding:24px 22px 22px;
+  box-shadow:0 30px 80px -20px rgba(0,0,0,.8); display:flex; flex-direction:column; gap:18px;
+}
+@media (max-width:900px){
+  .lib-backdrop{align-items:flex-end; padding:0;}
+  .lib-sheet{max-width:none; max-height:92vh; border-radius:22px 22px 0 0; border-bottom:none;
+    padding:22px 18px calc(22px + env(safe-area-inset-bottom)); animation:lib-up .22s ease-out;}
+}
+@keyframes lib-up{from{transform:translateY(40px); opacity:.6;} to{transform:none; opacity:1;}}
+.lib-x{position:absolute; top:12px; right:12px; width:40px; height:40px; border-radius:50%; display:grid; place-items:center;
+  border:1px solid var(--border-strong); background:var(--surface-2); color:var(--text-2); cursor:pointer;}
+.lib-x:hover{color:var(--text); border-color:var(--accent);}
+.lib-sheet-head{display:flex; flex-direction:column; align-items:center; text-align:center; gap:8px; padding-top:4px;}
+.lib-sheet-head h2{font-size:24px; font-weight:800; line-height:1.25;}
+.lib-sheet-sub{color:var(--text-2); font-size:14px;}
+.lib-pills{display:flex; flex-wrap:wrap; justify-content:center; gap:6px;}
+.lib-pill{padding:3px 11px; border-radius:var(--r-pill); font-size:12.5px; font-weight:500; background:var(--surface-2); border:1px solid var(--border-strong); color:var(--text-2);}
+.lib-pill-group{background:var(--gc); border-color:transparent; color:#0b1222; font-weight:700;}
+.lib-pill-star{background:var(--branch-soft); border-color:var(--branch-line); color:var(--branch-ink);}
+.lib-block{display:flex; flex-direction:column; gap:8px;}
+.lib-block > h3{font-size:14.5px; font-weight:700; color:var(--text-2);}
+.lib-tier-row{display:flex; align-items:baseline; gap:10px;}
+.lib-tier-row b{font-size:20px; font-weight:800; font-style:italic;}
+.lib-muted{color:var(--text-3); font-size:13px;}
+.lib-foot{text-align:center;}
+
+.lib-guide{border-radius:18px; background:var(--surface-2); border:1px solid var(--border); padding:16px; display:flex; flex-direction:column; gap:6px;}
+.lib-guide h4{font-size:13px; font-weight:700; color:var(--text-2); margin-top:6px;}
+.lib-guide p{font-size:14px; line-height:1.6;}
+.lib-guide-top{display:flex; align-items:center; gap:8px;}
+.lib-risk-pill{padding:3px 12px; border-radius:var(--r-pill); font-size:12.5px; font-weight:700; color:#0b1222;}
+.lib-risk-0 .lib-risk-pill{background:var(--ok);}
+.lib-risk-1 .lib-risk-pill{background:var(--branch);}
+.lib-risk-2 .lib-risk-pill{background:var(--warn);}
+.lib-risk-0 .lib-why{color:var(--ok);}
+.lib-risk-1 .lib-why{color:var(--branch-ink);}
+.lib-risk-2 .lib-why{color:var(--warn);}
+.lib-hit{margin-top:6px; padding:12px; border-radius:14px; background:var(--warn-soft); border:1px solid var(--warn-line); color:var(--warn); font-weight:600;}
+.lib-disclaimer{margin-top:6px; font-size:12px !important; color:var(--text-4);}
+
+.lib-stats{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+.lib-stat{padding:12px 14px; border-radius:14px; background:var(--surface-2); border:1px solid var(--border); display:flex; flex-direction:column; gap:2px;}
+.lib-stat span{font-size:12px; color:var(--text-3);}
+.lib-stat b{font-size:19px; font-weight:800;}
+.lib-stat small{font-size:12px; color:var(--text-3);}
+
+.lib-sibs{display:flex; flex-direction:column; gap:6px;}
+.lib-sib{display:flex; align-items:center; gap:12px; width:100%; padding:9px 12px; border-radius:14px; text-align:left;
+  border:1px solid var(--border); background:var(--surface-2); color:var(--text); font:inherit; cursor:pointer;}
+.lib-sib:hover:not([disabled]){border-color:var(--accent-line);}
+.lib-sib.cur{background:var(--accent-soft); border-color:var(--accent); cursor:default;}
+.lib-sib.cur .lib-row-t{font-weight:800;}
+.lib-sib .lib-row-t{font-size:14px;}
+.lib-sib .lib-row-s{font-size:12px; color:var(--text-3);}

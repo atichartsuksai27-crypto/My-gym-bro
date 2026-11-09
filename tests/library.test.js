@@ -16,6 +16,10 @@ function test(name, fn){
 var EXERCISES = H.plain(H.ev('EXERCISES'));
 var ALL = H.plain(H.ev('LIBRARY_ALL'));
 var EXTRA = H.plain(H.ev('LIBRARY_EXTRA'));
+var BASE_ALL = H.plain(H.ev('LIBRARY_BASE_ALL'));       // คลังฐานที่ตรงกับ Android (147 ท่า)
+var BASE_EXTRA = H.plain(H.ev('LIBRARY_BASE_EXTRA'));   // ท่าเสริมฝั่ง Android (54 ท่า)
+var WEB_EXTRA = H.plain(H.ev('LIBRARY_WEB_EXTRA'));     // ท่าเสริมเฉพาะเว็บ
+var WEB_ADDED = H.plain(H.ev('LIBRARY_WEB_ADDED'));
 var RAW = H.plain(H.ev('LIBRARY_RAW_EXTRA'));
 var ORDER = H.plain(H.ev('LIBRARY_GROUP_ORDER'));
 var GROUP_LABEL = H.plain(H.ev('LIBRARY_GROUP_LABEL'));
@@ -29,14 +33,17 @@ var S = '"((?:[^"\\\\]|\\\\.)*)"';
 test('ALL = 147 ท่า = EXERCISES 93 + ท่าเสริม 54 (จาก RAW 77 ตัดชื่อซ้ำ 23)', function(){
   assert.strictEqual(EXERCISES.length, 93);
   assert.strictEqual(RAW.length, 77);
-  assert.strictEqual(EXTRA.length, 54);
-  assert.strictEqual(ALL.length, 147);
+  assert.strictEqual(BASE_EXTRA.length, 54);
+  assert.strictEqual(BASE_ALL.length, 147);
+  assert.strictEqual(EXTRA.length, 54 + WEB_EXTRA.length);
+  assert.strictEqual(ALL.length, 147 + WEB_EXTRA.length);
+  assert.strictEqual(WEB_EXTRA.length, WEB_ADDED.length); // ไม่มีท่าเว็บที่ถูกตัดเพราะชื่อซ้ำ
 });
 
 test('ท่าเสริมไม่มีชื่อซ้ำกับ EXERCISES (ไม่สนตัวพิมพ์) และท่าที่ถูกตัดทั้ง 23 ท่าชื่อซ้ำจริง', function(){
   var names = EXERCISES.map(function(e){ return e.th.toLowerCase(); });
   EXTRA.forEach(function(x){ assert.ok(names.indexOf(x.th.toLowerCase()) < 0, x.id+' '+x.th); });
-  var dropped = RAW.filter(function(x){ return !EXTRA.some(function(y){ return y.id === x.id; }); });
+  var dropped = RAW.filter(function(x){ return !BASE_EXTRA.some(function(y){ return y.id === x.id; }); });
   assert.strictEqual(dropped.length, 23);
   dropped.forEach(function(x){ assert.ok(names.indexOf(x.th.toLowerCase()) > -1, x.id+' '+x.th); });
 });
@@ -85,7 +92,7 @@ test('จำนวนท่าต่อกลุ่มตรงกับ exercis
     'Incline Push':5, 'Chest Fly':4, 'Vertical Push':7, 'Lateral Raise':4, 'Rear Delt':4, 'Horizontal Pull':9, 'Vertical Pull':9,
     'Core':11, 'Oblique':5, 'Biceps':10, 'Triceps':9, 'Delts & Traps':4, 'Calves':2, 'Cardio':7};
   var got = {};
-  ORDER.forEach(function(g){ got[GROUP_LABEL[g].split(' — ')[0]] = ALL.filter(function(e){ return e.pattern === g; }).length; });
+  ORDER.forEach(function(g){ got[GROUP_LABEL[g].split(' — ')[0]] = BASE_ALL.filter(function(e){ return e.pattern === g; }).length; });
   assert.deepStrictEqual(got, want);
 });
 

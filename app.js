@@ -744,6 +744,24 @@ function allowedEquipFor(a){
   if(a.Q20==='ที่บ้าน') return equipAllowedHome(a.Q21);
   return equipAllowed(a.Q22||'ครบมาก');
 }
+/* ที่บ้าน: ท่าที่ต้องมีอุปกรณ์เสริมตามตัวเลือก Q21 นอกเหนือจาก equip หลักของท่า (ตัวสร้างแผนและหน้าคลังท่าใช้ตารางเดียวกัน)
+   ม้านั่ง: ท่านอน/นั่งเอนบนม้านั่ง ท่าก้าวเท้าหลังขึ้นม้านั่ง ท่าดิป ท่าเท้าสูง · เชือกกระโดด: Jump Rope · ฮูลาฮูป: Hula Hoop
+   (เดิมท่าเหล่านี้ถูก tag แค่ dumbbell/bodyweight ทำให้คนที่ตอบ "ดัมเบล" อย่างเดียวหรือ "ไม่มีอุปกรณ์เลย" ได้ท่าที่ต้องใช้ม้านั่ง)
+   Android: Catalog.kt / Generator.kt ยังไม่มีกติกานี้ — ต้องพอร์ตและทำ golden ใหม่ทีหลัง */
+var HOME_NEEDS = {
+  hp3:'ม้านั่ง', hp4:'ม้านั่ง', ic3:'ม้านั่ง', ic3b:'ม้านั่ง', ic4:'ม้านั่ง', fl3:'ม้านั่ง', tc2:'ม้านั่ง', tc4:'ม้านั่ง',
+  lg3:'ม้านั่ง', gl2b:'ม้านั่ง', xhp1:'ม้านั่ง', xbc2:'ม้านั่ง', xbc3:'ม้านั่ง', xtc5:'ม้านั่ง',
+  xcd6:'เชือกกระโดด',
+  xwgl5:'ม้านั่ง', xwvp2:'ม้านั่ง', xwtc5:'ม้านั่ง', xwcd1:'ฮูลาฮูป'
+};
+/* คืนชื่ออุปกรณ์เสริมที่ขาด (ตาม Q21) ถ้าท่านี้ต้องใช้แต่ผู้ใช้ไม่ได้เลือก — null = ใช้ได้ (ไม่ใช่เส้นทางที่บ้านก็ใช้ได้เสมอ) */
+function homeNeedMissing(id, a){
+  if(!a || a.Q20 !== 'ที่บ้าน') return null;
+  var need = HOME_NEEDS[id];
+  if(!need) return null;
+  var own = Array.isArray(a.Q21) ? a.Q21 : [];
+  return own.indexOf(need) > -1 ? null : need;
+}
 function targetTier(exp){
   return {'มือใหม่':2,'เคยออกบ้าง':3,'ออกกำลังกายประจำ':3,'นักกีฬา-เทรนมานาน':4}[exp] || 2;
 }
@@ -753,9 +771,11 @@ function candidatesFor(pattern, a){
   return EXERCISES.filter(function(e){return e.pattern===pattern;}).map(function(e){
     var lockedBy = injuries.filter(function(inj){ return (EXCLUSION_MAP[inj]||[]).indexOf(e.id)>-1; });
     var manuallyUnlocked = !!state.plan.unlockedEx[e.id];
+    var needMissing = homeNeedMissing(e.id, a);
     return {
       id:e.id, pattern:e.pattern, tier:e.tier, equip:e.equip, th:e.th, sub:e.sub, timed:!!e.timed,
-      equipOk: allowed.indexOf(e.equip)>-1,
+      equipOk: allowed.indexOf(e.equip)>-1 && !needMissing,
+      needMissing: needMissing,
       locked: lockedBy.length>0 && !manuallyUnlocked,
       lockedBy: lockedBy
     };
@@ -4113,6 +4133,12 @@ function renderQuestion(q){
     body += '<div class="note warn"><span class="eyebrow2">คำเตือนด้านการแพทย์ (แสดงคู่กับคำถามนี้เสมอ)</span>'+
       '<p>เป้าหมายที่คุณตั้งไว้ค่อนข้างห่างจากน้ำหนักปัจจุบันมาก การไปถึงอย่างปลอดภัยอาจต้องใช้ระยะเวลานานกว่าที่คิด แนะนำให้ปรึกษาแพทย์หรือผู้เชี่ยวชาญก่อนเริ่มโปรแกรม</p></div>';
   }
+  if(q.id==="Q21"){
+    // ตัวเลือกที่ตัวสร้างแผนใช้จริง = ดัมเบล/บาร์เบล/บาร์โหน/สเต็ปเปอร์/ลูกบอลโยคะ/ลูกกลิ้ง/ม้านั่ง
+    // ที่เหลือ (ยางยืด/ฮูลาฮูป/เสื่อโยคะ/เชือกกระโดด) ยังไม่ถูกใช้เลือกท่าในแผน แต่มีท่าให้ดูในหน้า "คลังท่าออกกำลังกาย"
+    body += '<div class="note"><p>แผนจะเลือกท่าจากอุปกรณ์ที่คุณติ๊กไว้เท่านั้น — ท่าที่ต้องใช้ม้านั่ง (เช่น เบนช์เพรสดัมเบล, ดิป) จะไม่ถูกเลือกถ้าไม่ได้ติ๊ก “ม้านั่ง” · '+
+      '<b>ยางยืด, ฮูลาฮูป, เสื่อโยคะ, เชือกกระโดด</b> ยังไม่ถูกนำไปใช้เลือกท่าในแผน แต่ดูท่าที่ใช้อุปกรณ์เหล่านี้ได้ในหน้า “คลังท่าออกกำลังกาย”</p></div>';
+  }
   if(q.id==="Q20" && a.Q20 && SUPPORTED_LOCATIONS.indexOf(a.Q20)===-1){
     // N-03: แจ้งข้อจำกัด MVP ทันทีที่เลือกสถานที่ ไม่ปล่อยให้ตอบจนจบแล้วเพิ่งไปเจอที่หน้าสรุป
     body += '<div class="note warn"><span class="eyebrow2">ข้อจำกัดของต้นแบบนี้ (MVP)</span>'+
@@ -4473,7 +4499,9 @@ function resultsHTML(){
           '<button type="button" data-act="unlock" data-unlock="'+x.id+'" data-pattern="'+pattern+'">แจ้งว่าหายแล้ว</button></div>';
       }
       if(!x.equipOk){
-        return '<div class="swap-opt locked"><div>'+nameBtn+'<div class="lockmsg">ต้องใช้อุปกรณ์ที่ยิมนี้ไม่มีตามที่แจ้งไว้</div></div></div>';
+        var why = x.needMissing ? 'ต้องมี'+x.needMissing+' — คุณไม่ได้เลือกไว้ในแบบสอบถาม'
+          : (a.Q20==='ที่บ้าน' ? 'ต้องใช้อุปกรณ์ที่คุณไม่ได้เลือกไว้ในแบบสอบถาม' : 'ต้องใช้อุปกรณ์ที่ยิมนี้ไม่มีตามที่แจ้งไว้');
+        return '<div class="swap-opt locked"><div>'+nameBtn+'<div class="lockmsg">'+why+'</div></div></div>';
       }
       return '<div class="swap-opt'+(pickedThis?' picked':'')+'">'+nameBtn+
         '<button type="button" data-act="swap" data-swap="'+x.id+'" data-pattern="'+pattern+'">เลือกท่านี้แทน</button></div>';
@@ -4843,13 +4871,128 @@ var BODYMAP_FIGURES = {
   ]
 };
 
-/* ---- logic คลังท่า (ตรงกับ LibraryCatalog.kt) — ใช้เฉพาะหน้าคลัง ตัวสร้างตารางไม่เห็นท่าเสริมเหล่านี้ ----
+/* ---- ท่าเสริมเฉพาะเว็บ (ร่าง ยังไม่ผ่านการตรวจจากผู้เชี่ยวชาญ) — id ขึ้นต้น "xw" ----
+   เติมช่องว่างของคลังตามที่วิเคราะห์ไว้: ฝั่งที่บ้าน (ไม่มีอุปกรณ์/ของในบ้าน/ยางยืด/ฮูลาฮูป) และฝั่งยิม
+   แยกจาก LIBRARY_RAW_EXTRA (ที่ต้องตรงกับ Android) โดยตั้งใจ · ตัวสร้างแผนไม่เห็นท่าเหล่านี้ (อยู่นอก EXERCISES)
+   ท่าที่ต้องใช้ม้านั่ง/ฮูลาฮูปเพิ่มเติมอยู่ใน HOME_NEEDS */
+var LIBRARY_WEB_ADDED = [
+  // ที่บ้าน — หลัง
+  {id:"xwhl1", pattern:"hpull", tier:2, equip:"bodyweight", th:"Towel Row (Door)", sub:"พายตัวด้วยผ้าขนหนูคล้องลูกบิดประตูที่ปิดสนิท"},
+  {id:"xwhl2", pattern:"hpull", tier:3, equip:"bodyweight", th:"Table Inverted Row", sub:"พายตัวใต้โต๊ะที่แข็งแรงมาก (ตัวลอยเฉียง)"},
+  {id:"xwhl3", pattern:"hpull", tier:2, equip:"bodyweight", th:"Backpack Bent-over Row", sub:"ก้มพายถือกระเป๋าเป้ใส่ของหนัก"},
+  {id:"xwhl4", pattern:"hpull", tier:1, equip:"band", th:"Band Row", sub:"นั่งเหยียดขาคล้องยางยืดที่เท้า ดึงพายเข้าลำตัว"},
+  {id:"xwvl1", pattern:"vpull", tier:1, equip:"bodyweight", th:"Towel Lat Pull-Down", sub:"ยกผ้าขนหนูสองมือเหนือศีรษะ แล้วดึงลงข้างลำตัวโดยออกแรงต้านกัน"},
+  {id:"xwvl2", pattern:"vpull", tier:2, equip:"band", th:"Band Lat Pulldown", sub:"ดึงยางยืดที่ผูกเหนือประตูลงมาหาอก"},
+  // ที่บ้าน — อก / ไหล่
+  {id:"xwic1", pattern:"incline", tier:3, equip:"bodyweight", th:"Stair Decline Push-up", sub:"พุชอัพเท้าวางบนขั้นบันได เน้นอกบน"},
+  {id:"xwfl1", pattern:"chestfly", tier:3, equip:"bodyweight", th:"Towel Slider Fly", sub:"ฝ่ามือวางบนผ้าขนหนูบนพื้นลื่น ไถกางแขนออกแล้วหนีบกลับ"},
+  {id:"xwfl2", pattern:"chestfly", tier:1, equip:"bodyweight", th:"Isometric Chest Squeeze", sub:"ประสานฝ่ามือหน้าอกแล้วบีบเข้าหากันค้างไว้"},
+  {id:"xwfl3", pattern:"chestfly", tier:2, equip:"band", th:"Band Chest Fly", sub:"ยางยืดคล้องหลัง กางแขนแล้วหนีบเข้าหากันที่หน้าอก"},
+  {id:"xwhp1", pattern:"hpush", tier:2, equip:"bodyweight", th:"Wide Push-up", sub:"พุชอัพมือกว้างกว่าไหล่"},
+  {id:"xwhp2", pattern:"hpush", tier:4, equip:"bodyweight", th:"Archer Push-up", sub:"พุชอัพลงข้างเดียวทีละข้าง แขนอีกข้างเหยียดตรง"},
+  {id:"xwhp3", pattern:"hpush", tier:2, equip:"band", th:"Band Chest Press", sub:"ยางยืดคล้องหลัง ดันออกหน้าอก"},
+  {id:"xwvp1", pattern:"vpush", tier:2, equip:"band", th:"Band Overhead Press", sub:"เหยียบยางยืดแล้วดันขึ้นเหนือศีรษะ"},
+  {id:"xwvp2", pattern:"vpush", tier:3, equip:"bodyweight", th:"Pike Push-up (Feet Elevated)", sub:"พุชอัพท่าไพค์เท้าวางบนที่สูง เน้นไหล่"},
+  {id:"xwdl1", pattern:"delts", tier:1, equip:"bodyweight", th:"Wall Angel", sub:"ยืนพิงกำแพง เลื่อนแขนขึ้น-ลงเป็นตัว W-Y"},
+  {id:"xwdl2", pattern:"delts", tier:1, equip:"bodyweight", th:"Backpack Shrug", sub:"ยักไหล่ถือกระเป๋าเป้ใส่ของหนักสองข้าง"},
+  {id:"xwrd1", pattern:"reardelt", tier:1, equip:"band", th:"Band Pull-Apart", sub:"ดึงยางยืดกางแขนออกด้านข้างระดับอก"},
+  {id:"xwrd2", pattern:"reardelt", tier:2, equip:"band", th:"Band Face Pull", sub:"ดึงยางยืดที่ผูกระดับหน้าเข้าหาใบหน้า"},
+  {id:"xwlr1", pattern:"latraise", tier:2, equip:"band", th:"Band Lateral Raise", sub:"เหยียบยางยืดแล้วยกแขนไปด้านข้าง"},
+  // ที่บ้าน — ขา / ก้น
+  {id:"xwhg1", pattern:"hinge", tier:2, equip:"bodyweight", th:"Good Morning (Bodyweight)", sub:"ก้มสะโพกแบบกู๊ดมอร์นิ่ง มือประสานท้ายทอย"},
+  {id:"xwhg2", pattern:"hinge", tier:2, equip:"bodyweight", th:"Backpack Romanian Deadlift", sub:"RDL ถือกระเป๋าเป้ใส่ของหนักหน้าตัว"},
+  {id:"xwhg3", pattern:"hinge", tier:2, equip:"band", th:"Band Pull-Through", sub:"ดึงยางยืดที่ผูกด้านหลังลอดขา ดันสะโพกไปข้างหน้า"},
+  {id:"xwgl1", pattern:"glute", tier:1, equip:"bodyweight", th:"Frog Pump", sub:"นอนหงายฝ่าเท้าชนกัน ยกสะโพกขึ้น"},
+  {id:"xwgl2", pattern:"glute", tier:1, equip:"bodyweight", th:"Donkey Kick", sub:"คลานสี่ขา เตะขาไปด้านหลัง-ขึ้น"},
+  {id:"xwgl3", pattern:"glute", tier:1, equip:"bodyweight", th:"Fire Hydrant", sub:"คลานสี่ขา ยกเข่ากางออกด้านข้าง"},
+  {id:"xwgl4", pattern:"glute", tier:2, equip:"band", th:"Band Glute Kickback", sub:"คล้องยางยืดที่เท้า เตะขาไปด้านหลัง"},
+  {id:"xwgl5", pattern:"glute", tier:2, equip:"bodyweight", th:"Couch Hip Thrust", sub:"ฮิปทรัสต์หลังพิงโซฟา/ม้านั่ง"},
+  {id:"xwlg1", pattern:"lunge", tier:2, equip:"bodyweight", th:"Curtsy Lunge", sub:"ลันจ์ไขว้ขาถอยเฉียงหลัง"},
+  {id:"xwlg2", pattern:"lunge", tier:2, equip:"bodyweight", th:"Lateral Lunge", sub:"ก้าวขาออกด้านข้าง ย่อสะโพกถอยหลัง"},
+  {id:"xwsq1", pattern:"squat", tier:2, equip:"bodyweight", th:"Pause Squat", sub:"สควอทหยุดค้างที่จุดต่ำสุด 2-3 วินาที"},
+  {id:"xwsq2", pattern:"squat", tier:3, equip:"bodyweight", th:"Cossack Squat", sub:"ย่อลงด้านข้าง ขาอีกข้างเหยียดตรง"},
+  {id:"xwsq3", pattern:"squat", tier:3, equip:"bodyweight", th:"Backpack Squat", sub:"สควอทถือกระเป๋าเป้ใส่ของหนักหน้าตัว"},
+  {id:"xwsq4", pattern:"squat", tier:4, equip:"bodyweight", th:"Assisted Pistol Squat", sub:"สควอทขาเดียวย่อลึก ใช้มือจับเสา/วงกบประตูช่วย"},
+  {id:"xwsq5", pattern:"squat", tier:2, equip:"band", th:"Band Squat", sub:"เหยียบยางยืดแล้วถือที่ไหล่ สควอทต้านแรง"},
+  {id:"xwlc1", pattern:"legcurl", tier:2, equip:"bodyweight", th:"Hamstring Walkout", sub:"นอนยกสะโพก เดินส้นเท้าออกและกลับ"},
+  {id:"xwlc2", pattern:"legcurl", tier:2, equip:"band", th:"Band Leg Curl", sub:"นอนคว่ำคล้องยางยืดที่ข้อเท้า งอเข่าดึงส้นเข้าหาก้น"},
+  {id:"xwcf1", pattern:"calf", tier:2, equip:"bodyweight", th:"Backpack Calf Raise", sub:"เขย่งปลายเท้าถือกระเป๋าเป้ใส่ของหนัก"},
+  {id:"xwcf2", pattern:"calf", tier:3, equip:"bodyweight", th:"Stair Single-Leg Calf Raise", sub:"เขย่งน่องขาเดียวที่ขอบขั้นบันได (ลงต่ำกว่าระดับขั้น)"},
+  // ที่บ้าน — แขน / แกนกลาง / คาร์ดิโอ
+  {id:"xwbc1", pattern:"biceps", tier:1, equip:"bodyweight", th:"Backpack Curl", sub:"เคิร์ลกระเป๋าเป้ใส่ของหนักเป็นน้ำหนัก"},
+  {id:"xwbc2", pattern:"biceps", tier:1, equip:"band", th:"Band Curl", sub:"เหยียบยางยืดแล้วเคิร์ลแขน"},
+  {id:"xwtc1", pattern:"triceps", tier:1, equip:"band", th:"Band Pushdown", sub:"ดึงยางยืดที่ผูกเหนือประตูลงด้านหน้าตัว"},
+  {id:"xwtc2", pattern:"triceps", tier:2, equip:"band", th:"Band Overhead Tricep Extension", sub:"เหยียดแขนเหนือศีรษะต้านยางยืด"},
+  {id:"xwob1", pattern:"oblique", tier:2, equip:"band", th:"Band Pallof Press", sub:"ดันยางยืดที่ผูกด้านข้างต้านการบิดลำตัว"},
+  {id:"xwcd1", pattern:"cardio", tier:1, equip:"bodyweight", th:"Hula Hoop", sub:"หมุนฮูลาฮูปรอบเอว"},
+  {id:"xwcd2", pattern:"cardio", tier:2, equip:"bodyweight", th:"Skater Jump", sub:"กระโดดสลับข้างไปด้านข้างแบบนักสเก็ต"},
+  {id:"xwcd3", pattern:"cardio", tier:1, equip:"bodyweight", th:"Shadow Boxing", sub:"ต่อยมวยอากาศ เคลื่อนที่เบาๆ"},
+  {id:"xwcd4", pattern:"cardio", tier:2, equip:"bodyweight", th:"Stair Climbs", sub:"ขึ้น-ลงบันไดต่อเนื่อง"},
+  // ยิม
+  {id:"xwsq6", pattern:"squat", tier:3, equip:"machine", th:"Smith Machine Squat", sub:"สควอทในเครื่องสมิท"},
+  {id:"xwhp4", pattern:"hpush", tier:3, equip:"machine", th:"Smith Machine Bench Press", sub:"เบนช์เพรสในเครื่องสมิท"},
+  {id:"xwgl6", pattern:"glute", tier:1, equip:"machine", th:"Hip Abduction Machine", sub:"เครื่องกางสะโพก เน้นก้นด้านข้าง"},
+  {id:"xwtc3", pattern:"triceps", tier:2, equip:"cable", th:"Overhead Cable Triceps Extension", sub:"เหยียดแขนเหนือศีรษะด้วยเคเบิล"},
+  {id:"xwtc4", pattern:"triceps", tier:2, equip:"machine", th:"Assisted Dip Machine", sub:"ดิปช่วยด้วยเครื่อง"},
+  {id:"xwtc5", pattern:"triceps", tier:3, equip:"dumbbell", th:"Lying Dumbbell Triceps Extension", sub:"นอนเหยียดแขนดัมเบลเหนือหน้าผาก"},
+  {id:"xwco1", pattern:"core", tier:2, equip:"machine", th:"Ab Crunch Machine", sub:"เครื่องครันช์หน้าท้อง"},
+  {id:"xwco2", pattern:"core", tier:3, equip:"machine", th:"Captain's Chair Leg Raise", sub:"ยกขาบนเก้าอี้กัปตัน (เกาะแขนพยุงตัว)"},
+  {id:"xwdl3", pattern:"delts", tier:2, equip:"dumbbell", th:"Farmer's Carry", sub:"ถือดัมเบลหนักสองข้างเดินตัวตรง (บ่า/ข้อมือ/แกนกลาง)"},
+  {id:"xwcd5", pattern:"cardio", tier:2, equip:"machine", th:"Stair Climber", sub:"เครื่องปีนบันได"},
+  {id:"xwcd6", pattern:"cardio", tier:1, equip:"machine", th:"Elliptical", sub:"เครื่องเอลลิปติคอล"},
+  {id:"xwcd7", pattern:"cardio", tier:1, equip:"machine", th:"Incline Treadmill Walk", sub:"เดินบนลู่ปรับความชัน"}
+];
+/* คะแนนความเสี่ยงท่าเสริมเฉพาะเว็บ [ระดับ, เหตุผล] — ไม่อยู่ในตาราง = เสี่ยงต่ำ (ยังไม่ผ่านการตรวจจากผู้เชี่ยวชาญ) */
+var LIBRARY_WEB_RISK = {
+  xwhl1:[1, "ประตูต้องปิดสนิทและแข็งแรง ถ้าประตูเปิดหรือผ้าหลุดอาจล้มหงายหลัง"],
+  xwhl2:[1, "โต๊ะต้องแข็งแรงและไม่ลื่น ถ้าโต๊ะพลิกหรือมือลื่นอาจตกใส่พื้น"],
+  xwhl3:[1, "ก้มตัวพร้อมน้ำหนัก ถ้าหลังโค้งหลังส่วนล่างรับแรง"],
+  xwvl2:[1, "จุดผูกยางยืดเหนือประตูต้องแน่น ถ้าหลุดยางจะดีดเข้าหน้า"],
+  xwfl1:[1, "ไหล่และอกถูกยืดมากตอนกางแขนบนพื้นลื่น ถ้ามือไถเกินเสี่ยงไหล่บาดเจ็บ"],
+  xwic1:[1, "ไหล่และข้อมือรับน้ำหนักตัวมากกว่าพุชอัพปกติ และขั้นบันไดอาจลื่น"],
+  xwhg2:[1, "ก้มตัวพร้อมน้ำหนัก ถ้าหลังโค้งหลังส่วนล่างรับแรง"],
+  xwlg1:[1, "เข่าอาจบิดเข้าด้านในตอนไขว้ขา ต้องคุมให้เข่าชี้ไปทางปลายเท้า"],
+  xwlg2:[1, "ขาหนีบและเข่าถูกยืดด้านข้างมาก ถ้าก้าวกว้างเกินเสี่ยงบาดเจ็บ"],
+  xwsq2:[1, "ย่อลึกด้านข้างต้องการความยืดหยุ่นสะโพก/ขาหนีบ เข่ารับแรงบิดถ้าเท้าไม่มั่น"],
+  xwsq3:[1, "น้ำหนักอยู่หน้าตัว ถ้าหลังโค้งตอนย่อลึกหลังส่วนล่างรับแรง"],
+  xwsq4:[2, "ท่าขาเดียวย่อลึก เข่ารับแรงสูงและเสี่ยงเสียหลัก ควรมีที่จับช่วยและเริ่มจากช่วงสั้น"],
+  xwcf2:[1, "ทรงตัวขาเดียวที่ขอบขั้น เสี่ยงลื่นหรือตกขั้นบันได"],
+  xwhp2:[1, "ข้อมือและไหล่ข้างที่รับน้ำหนักมากกว่าพุชอัพปกติ"],
+  xwvp2:[1, "ไหล่รับน้ำหนักตัวเหนือศีรษะมากขึ้น และข้อมือรับแรงสูง"],
+  xwcd2:[1, "มีแรงกระแทกต่อเข่าและข้อเท้า และเสี่ยงลื่นล้มตอนลงพื้น"],
+  xwsq6:[1, "บาร์อยู่บนหลัง แม้เครื่องช่วยนำทางแต่ถ้าวางเท้าผิดตำแหน่งเข่าและหลังส่วนล่างรับแรงสูง"],
+  xwhp4:[1, "บาร์อยู่เหนืออก ควรตั้งตัวล็อกเซฟตี้ให้ถูกก่อนเริ่มเซ็ต"],
+  xwtc5:[1, "ดัมเบลอยู่ใกล้หน้าผากและข้อศอกรับภาระ ถ้าข้อศอกล้าหรือเสียการควบคุม ดัมเบลอาจตกใส่หน้า"],
+  xwco2:[1, "ห้อยตัวด้วยแขนและยกขา ไหล่และหลังส่วนล่างรับแรง ถ้าแกว่งตัวเสี่ยงบาดเจ็บ"]
+};
+/* ท่าเสริมเฉพาะเว็บที่ควรระวังเมื่อมีอาการบาดเจ็บ (แสดงเตือนในคลังเท่านั้น ไม่มีผลกับการสร้างตาราง) */
+var LIBRARY_WEB_CAUTION = {
+  "เข่า":["xwsq1","xwsq2","xwsq3","xwsq4","xwsq5","xwsq6","xwlg1","xwlg2","xwcd2","xwcd4"],
+  "ไหล่":["xwfl1","xwic1","xwhp2","xwhp4","xwvp1","xwvp2","xwtc5","xwvl2","xwco2"],
+  "หลัง":["xwhl3","xwhg1","xwhg2","xwsq3","xwco2"],
+  "ข้อมือ":["xwic1","xwhp1","xwhp2","xwvp2","xwfl1","xwdl3","xwtc5"],
+  "หัวใจ-หลอดเลือด":["xwcd2","xwcd4","xwcd5","xwsq4","xwsq6","xwhp4"]
+};
+var LIBRARY_WEB_TIP_BY_EQUIP = {
+  band:"ตรวจยางยืดไม่มีรอยแตกหรือฉีกก่อนใช้ และยึดจุดผูกให้แน่น เพราะถ้าหลุดยางจะดีดกลับ"
+};
+
+/* ---- logic คลังท่า (ตรงกับ LibraryCatalog.kt + ท่าเสริมเฉพาะเว็บ) — ใช้เฉพาะหน้าคลัง ตัวสร้างตารางไม่เห็นท่าเสริมเหล่านี้ ----
    ห้ามรวม LIBRARY_EXTRA เข้า EXERCISES: selectionFor/pickByTier/buildPlanSnapshot อ่าน EXERCISES ตรงๆ
    การเพิ่มท่าเข้ากลุ่มเดิมจะเปลี่ยนผลการเลือกท่าอัตโนมัติ และ golden ฝั่ง Android จะล้ม */
-var LIBRARY_EXTRA = LIBRARY_RAW_EXTRA.filter(function(x){
-  var name = x.th.toLowerCase();
-  return !EXERCISES.some(function(e){ return e.th.toLowerCase() === name; });
+function libraryNameTaken(list, name){
+  name = name.toLowerCase();
+  return list.some(function(e){ return e.th.toLowerCase() === name; });
+}
+/* ท่าเสริมที่ตรงกับ Android: ตัดท่าที่ชื่อซ้ำกับ EXERCISES (รวม 147 ท่า) */
+var LIBRARY_BASE_EXTRA = LIBRARY_RAW_EXTRA.filter(function(x){ return !libraryNameTaken(EXERCISES, x.th); });
+var LIBRARY_BASE_ALL = EXERCISES.concat(LIBRARY_BASE_EXTRA);
+/* ท่าเสริมเฉพาะเว็บ: ตัดชื่อซ้ำกับคลังฐานและกันเอง (ด้วย logic เดียวกัน ไม่ตัดมือ) */
+var LIBRARY_WEB_EXTRA = [];
+LIBRARY_WEB_ADDED.forEach(function(x){
+  if(!libraryNameTaken(LIBRARY_BASE_ALL, x.th) && !libraryNameTaken(LIBRARY_WEB_EXTRA, x.th)) LIBRARY_WEB_EXTRA.push(x);
 });
+var LIBRARY_EXTRA = LIBRARY_BASE_EXTRA.concat(LIBRARY_WEB_EXTRA);
 var LIBRARY_ALL = EXERCISES.concat(LIBRARY_EXTRA);
 var LIBRARY_EXTRA_IDS = {};
 LIBRARY_EXTRA.forEach(function(e){ LIBRARY_EXTRA_IDS[e.id] = true; });
@@ -4863,7 +5006,7 @@ var LIBRARY_GROUP_SHORT = Object.assign({}, PATTERN_SHORT, LIBRARY_GROUP_SHORT_E
 var LIBRARY_EQUIP_LABEL = {
   bodyweight:'น้ำหนักตัว', dumbbell:'ดัมเบล', barbell:'บาร์เบล', machine:'เครื่อง',
   cable:'เคเบิล', pullupbar:'บาร์โหน', stepper:'สเต็ปเปอร์', yogaball:'ลูกบอลโยคะ',
-  abroller:'ล้อโรลหน้าท้อง', kettlebell:'เคตเทิลเบลล์'
+  abroller:'ล้อโรลหน้าท้อง', kettlebell:'เคตเทิลเบลล์', band:'ยางยืด'
 };
 
 /* สีประจำกลุ่ม — จัดใหม่ให้เข้าธีมเว็บ (น้ำเงินเข้ม) แต่แยกกลุ่มออกจากกันได้ กลุ่มอื่นใช้สีหลักของธีม */
@@ -4879,18 +5022,23 @@ function libraryById(id){
 }
 /* อาการบาดเจ็บที่ท่านี้ควรระวัง: ท่าเดิมใช้ EXCLUSION_MAP ท่าเสริมใช้ LIBRARY_EXTRA_CAUTION */
 function libraryCautionsFor(id){
-  var map = isLibraryOnly(id) ? LIBRARY_EXTRA_CAUTION : EXCLUSION_MAP;
-  return Object.keys(map).filter(function(k){ return map[k].indexOf(id) > -1; });
+  if(!isLibraryOnly(id)){
+    return Object.keys(EXCLUSION_MAP).filter(function(k){ return EXCLUSION_MAP[k].indexOf(id) > -1; });
+  }
+  // ท่าเสริม = ตารางของ Android (LIBRARY_EXTRA_CAUTION) + ตารางท่าเสริมเฉพาะเว็บ — ลำดับอาการตาม EXCLUSION_MAP
+  return Object.keys(EXCLUSION_MAP).filter(function(k){
+    return ((LIBRARY_EXTRA_CAUTION[k] || []).indexOf(id) > -1) || ((LIBRARY_WEB_CAUTION[k] || []).indexOf(id) > -1);
+  });
 }
-/* {risk 0/1/2, suits, tips[], why} — risk/why จาก LIBRARY_RISK (ไม่อยู่ในตาราง = เสี่ยงต่ำ) */
+/* {risk 0/1/2, suits, tips[], why} — risk/why จาก LIBRARY_RISK + LIBRARY_WEB_RISK (ไม่อยู่ในตาราง = เสี่ยงต่ำ) */
 function libraryGuideFor(e){
-  var r = LIBRARY_RISK[e.id] || [0, ''];
-  var tips = [LIBRARY_TIP_BY_EQUIP[e.equip], LIBRARY_TIP_BY_GROUP[e.pattern]].filter(function(t){ return t != null; });
+  var r = LIBRARY_RISK[e.id] || LIBRARY_WEB_RISK[e.id] || [0, ''];
+  var tips = [LIBRARY_TIP_BY_EQUIP[e.equip] || LIBRARY_WEB_TIP_BY_EQUIP[e.equip], LIBRARY_TIP_BY_GROUP[e.pattern]].filter(function(t){ return t != null; });
   return {risk:r[0], riskLabel:LIBRARY_RISK_LABEL[r[0]], suits:LIBRARY_SUITS_BY_TIER[e.tier] || '', tips:tips, why:r[1]};
 }
 /* ท่าที่วัดเป็นเวลา (วินาที) ไม่ใช่จำนวนครั้ง */
 function libraryIsTimeBased(e){
-  return !!e.timed || e.pattern === 'cardio' || e.id === 'xsq1' || (isLibraryOnly(e.id) && e.pattern === 'core');
+  return !!e.timed || e.pattern === 'cardio' || e.id === 'xsq1' || (isLibraryOnly(e.id) && !/^xw/.test(e.id) && e.pattern === 'core');
 }
 function libraryDefaultSetsReps(e, goal){
   if(e.pattern === 'cardio') return '3 x 60 วิ';
@@ -4927,19 +5075,16 @@ function libraryQ21Options(){
   return q ? q.options.slice() : [];
 }
 function libraryHomeKit(){ return libraryQ21Options().filter(function(o){ return o !== LIBRARY_NO_EQUIP; }); }
-/* ท่าที่ต้องมีอุปกรณ์เสริมตามตัวเลือก Q21 นอกเหนือจาก equip หลักของท่า (ข้อมูลเฉพาะคลัง — ไม่แตะ EXERCISES)
-   ม้านั่ง: ท่านอน/นั่งเอนบนม้านั่ง ท่าก้าวเท้าหลังขึ้นม้านั่ง ท่าดิป  ·  เชือกกระโดด: Jump Rope (tag เป็น bodyweight) */
-var LIBRARY_HOME_NEEDS = {
-  hp3:'ม้านั่ง', hp4:'ม้านั่ง', ic3:'ม้านั่ง', ic3b:'ม้านั่ง', ic4:'ม้านั่ง', fl3:'ม้านั่ง', tc2:'ม้านั่ง', tc4:'ม้านั่ง',
-  lg3:'ม้านั่ง', gl2b:'ม้านั่ง', xhp1:'ม้านั่ง', xbc2:'ม้านั่ง', xbc3:'ม้านั่ง', xtc5:'ม้านั่ง',
-  xcd6:'เชือกกระโดด'
-};
+/* ตารางอุปกรณ์เสริมที่ท่าต้องใช้ = HOME_NEEDS (ตัวสร้างแผนใช้ตารางเดียวกัน) */
+var LIBRARY_HOME_NEEDS = HOME_NEEDS;
 /* ยิม = อุปกรณ์ของยิมระดับ "ครบมาก" (เหมือนตัวสร้างแผน) + เคตเทิลเบลล์ (ท่าเสริมเฉพาะคลัง ยิมทั่วไปมี) */
-function libraryGymOk(e){ return equipAllowed('ครบมาก').indexOf(e.equip) > -1 || e.equip === 'kettlebell'; }
+function libraryGymOk(e){ return equipAllowed('ครบมาก').indexOf(e.equip) > -1 || e.equip === 'kettlebell' || e.equip === 'band'; }
 /* ที่บ้าน: owned = รายการ Q21 ที่เลือก — equip ต้องผ่าน equipAllowedHome และต้องมีอุปกรณ์เสริมที่ท่านั้นต้องใช้ครบ */
 function libraryHomeOk(e, owned){
   owned = Array.isArray(owned) ? owned : [];
-  if(equipAllowedHome(owned).indexOf(e.equip) < 0) return false;
+  // ยางยืดเป็นอุปกรณ์เฉพาะคลัง (ตัวสร้างแผนยังไม่มี equip นี้) — ต้องติ๊ก "ยางยืด" ใน Q21
+  var equipOk = e.equip === 'band' ? owned.indexOf('ยางยืด') > -1 : equipAllowedHome(owned).indexOf(e.equip) > -1;
+  if(!equipOk) return false;
   var need = LIBRARY_HOME_NEEDS[e.id];
   return !need || owned.indexOf(need) > -1;
 }

@@ -4629,19 +4629,180 @@ var GOOGLE_G_SVG = '<svg width="18" height="18" viewBox="0 0 48 48" style="flex:
 /* Google เท่านั้น — ตัดอีเมล/รหัสผ่านออกทั้งหมดตามที่ตัดสินใจ (กันอีเมลปลอมได้ฟรี
    ไม่ต้องพึ่ง SMTP/SMS ที่มีค่าใช้จ่ายและขีดจำกัดตามที่เจอมา) ไม่มี signin/signup
    แยกกันด้วยซ้ำ — ปุ่มเดียวจบ Google จัดการ "สมัครครั้งแรก = เข้าสู่ระบบเลย" ให้เอง */
-function renderAuthGate(){
-  return '<div class="page" style="max-width:420px;margin:60px auto;">'+
-    '<div class="qcard">'+
-    '<div class="eyebrow">Gymbro Daily</div>'+
-    '<h1 style="margin-top:6px">เข้าสู่ระบบ</h1>'+
-    '<p class="sub" style="margin:8px 0 18px">เข้าสู่ระบบด้วย Google เพื่อให้ข้อมูลของคุณซิงก์ข้ามอุปกรณ์ได้</p>'+
-    (authState.error ? '<div class="note warn" style="margin-bottom:14px"><p>'+esc(authState.error)+'</p></div>' : '')+
-    '<button type="button" class="btn" data-act="auth-google" '+(authState.busy?'disabled':'')+' style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px">'+
-      GOOGLE_G_SVG+'<span>'+(authState.busy?'กำลังเชื่อมต่อ...':'ดำเนินการต่อด้วย Google')+'</span></button>'+
-    '</div></div>';
+/* ---------- หน้า landing (แทนหน้าล็อกอินเดิม — เห็นเฉพาะตอนยังไม่มี session) ----------
+   เฟส 1 ของการปรับดีไซน์: โครงเรื่องแบบหน้าขาย (Hero → จุดเด่น → ฟีเจอร์ → ขั้นตอน →
+   เครื่องคำนวณ → FAQ → ปุ่มสมัคร) แต่ใช้สีฟ้า-ขาวและ token เดิมทั้งหมด
+   กติกา: ทุกข้อความต้องเป็นสิ่งที่แอปทำได้จริง ห้ามใส่ตัวเลขผู้ใช้/รีวิว/ราคาที่ไม่มีจริง
+   ปุ่มเข้าสู่ระบบทุกปุ่มใช้ data-act="auth-google" ตัวเดิม (handler เดิม ไม่ต้องแก้) */
+var landingCalc = {sex:'', age:'', height:'', weight:'', activity:''};
+
+function googleBtnHTML(extraClass){
+  return '<button type="button" class="btn primary lp-cta '+(extraClass||'')+'" data-act="auth-google" '+(authState.busy?'disabled':'')+'>'+
+    '<span class="lp-g">'+GOOGLE_G_SVG+'</span><span>'+(authState.busy?'กำลังเชื่อมต่อ...':'เริ่มใช้งานด้วย Google')+'</span></button>';
 }
+
+/* ผลเครื่องคำนวณ — เรียกสูตรจาก GymBroCalc เท่านั้น (ห้ามเขียนสูตร BMR/TDEE ซ้ำ ดู calculations.js) */
+function landingCalcResultHTML(){
+  var c = landingCalc, C = window.GymBroCalc;
+  var w = numOrNull(c.weight), h = numOrNull(c.height), a = numOrNull(c.age);
+  var inRange = w!=null && w>=25 && w<=300 && h!=null && h>=100 && h<=250 && a!=null && a>=13 && a<=100;
+  if(!C || !inRange || !c.sex || !c.activity){
+    return '<p class="hint">กรอกให้ครบทุกช่องเพื่อดูผล (อายุ 13–100 ปี, ส่วนสูง 100–250 ซม., น้ำหนัก 25–300 กก.)</p>';
+  }
+  var bmi = C.calculateBMI(w, h);
+  var bmr = C.calculateBMRForProfile({weightKg:w, heightCm:h, age:a, sex:c.sex});
+  var tdee = C.calculateTDEE(bmr, C.activityFactorFromQ36(c.activity));
+  if(bmi==null || tdee==null) return '<p class="hint">คำนวณไม่ได้ ลองตรวจตัวเลขอีกครั้ง</p>';
+  return '<div class="lp-calc-out">'+
+      '<div class="lp-stat"><div class="lp-stat-n mono">'+bmi.toFixed(1)+'</div><div class="lp-stat-l">BMI</div></div>'+
+      '<div class="lp-stat"><div class="lp-stat-n mono">'+Math.round(tdee).toLocaleString('th-TH')+'</div><div class="lp-stat-l">kcal/วัน ที่ร่างกายใช้</div></div>'+
+    '</div>'+
+    '<p class="hint">ตัวเลขนี้ยังไม่รวมแคลอรี่จากการออกกำลังกาย — ในแอประบบจะบวกส่วนนั้นตามแผนฝึกจริงของคุณ และตั้งเป้าแคลอรี่ตามเป้าหมาย ไม่ใช่คำแนะนำทางการแพทย์</p>';
+}
+
+function renderLanding(){
+  var c = landingCalc;
+  function opt(group, v){
+    return '<button type="button" class="meal-btn'+(c[group]===v?' on':'')+'" data-lp-pick="'+group+'" data-val="'+esc(v)+'" aria-pressed="'+(c[group]===v)+'">'+esc(v)+'</button>';
+  }
+  function num(field, label, unit, min, max){
+    return '<label class="lp-field"><span class="lp-field-l">'+label+'</span>'+
+      '<span class="lp-field-in"><input type="number" inputmode="decimal" min="'+min+'" max="'+max+'" data-lp-num="'+field+'" value="'+esc(c[field])+'"><span class="unit">'+unit+'</span></span></label>';
+  }
+  var err = authState.error ? '<div class="note warn lp-err" role="alert"><p>'+esc(authState.error)+'</p></div>' : '';
+
+  var features = [
+    {color:'var(--accent)', t:'วันนี้', d:'เช็กลิสต์ประจำวันครบในหน้าเดียว — ท่าฝึกพร้อมเซ็ต/น้ำหนัก โภชนาการ การนอน และความเครียด ติ๊กเสร็จได้ทันที'},
+    {color:'var(--food)', t:'แผนของฉัน', d:'แผนฝึกและเป้าแคลอรี่สร้างจากแบบสอบถาม 9 หมวด ทั้งเป้าหมาย สถานที่ฝึก และอุปกรณ์ที่คุณมีจริง'},
+    {color:'var(--sleep)', t:'ตารางฝึก', d:'เห็นภาพรวมทั้งสัปดาห์ ย้ายวันฝึกได้ตามชีวิตจริง และระบบเสนอน้ำหนัก/จำนวนครั้งจากครั้งก่อนให้'},
+    {color:'var(--branch)', t:'ความคืบหน้า', d:'ติดตามน้ำหนักตัวและความแข็งแรง เทียบผลแต่ละท่ากับเกณฑ์มาตรฐานตามเพศและน้ำหนักตัว'},
+    {color:'var(--stress)', t:'ถามโค้ช', d:'ถามได้ทุกเรื่องในแอป โค้ชตอบจากข้อมูลของคุณที่แอปมีจริง (หลังเข้าสู่ระบบ จำกัด '+COACH_MAX_PER_DAY+' คำถาม/วัน)'}
+  ];
+  var faqs = [
+    {q:'ต้องใช้บัญชีอะไรในการเข้าสู่ระบบ?', a:'ใช้บัญชี Google อย่างเดียว กดปุ่มเดียวจบ ครั้งแรกจะสร้างบัญชีให้อัตโนมัติ ไม่ต้องตั้งรหัสผ่านใหม่'},
+    {q:'ไม่มีอุปกรณ์หรือไม่ได้เข้ายิม ใช้ได้ไหม?', a:'ได้ แบบสอบถามจะถามว่าคุณฝึกที่บ้าน ยิม กลางแจ้ง หรือผสมกัน และมีอุปกรณ์อะไรบ้าง แล้วเลือกท่าที่ทำได้จริง รวมถึงท่าที่ไม่ใช้อุปกรณ์'},
+    {q:'ใช้บนมือถือและคอมพิวเตอร์พร้อมกันได้ไหม?', a:'ได้ ข้อมูลผูกกับบัญชี Google และซิงก์ข้ามอุปกรณ์ บนมือถือหน้าจอจะปรับเป็นแถบเมนูด้านล่างให้ใช้มือเดียวได้สะดวก'},
+    {q:'แก้แผนทีหลังได้ไหม?', a:'ได้ เข้าหน้า "แผนของฉัน" เพื่อปรับวันฝึก ท่า หรือทำแบบสอบถามใหม่เมื่อเป้าหมายเปลี่ยน'},
+    {q:'ถ้าเลิกใช้ ลบข้อมูลได้ไหม?', a:'ได้ เลือก "ลบบัญชี" จากเมนูบัญชี ระบบจะลบข้อมูลทั้งหมดของคุณออกจากเซิร์ฟเวอร์และจากเครื่องนี้'}
+  ];
+
+  return '<div class="lp">'+
+    /* แถบบน */
+    '<header class="lp-top"><div class="lp-wrap lp-top-in">'+
+      '<div class="appbar-brand"><span class="brand-mark"></span><span>Gymbro Daily</span></div>'+
+      '<button type="button" class="btn sm" data-act="auth-google" '+(authState.busy?'disabled':'')+'>เข้าสู่ระบบ</button>'+
+    '</div></header>'+
+
+    /* Hero */
+    '<section class="lp-hero"><div class="lp-wrap lp-hero-in">'+
+      '<div class="lp-hero-copy">'+
+        '<div class="eyebrow">ผู้ช่วยฝึกและดูแลสุขภาพรายวัน</div>'+
+        '<h1 class="lp-h1">ทำตามแผนทีละวัน<br><span class="lp-accent">เห็นผลจริงทุกสัปดาห์</span></h1>'+
+        '<p class="lp-lead">Gymbro Daily สร้างแผนฝึกและเป้าโภชนาการจากเป้าหมาย สถานที่ และอุปกรณ์ของคุณ แล้วบอกทุกวันว่าต้องทำอะไร พร้อมบันทึกและติดตามความคืบหน้าให้อัตโนมัติ</p>'+
+        err+
+        '<div class="lp-actions">'+googleBtnHTML()+'<a class="btn ghost lp-cta" href="#lp-calc">ลองคำนวณแคลอรี่</a></div>'+
+        '<p class="hint">ไม่ต้องตั้งรหัสผ่าน · ซิงก์ข้ามอุปกรณ์ · ลบบัญชีได้เองทุกเมื่อ</p>'+
+      '</div>'+
+      /* ภาพตัวอย่างหน้าจอ สร้างจาก HTML/token จริงของแอป (ไม่ใช้ภาพสต็อก) */
+      '<div class="lp-mock" aria-hidden="true">'+
+        '<div class="lp-mock-head"><span class="eyebrow">ตัวอย่างหน้า “วันนี้”</span><span class="chip ok">3/5 เสร็จ</span></div>'+
+        '<div class="chk on"><input type="checkbox" checked tabindex="-1"><div class="cb"><div class="t">Goblet Squat</div><div class="s">3 เซ็ต × 10 ครั้ง · 16 กก.</div></div></div>'+
+        '<div class="chk on"><input type="checkbox" checked tabindex="-1"><div class="cb"><div class="t">Push-up</div><div class="s">3 เซ็ต × 12 ครั้ง</div></div></div>'+
+        '<div class="chk"><input type="checkbox" tabindex="-1"><div class="cb"><div class="t">Dumbbell Row</div><div class="s">3 เซ็ต × 10 ครั้ง · 12 กก.</div></div></div>'+
+        '<div class="lp-mock-row"><span class="sq" style="background:var(--food)"></span>โภชนาการ<span class="lp-mock-v mono">1,840 / 2,200 kcal</span></div>'+
+        '<div class="pbar"><i style="width:84%;background:var(--food)"></i></div>'+
+        '<div class="lp-mock-row"><span class="sq" style="background:var(--sleep)"></span>การนอน<span class="lp-mock-v mono">7 ชม. 20 นาที</span></div>'+
+      '</div>'+
+    '</div></section>'+
+
+    /* จุดเด่น — ข้อเท็จจริงของผลิตภัณฑ์ ไม่ใช่ตัวเลขการตลาด */
+    '<section class="lp-wrap"><ul class="lp-facts">'+
+      '<li><b>ภาษาไทยทั้งแอป</b><span>ชื่อท่า คำอธิบาย และคำแนะนำ</span></li>'+
+      '<li><b>บ้าน · ยิม · กลางแจ้ง</b><span>เลือกท่าตามอุปกรณ์ที่มีจริง</span></li>'+
+      '<li><b>4 ด้านในที่เดียว</b><span>ฝึก อาหาร การนอน ความเครียด</span></li>'+
+      '<li><b>ข้อมูลเป็นของคุณ</b><span>ซิงก์ข้ามอุปกรณ์ ลบได้เองทุกเมื่อ</span></li>'+
+    '</ul></section>'+
+
+    /* ฟีเจอร์ */
+    '<section class="lp-sec"><div class="lp-wrap">'+
+      '<div class="lp-sec-head"><div class="eyebrow">ทำอะไรได้บ้าง</div><h2 class="lp-h2">ทุกอย่างที่ต้องใช้ในแต่ละวัน</h2></div>'+
+      '<div class="lp-grid">'+features.map(function(f){
+        return '<article class="lp-card"><div class="sec-head"><span class="sq" style="background:'+f.color+'"></span><h3>'+f.t+'</h3></div><p>'+f.d+'</p></article>';
+      }).join('')+'</div>'+
+    '</div></section>'+
+
+    /* ขั้นตอน */
+    '<section class="lp-sec lp-sec-alt"><div class="lp-wrap">'+
+      '<div class="lp-sec-head"><div class="eyebrow">เริ่มต้นใน 3 ขั้น</div><h2 class="lp-h2">ใช้เวลาไม่กี่นาที</h2></div>'+
+      '<ol class="lp-steps">'+
+        '<li><span class="lp-step-n mono">1</span><div><b>เข้าสู่ระบบด้วย Google</b><p>ไม่ต้องสมัครแยก ไม่ต้องจำรหัสผ่าน</p></div></li>'+
+        '<li><span class="lp-step-n mono">2</span><div><b>ตอบแบบสอบถาม 9 หมวด</b><p>เป้าหมาย ร่างกาย สถานที่ อุปกรณ์ และไลฟ์สไตล์</p></div></li>'+
+        '<li><span class="lp-step-n mono">3</span><div><b>ทำตามเช็กลิสต์ทุกวัน</b><p>บันทึกง่าย ระบบปรับแผนจากผลจริงของคุณ</p></div></li>'+
+      '</ol>'+
+    '</div></section>'+
+
+    /* เครื่องคำนวณ — ลองได้ก่อนสมัคร ใช้สูตรเดียวกับในแอป */
+    '<section class="lp-sec" id="lp-calc"><div class="lp-wrap">'+
+      '<div class="lp-sec-head"><div class="eyebrow">ลองก่อนสมัคร</div><h2 class="lp-h2">ร่างกายคุณใช้พลังงานวันละเท่าไร?</h2>'+
+        '<p class="lp-sub">ใช้สูตรเดียวกับที่แอปใช้ตั้งเป้าแคลอรี่ของคุณ ข้อมูลที่กรอกตรงนี้ไม่ถูกบันทึกหรือส่งไปที่ใด</p></div>'+
+      '<div class="card lp-calc">'+
+        '<div class="lp-calc-in">'+
+          '<div class="lp-field"><span class="lp-field-l">เพศ</span><div class="meal-row">'+opt('sex','ชาย')+opt('sex','หญิง')+'</div></div>'+
+          '<div class="lp-nums">'+num('age','อายุ','ปี',13,100)+num('height','ส่วนสูง','ซม.',100,250)+num('weight','น้ำหนัก','กก.',25,300)+'</div>'+
+          '<div class="lp-field"><span class="lp-field-l">ลักษณะงานประจำวัน</span><div class="meal-row">'+
+            Object.keys(window.GymBroCalc ? GymBroCalc.Q36_ACTIVITY_LEVEL : {}).map(function(k){ return opt('activity', k); }).join('')+
+          '</div></div>'+
+        '</div>'+
+        '<div class="lp-calc-res" id="lp-calc-res" aria-live="polite">'+landingCalcResultHTML()+'</div>'+
+      '</div>'+
+    '</div></section>'+
+
+    /* FAQ — <details> ของเบราว์เซอร์: เปิด/ปิดได้ด้วยคีย์บอร์ดโดยไม่ต้องเขียน JS */
+    '<section class="lp-sec lp-sec-alt"><div class="lp-wrap lp-narrow">'+
+      '<div class="lp-sec-head"><div class="eyebrow">คำถามที่พบบ่อย</div><h2 class="lp-h2">FAQ</h2></div>'+
+      '<div class="lp-faq">'+faqs.map(function(f, i){
+        return '<details'+(i===0?' open':'')+'><summary>'+f.q+'</summary><p>'+f.a+'</p></details>';
+      }).join('')+'</div>'+
+    '</div></section>'+
+
+    /* ปิดท้าย */
+    '<section class="lp-sec"><div class="lp-wrap"><div class="lp-final">'+
+      '<h2 class="lp-h2">พร้อมเริ่มวันแรกหรือยัง?</h2>'+
+      '<p class="lp-sub">เข้าสู่ระบบแล้วตอบแบบสอบถาม แผนของคุณจะพร้อมใช้ทันที</p>'+
+      err+googleBtnHTML()+
+    '</div></div></section>'+
+
+    '<footer class="lp-foot"><div class="lp-wrap">© Gymbro Daily · ข้อมูลในแอปไม่ใช่คำแนะนำทางการแพทย์ หากมีโรคประจำตัวควรปรึกษาแพทย์ก่อนเริ่มออกกำลังกาย</div></footer>'+
+  '</div>';
+}
+
+/* เครื่องคำนวณบน landing: อัปเดตเฉพาะกล่องผล ไม่ render ทั้งหน้า (กันช่องที่กำลังพิมพ์เสียโฟกัส) */
+document.addEventListener('input', function(ev){
+  var f = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-lp-num');
+  if(!f) return;
+  landingCalc[f] = ev.target.value;
+  var out = document.getElementById('lp-calc-res');
+  if(out) out.innerHTML = landingCalcResultHTML();
+});
+document.addEventListener('click', function(ev){
+  var b = ev.target && ev.target.closest ? ev.target.closest('[data-lp-pick]') : null;
+  if(!b) return;
+  var g = b.getAttribute('data-lp-pick'), v = b.getAttribute('data-val');
+  landingCalc[g] = v;
+  Array.prototype.forEach.call(document.querySelectorAll('[data-lp-pick="'+g+'"]'), function(x){
+    var on = x.getAttribute('data-val')===v;
+    x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on));
+  });
+  var out = document.getElementById('lp-calc-res');
+  if(out) out.innerHTML = landingCalcResultHTML();
+});
+
+function renderAuthGate(){ return renderLanding(); }
 function render(toTop){
-  if(AUTH_ENABLED && auth.ready && syncAvailable() && !auth.session){
+  var appEl = document.querySelector('.app');
+  var showLanding = AUTH_ENABLED && auth.ready && syncAvailable() && !auth.session;
+  if(appEl) appEl.classList.toggle('is-landing', showLanding); // ซ่อนแถบนำทาง/คอลัมน์ข้าง ให้ landing เต็มจอ
+  if(showLanding){
     document.getElementById('nav').innerHTML = '';
     // ต่อโมดัลลบบัญชีท้ายหน้า login ด้วย — กรณีเดียวที่จำเป็นคือหลังลบบัญชีสำเร็จ ซึ่ง
     // session ถูกตัดไปแล้ว (signOut จริง) แต่ยังต้องให้ผู้ใช้เห็นข้อความ "ลบบัญชีเรียบร้อย

@@ -110,7 +110,7 @@ test('guideFor: tips ตัดค่าที่ไม่มี (stepper/yogabal
 });
 
 test('cautionsFor: ท่าเดิมใช้ EXCLUSION_MAP, ท่าเสริมใช้ EXTRA_CAUTION', function(){
-  assert.deepStrictEqual(H.plain(cautionsFor('sq4')), ['เข่า', 'หัวใจ-หลอดเลือด']);
+  assert.deepStrictEqual(H.plain(cautionsFor('sq4')), ['เข่า', 'หลัง', 'หัวใจ-หลอดเลือด']); // F-03: เพิ่ม 'หลัง'
   assert.deepStrictEqual(H.plain(cautionsFor('bc4')), ['หลัง', 'ข้อมือ', 'หัวใจ-หลอดเลือด']);
   assert.deepStrictEqual(H.plain(cautionsFor('sq1')), []);
   assert.deepStrictEqual(H.plain(cautionsFor('xcd7')), ['เข่า', 'ไหล่', 'หลัง', 'ข้อมือ', 'หัวใจ-หลอดเลือด']);

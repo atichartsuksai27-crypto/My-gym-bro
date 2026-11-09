@@ -85,16 +85,40 @@ test('เซ็ตแรกอยู่ในช่วงแต่เซ็ต�
   assert.strictEqual(plan(BB, S(6, 5, 3), 'ok').change, null);
 });
 
-test('เกินช่วงแต่เซ็ตท้ายต่ำกว่าช่วง (10,9,3) → ไม่เพิ่ม (ด่านเดิม: บางเซ็ตทำไม่ถึงขั้นต่ำ)', function(){
-  var p = plan({id:'hp4', pattern:'hpush', equip:'barbell', setsReps:'3 x 4-8', timeBased:false}, S(10, 9, 3), 'ok');
-  assert.strictEqual(p.change.kind, 'hold');
-  assert.deepStrictEqual(weights(p), [60, 60, 60]);
+test('ดูภาพรวมทุกเซ็ต ไม่ใช่เซ็ตแรกเซ็ตเดียว: เซ็ตแรกต่ำ/สูงแต่ภาพรวมอยู่ในช่วง = พอดี', function(){
+  // เซ็ตแรกต่ำกว่าช่วง (3) แต่เซ็ตที่เหลืออยู่ในช่วง → ไม่ใช่หนักไป
+  assert.strictEqual(H.plain(repsSignal(BB, S(3, 6, 6))).verdict, 'ok');
+  assert.strictEqual(plan(BB, S(3, 6, 6), 'ok').change, null);
+  // เซ็ตแรกเกินช่วง (10) แต่เซ็ตที่เหลืออยู่ในช่วง และค่าเฉลี่ยไม่เกิน → ไม่ใช่เบาไป
+  assert.strictEqual(H.plain(repsSignal(BB, S(10, 8, 6))).verdict, 'ok');
+  assert.strictEqual(plan(BB, S(10, 8, 6), 'ok').change, null);
 });
 
-test('เซ็ตอ้างอิง = เซ็ตแรกที่ใช้น้ำหนักสูงสุด (เซ็ตวอร์มเบาไม่นับ)', function(){
+test('ภาพรวมหนักไป: เฉลี่ยต่ำกว่าช่วง หรือเกินครึ่งของเซ็ตต่ำกว่าช่วง (แม้เซ็ตแรกจะดี)', function(){
+  assert.strictEqual(H.plain(repsSignal(BB, S(5, 3, 3))).verdict, 'heavy'); // 2 จาก 3 เซ็ตต่ำกว่าช่วง
+  assert.strictEqual(H.plain(repsSignal(BB, S(4, 3, 3))).verdict, 'heavy'); // เฉลี่ย 3.3 < 4
+  assert.strictEqual(plan(BB, S(5, 3, 3), 'ok').change.kind, 'down');
+  assert.strictEqual(H.plain(repsSignal(BB, S(6, 5, 3))).verdict, 'ok');     // 1 จาก 3 ต่ำกว่าช่วง แต่ภาพรวมในช่วง
+});
+
+test('ภาพรวมเบาไป: เฉลี่ยเกินช่วงบนและไม่มีเซ็ตไหนต่ำกว่าช่วงล่าง; ถ้ามีเซ็ตต่ำกว่าช่วง (10,9,3) = ไม่เพิ่ม', function(){
+  assert.strictEqual(H.plain(repsSignal(BB, S(10, 9, 9))).verdict, 'light');
+  assert.strictEqual(H.plain(repsSignal(BB, S(10, 10, 6))).verdict, 'light'); // เฉลี่ย 8.67 > 8
+  var mixed = {id:'hp4', pattern:'hpush', equip:'barbell', setsReps:'3 x 4-8', timeBased:false};
+  assert.strictEqual(H.plain(repsSignal(mixed, S(10, 9, 3))).verdict, 'ok');  // เซ็ตหนึ่งต่ำกว่าช่วง → ไม่ใช่เบาไป
+  assert.strictEqual(plan(mixed, S(10, 9, 3), 'ok').change, null);
+  assert.strictEqual(plan(mixed, S(10, 9, 3), 'more').change.kind, 'hold'); // ด่านเดิม: บางเซ็ตทำไม่ถึงขั้นต่ำ
+});
+
+test('สรุปภาพรวมเป็นข้อความ (จำนวนเซ็ตต่ำกว่า/ในช่วง/เกิน + ค่าเฉลี่ย)', function(){
+  assert.strictEqual(H.ev('sigSummary')(repsSignal(BB, S(6, 5, 3))), '3 เซ็ต เฉลี่ย 4.7 ครั้ง (ต่ำกว่าช่วง 1 · ในช่วง 2)');
+});
+
+test('นับเฉพาะเซ็ตที่ใช้น้ำหนักจริง (≥ 80% ของน้ำหนักสูงสุด) — เซ็ตวอร์มเบา ๆ ไม่ถูกนับ', function(){
   var sets = [{weight:40, reps:12}, {weight:60, reps:3}, {weight:60, reps:3}];
   var sig = H.plain(repsSignal(BB, sets));
-  assert.strictEqual(sig.refIndex, 1); assert.strictEqual(sig.first, 3); assert.strictEqual(sig.verdict, 'heavy');
+  assert.strictEqual(sig.sets, 2); assert.strictEqual(sig.avg, 3); assert.strictEqual(sig.verdict, 'heavy');
+  assert.strictEqual(H.plain(repsSignal(BB, [{weight:60, reps:6}, {weight:50, reps:6}])).sets, 2); // เบากว่าเล็กน้อย (≥ 80%) ยังนับรวม
 });
 
 test('เพิ่งขึ้นน้ำหนักแล้วหนักไป → กลับไปน้ำหนักที่เคยทำได้ (ถ้าต่ำกว่าการลดตามสัดส่วน)', function(){

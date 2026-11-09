@@ -2314,12 +2314,12 @@ function prevExerciseLog(exId, iso){
   return null;
 }
 /* ---- อ่านจำนวนครั้งต่อเซ็ตเทียบช่วงเป้า แล้วเชื่อมกับปุ่ม "แรงเหลือหลังเล่น" ----
-   ใช้เซ็ตแรกที่ใช้น้ำหนักสูงสุดเป็นตัวชี้วัดหลัก (ยังไม่ล้า สะท้อนว่าน้ำหนักพอดีหรือไม่) เทียบกับช่วงเป้าของท่า
-   (เช่น 4-8 ในโหมดเข้มข้น, 8-12 ปกติ):
-     ต่ำกว่าช่วงล่าง (เช่น 3 ครั้งจาก 4-8) → น้ำหนักหนักไป → ครั้งหน้า "ลด" (ขาดน้อยลดน้อย ขาดมากลดมาก)
-     เกินช่วงบน (เช่น 10 ครั้งจาก 4-8)    → น้ำหนักเบาไป → ครั้งหน้า "เพิ่ม" แม้เลือกว่า "พอดี"
-     อยู่ในช่วง                            → พอดี → ให้ความรู้สึกหลังเล่นตัดสินเหมือนเดิม
-   ถ้าจำนวนครั้งขัดกับความรู้สึก (เช่น ทำได้ 3 ครั้งแต่เลือก "ยกเพิ่มได้อีก") ระบบเชื่อจำนวนครั้งและบอกผู้ใช้
+   ดูจาก "ภาพรวมของทุกเซ็ตที่ใช้น้ำหนักจริง" (เซ็ตที่น้ำหนัก ≥ 80% ของน้ำหนักสูงสุด — ไม่นับเซ็ตวอร์มเบา ๆ)
+   ไม่ใช้เซ็ตแรกเซ็ตเดียวตัดสิน เพราะจำนวนครั้งตกตามธรรมชาติในเซ็ตหลัง ๆ เทียบกับช่วงเป้าของท่า (เช่น 4-8 โหมดเข้มข้น, 8-12 ปกติ):
+     หนักไป = ค่าเฉลี่ยต่ำกว่าช่วงล่าง หรือเกินครึ่งของเซ็ตต่ำกว่าช่วงล่าง → ครั้งหน้า "ลด" (ขาดน้อยลดน้อย ขาดมากลดมาก)
+     เบาไป  = ค่าเฉลี่ยเกินช่วงบน และไม่มีเซ็ตไหนต่ำกว่าช่วงล่าง          → ครั้งหน้า "เพิ่ม" แม้เลือกว่า "พอดี"
+     พอดี   = นอกเหนือจากนั้น (เช่น 6,5,3 จาก 4-8: เซ็ตท้ายตกแต่ภาพรวมอยู่ในช่วง) → ให้ความรู้สึกหลังเล่นตัดสินเหมือนเดิม
+   ถ้าจำนวนครั้งขัดกับความรู้สึก (เช่น ภาพรวมต่ำกว่าช่วงแต่เลือก "ยกเพิ่มได้อีก") ระบบเชื่อจำนวนครั้งและบอกผู้ใช้
    ใช้เฉพาะท่าที่ใส่น้ำหนัก — ท่าน้ำหนักตัว/จับเวลาใช้กติกาเดิม
    Android: Progression ใน Kotlin ยังไม่มีกติกานี้ — ต้องพอร์ตและทำ golden ใหม่ทีหลัง */
 function setVerdict(reps, rr){
@@ -2336,18 +2336,34 @@ function setVerdictTag(reps, rr){
 }
 function repsSignal(ex, base){
   if(exKind(ex, base) !== 'weight') return null;
-  var rr = repRange(ex.setsReps), top = topWeight(base), ref = -1;
-  for(var i=0; i<base.length; i++){ if(base[i].weight === top){ ref = i; break; } }
-  if(ref < 0 || base[ref].reps == null) return null;
-  var first = base[ref].reps, v = setVerdict(first, rr);
-  var last = base[base.length-1].reps;
+  var rr = repRange(ex.setsReps), top = topWeight(base);
+  var work = base.filter(function(s){ return s.weight >= top*0.8 && s.reps != null; }); // เซ็ตทำงานจริง (ไม่นับเซ็ตวอร์มเบา ๆ)
+  if(!work.length) return null;
+  var n = work.length, sum = 0, nLow = 0, nHigh = 0;
+  work.forEach(function(s){
+    sum += s.reps;
+    var v = setVerdict(s.reps, rr);
+    if(v==='low') nLow++; else if(v==='high') nHigh++;
+  });
+  var avg = sum / n, last = work[n-1].reps;
+  var heavy = avg < rr.lo || nLow > n/2;
+  var light = !heavy && nLow === 0 && avg > rr.hi;
   return {
-    range: rr, first: first, refIndex: ref,
-    verdict: v==='low' ? 'heavy' : (v==='high' ? 'light' : 'ok'),
-    shortfall: v==='low' ? rr.lo - first : 0,
-    fatigue: v==='in' && last!=null && base.length>1 && last < rr.lo, // เซ็ตแรกอยู่ในช่วง แต่เซ็ตท้ายตกต่ำกว่าช่วง = ล้าเร็ว (แจ้งเฉยๆ ไม่ปรับน้ำหนัก)
+    range: rr, sets: n, avg: Math.round(avg*10)/10, nLow: nLow, nHigh: nHigh, nIn: n - nLow - nHigh,
+    verdict: heavy ? 'heavy' : (light ? 'light' : 'ok'),
+    shortfall: heavy ? Math.max(1, Math.ceil(rr.lo - avg)) : 0,
+    // ภาพรวมพอดี แต่เซ็ตสุดท้ายตกต่ำกว่าช่วง = ล้าเร็ว (แจ้งเฉยๆ ไม่ปรับน้ำหนัก)
+    fatigue: !heavy && n > 1 && last < rr.lo,
     lastReps: last
   };
+}
+/* สรุปภาพรวมเป็นข้อความ: "3 เซ็ต เฉลี่ย 4.7 ครั้ง (ต่ำกว่าช่วง 1 · ในช่วง 2)" */
+function sigSummary(sig){
+  var parts = [];
+  if(sig.nLow) parts.push('ต่ำกว่าช่วง '+sig.nLow);
+  if(sig.nIn) parts.push('ในช่วง '+sig.nIn);
+  if(sig.nHigh) parts.push('เกินช่วง '+sig.nHigh);
+  return sig.sets+' เซ็ต เฉลี่ย '+sig.avg+' ครั้ง ('+parts.join(' · ')+')';
 }
 /* น้ำหนักหนักไป → ลดตามที่ขาด: ขาด 1 ครั้ง ~5% · ขาด 2 ครั้ง ~10% · ขาด 3+ ครั้ง ~15% ปัดเป็นขั้นอุปกรณ์ (อย่างน้อย 1 ขั้น ไม่เกิน ~20%)
    ถ้าเพิ่งขึ้นน้ำหนักจากครั้งก่อนและน้ำหนักเดิมต่ำกว่า ให้กลับไปน้ำหนักเดิม (ค่าที่เคยทำได้) */
@@ -2365,7 +2381,7 @@ function heavyPlan(ex, base, sets, sig, feel, prog, out){
     if(s.reps!=null) s.reps = Math.min(rr.hi, Math.max(rr.lo, s.reps));
   });
   out.change = {kind:'down', from:top, to:target, dec:d};
-  out.note = 'เซ็ตแรกทำได้ '+sig.first+' ครั้ง ต่ำกว่าช่วงเป้า '+rr.lo+'–'+rr.hi+' (น้ำหนักหนักไป) → ลด '+d+' กก.'+
+  out.note = 'ภาพรวม '+sigSummary(sig)+' ต่ำกว่าช่วงเป้า '+rr.lo+'–'+rr.hi+' (น้ำหนักหนักไป) → ลด '+d+' กก.'+
     (viaBack ? ' กลับไปน้ำหนักที่เคยทำได้' : (sig.shortfall >= 2 ? ' (ขาดมาก จึงลดมากหน่อย)' : ' (ขาดนิดเดียว ลดเล็กน้อย)'))+
     (feel==='more' ? ' · จำนวนครั้งขัดกับความรู้สึก “ยกเพิ่มได้อีก” — ระบบเชื่อจำนวนครั้ง' : '');
   return out;
@@ -2383,7 +2399,7 @@ function planFrom(ex, base, feel, prog, symptom){
   } else if(sig && sig.verdict==='light'){
     if(feel==='hard'){
       out.change = {kind:'hold'};
-      out.note = 'เซ็ตแรกทำได้ '+sig.first+' ครั้ง เกินช่วงเป้า '+rr.lo+'–'+rr.hi+' แต่เลือกว่า “หนักไป” — ขัดกัน ยังไม่เพิ่ม ลองดูรอบหน้า';
+      out.note = 'ภาพรวม '+sigSummary(sig)+' เกินช่วงเป้า '+rr.lo+'–'+rr.hi+' แต่เลือกว่า “หนักไป” — ขัดกัน ยังไม่เพิ่ม ลองดูรอบหน้า';
       return out;
     }
     lightSignal = true; feel = 'more'; // น้ำหนักเบาไป → ใช้เส้นทางเพิ่มน้ำหนักเดิม (ผ่านด่านอาการบาดเจ็บ/เซ็ตท้ายต่ำกว่าช่วง ตามเดิม)
@@ -2434,7 +2450,7 @@ function planFrom(ex, base, feel, prog, symptom){
   } else {
     out.note = feel==='ok' ? 'พอดี → ใช้ค่าเดิม' : '';
   }
-  if(lightSignal && out.change && out.change.kind!=='hold') out.note = 'เซ็ตแรกทำได้ '+sig.first+' ครั้ง เกินช่วงเป้า '+rr.lo+'–'+rr.hi+' (น้ำหนักเบาไป) · '+out.note;
+  if(lightSignal && out.change && out.change.kind!=='hold') out.note = 'ภาพรวม '+sigSummary(sig)+' เกินช่วงเป้า '+rr.lo+'–'+rr.hi+' (น้ำหนักเบาไป) · '+out.note;
   return out;
 }
 /* แผนของวันนี้จากครั้งล่าสุดที่เล่นท่านี้ — null ถ้ายังไม่เคยบันทึก */
@@ -2521,13 +2537,13 @@ function sigLineHTML(sig, feel){
   if(!sig) return '';
   var rr = sig.range, cls, msg;
   if(sig.verdict==='heavy'){
-    cls = 'sig-low'; msg = '↓ เซ็ตแรก '+sig.first+' ครั้ง ต่ำกว่าช่วงเป้า '+rr.lo+'–'+rr.hi+' → น้ำหนักหนักไป';
+    cls = 'sig-low'; msg = '↓ ภาพรวม '+sigSummary(sig)+' ต่ำกว่าช่วงเป้า '+rr.lo+'–'+rr.hi+' → น้ำหนักหนักไป';
   } else if(sig.verdict==='light'){
-    cls = 'sig-high'; msg = '↑ เซ็ตแรก '+sig.first+' ครั้ง เกินช่วงเป้า '+rr.lo+'–'+rr.hi+' → น้ำหนักเบาไป เพิ่มได้';
+    cls = 'sig-high'; msg = '↑ ภาพรวม '+sigSummary(sig)+' เกินช่วงเป้า '+rr.lo+'–'+rr.hi+' → น้ำหนักเบาไป เพิ่มได้';
   } else {
-    cls = 'sig-in'; msg = '✓ เซ็ตแรก '+sig.first+' ครั้ง อยู่ในช่วงเป้า '+rr.lo+'–'+rr.hi+' → น้ำหนักพอดี';
+    cls = 'sig-in'; msg = '✓ ภาพรวม '+sigSummary(sig)+' อยู่ในช่วงเป้า '+rr.lo+'–'+rr.hi+' → น้ำหนักพอดี';
   }
-  if(sig.fatigue) msg += ' · เซ็ตท้ายตกเหลือ '+sig.lastReps+' ครั้ง (ล้าเร็ว) ถ้ายังไหวคงน้ำหนักเดิม';
+  if(sig.fatigue) msg += ' · เซ็ตสุดท้ายตกเหลือ '+sig.lastReps+' ครั้ง (ล้าเร็ว) ถ้ายังไหวคงน้ำหนักเดิม';
   if(sig.verdict==='heavy' && feel==='more') msg += ' · ขัดกับ “ยกเพิ่มได้อีก” ระบบเชื่อจำนวนครั้ง';
   if(sig.verdict==='light' && feel==='hard') msg += ' · ขัดกับ “หนักไป” ยังไม่เพิ่ม';
   return '<div class="sig-line '+cls+'" role="status">'+esc(msg)+'</div>';

@@ -4630,16 +4630,12 @@ var GOOGLE_G_SVG = '<svg width="18" height="18" viewBox="0 0 48 48" style="flex:
    ไม่ต้องพึ่ง SMTP/SMS ที่มีค่าใช้จ่ายและขีดจำกัดตามที่เจอมา) ไม่มี signin/signup
    แยกกันด้วยซ้ำ — ปุ่มเดียวจบ Google จัดการ "สมัครครั้งแรก = เข้าสู่ระบบเลย" ให้เอง */
 /* ---------- หน้า landing (แทนหน้าล็อกอินเดิม — เห็นเฉพาะตอนยังไม่มี session) ----------
-   เฟส 1 ของการปรับดีไซน์: โครงเรื่องแบบหน้าขาย (Hero → จุดเด่น → ฟีเจอร์ → ขั้นตอน →
-   เครื่องคำนวณ → FAQ → ปุ่มสมัคร) แต่ใช้สีฟ้า-ขาวและ token เดิมทั้งหมด
+   โครงตามดีไซน์อ้างอิง FitMaker (Hero + badge → แถบตัวเลข → เป้าหมาย → ฟีเจอร์/ขั้นตอน →
+   เครื่องมือ → FAQ → เข้าร่วม → footer) สไตล์อยู่ในบล็อก "ธีม FitMaker" ท้าย style.css
    กติกา: ทุกข้อความต้องเป็นสิ่งที่แอปทำได้จริง ห้ามใส่ตัวเลขผู้ใช้/รีวิว/ราคาที่ไม่มีจริง
    ปุ่มเข้าสู่ระบบทุกปุ่มใช้ data-act="auth-google" ตัวเดิม (handler เดิม ไม่ต้องแก้) */
 var landingCalc = {sex:'', age:'', height:'', weight:'', activity:''};
 
-function googleBtnHTML(extraClass){
-  return '<button type="button" class="btn primary lp-cta '+(extraClass||'')+'" data-act="auth-google" '+(authState.busy?'disabled':'')+'>'+
-    '<span class="lp-g">'+GOOGLE_G_SVG+'</span><span>'+(authState.busy?'กำลังเชื่อมต่อ...':'เริ่มใช้งานด้วย Google')+'</span></button>';
-}
 
 /* ผลเครื่องคำนวณ — เรียกสูตรจาก GymBroCalc เท่านั้น (ห้ามเขียนสูตร BMR/TDEE ซ้ำ ดู calculations.js) */
 function landingCalcResultHTML(){
@@ -4660,8 +4656,27 @@ function landingCalcResultHTML(){
     '<p class="hint">ตัวเลขนี้ยังไม่รวมแคลอรี่จากการออกกำลังกาย — ในแอประบบจะบวกส่วนนั้นตามแผนฝึกจริงของคุณ และตั้งเป้าแคลอรี่ตามเป้าหมาย ไม่ใช่คำแนะนำทางการแพทย์</p>';
 }
 
+var LP_ICONS = {
+  fat:  '<path d="M12 3c1 3.5 5 5.6 5 10.2a5 5 0 0 1-10 0c0-2.6 1.5-4.2 2.6-5.2.2 1.9 1 2.9 2 3.3-.6-2.6-.1-5.6.4-8.3z"/>',
+  muscle:'<path d="M2.5 9.5v5M5.5 7v10M18.5 7v10M21.5 9.5v5M5.5 12h13"/>',
+  home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10h13V10"/><path d="M10 20v-5.5h4V20"/>',
+  gym:  '<path d="M4 5.5h16v15H4z"/><path d="M4 10h16M8.5 3v4M15.5 3v4"/><path d="m9 15 2 2 4-4"/>',
+  shield:'<path d="M12 3 5 6v5.5c0 4.3 3 7.8 7 9.5 4-1.7 7-5.2 7-9.5V6z"/><path d="m9 12 2 2 4-4"/>',
+  sync: '<path d="M20 7.5A8 8 0 0 0 5.4 6.2L4 8"/><path d="M4 3.5V8h4.5"/><path d="M4 16.5a8 8 0 0 0 14.6 1.3L20 16"/><path d="M20 20.5V16h-4.5"/>',
+  chat: '<path d="M4.5 5h15v11h-9l-4 3.5V16h-2z"/><path d="M9 10.5h6"/>'
+};
+function lpIcon(k, cls){
+  var d = LP_ICONS[k] || NAV_ICONS[k] || '';
+  return '<svg class="'+(cls||'lp-ic')+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+d+'</svg>';
+}
+function lpGoogleBtn(label, extra){
+  return '<button type="button" class="btn primary lp-cta'+(extra||'')+'" data-act="auth-google"'+(authState.busy?' disabled':'')+'>'+
+    '<span class="lp-g">'+GOOGLE_G_SVG+'</span><span>'+(authState.busy?'กำลังเชื่อมต่อ...':label)+'</span></button>';
+}
+
 function renderLanding(){
   var c = landingCalc;
+  var busy = authState.busy ? ' disabled' : '';
   function opt(group, v){
     return '<button type="button" class="meal-btn'+(c[group]===v?' on':'')+'" data-lp-pick="'+group+'" data-val="'+esc(v)+'" aria-pressed="'+(c[group]===v)+'">'+esc(v)+'</button>';
   }
@@ -4669,14 +4684,23 @@ function renderLanding(){
     return '<label class="lp-field"><span class="lp-field-l">'+label+'</span>'+
       '<span class="lp-field-in"><input type="number" inputmode="decimal" min="'+min+'" max="'+max+'" data-lp-num="'+field+'" value="'+esc(c[field])+'"><span class="unit">'+unit+'</span></span></label>';
   }
+  function head(kicker, a, b, sub){
+    return '<div class="lp-sec-head"><div class="lp-kicker">'+kicker+'</div><h2 class="lp-h2">'+a+' <span class="lp-accent">'+b+'</span></h2>'+(sub?'<p class="lp-sub">'+sub+'</p>':'')+'</div>';
+  }
   var err = authState.error ? '<div class="note warn lp-err" role="alert"><p>'+esc(authState.error)+'</p></div>' : '';
 
+  var goals = [
+    {ic:'fat', t:'ลดไขมัน', d:'เป้าแคลอรี่คิดจากพลังงานที่ร่างกายใช้จริง พร้อมเกณฑ์กันไม่ให้กินต่ำจนเสียสุขภาพ'},
+    {ic:'muscle', t:'สร้างกล้ามเนื้อ', d:'ระบบเสนอน้ำหนักและจำนวนครั้งจากผลครั้งก่อน ให้ร่างกายถูกท้าทายเพิ่มขึ้นทีละนิด'},
+    {ic:'home', t:'ฝึกที่บ้าน', d:'เลือกท่าจากอุปกรณ์ที่คุณมีจริง ไม่มีอุปกรณ์เลยก็มีท่าให้ฝึกครบทุกส่วน'},
+    {ic:'gym', t:'แผนฟิตเนส', d:'ตารางหมุนเวียนท่าให้โดนกล้ามเนื้อครบทุกส่วนภายในสัปดาห์ ตามวันที่คุณว่างจริง'}
+  ];
   var features = [
-    {color:'var(--accent)', t:'วันนี้', d:'เช็กลิสต์ประจำวันครบในหน้าเดียว — ท่าฝึกพร้อมเซ็ต/น้ำหนัก โภชนาการ การนอน และความเครียด ติ๊กเสร็จได้ทันที'},
-    {color:'var(--food)', t:'แผนของฉัน', d:'แผนฝึกและเป้าแคลอรี่สร้างจากแบบสอบถาม 9 หมวด ทั้งเป้าหมาย สถานที่ฝึก และอุปกรณ์ที่คุณมีจริง'},
-    {color:'var(--sleep)', t:'ตารางฝึก', d:'เห็นภาพรวมทั้งสัปดาห์ ย้ายวันฝึกได้ตามชีวิตจริง และระบบเสนอน้ำหนัก/จำนวนครั้งจากครั้งก่อนให้'},
-    {color:'var(--branch)', t:'ความคืบหน้า', d:'ติดตามน้ำหนักตัวและความแข็งแรง เทียบผลแต่ละท่ากับเกณฑ์มาตรฐานตามเพศและน้ำหนักตัว'},
-    {color:'var(--stress)', t:'ถามโค้ช', d:'ถามได้ทุกเรื่องในแอป โค้ชตอบจากข้อมูลของคุณที่แอปมีจริง (หลังเข้าสู่ระบบ จำกัด '+COACH_MAX_PER_DAY+' คำถาม/วัน)'}
+    {ic:'today', t:'วันนี้', d:'เช็กลิสต์ฝึก โภชนาการ การนอน และความเครียด ครบในหน้าเดียว'},
+    {ic:'schedule', t:'ตารางฝึก', d:'ดูทั้งสัปดาห์และทั้งเดือน ย้ายวันฝึกได้ตามชีวิตจริง'},
+    {ic:'progress', t:'ความคืบหน้า', d:'กราฟน้ำหนัก ความแข็งแรง และเทียบเกณฑ์มาตรฐานตามเพศ/น้ำหนักตัว'},
+    {ic:'plan', t:'แผนของฉัน', d:'เป้าแคลอรี่ มาโคร และรายละเอียดทุกท่า ปรับแผนได้เมื่อเป้าหมายเปลี่ยน'},
+    {ic:'coach', t:'ถามโค้ช', d:'โค้ชตอบจากข้อมูลของคุณที่แอปมีจริง ถามได้ '+COACH_MAX_PER_DAY+' คำถาม/วัน'}
   ];
   var faqs = [
     {q:'ต้องใช้บัญชีอะไรในการเข้าสู่ระบบ?', a:'ใช้บัญชี Google อย่างเดียว กดปุ่มเดียวจบ ครั้งแรกจะสร้างบัญชีให้อัตโนมัติ ไม่ต้องตั้งรหัสผ่านใหม่'},
@@ -4685,67 +4709,80 @@ function renderLanding(){
     {q:'แก้แผนทีหลังได้ไหม?', a:'ได้ เข้าหน้า "แผนของฉัน" เพื่อปรับวันฝึก ท่า หรือทำแบบสอบถามใหม่เมื่อเป้าหมายเปลี่ยน'},
     {q:'ถ้าเลิกใช้ ลบข้อมูลได้ไหม?', a:'ได้ เลือก "ลบบัญชี" จากเมนูบัญชี ระบบจะลบข้อมูลทั้งหมดของคุณออกจากเซิร์ฟเวอร์และจากเครื่องนี้'}
   ];
+  var perks = [
+    {ic:'gym', t:'แผนเฉพาะตัว', d:'สร้างจากเป้าหมาย ร่างกาย และอุปกรณ์ของคุณ'},
+    {ic:'chat', t:'โค้ชในแอป', d:'ถามได้ทุกเรื่องที่เกี่ยวกับแผนของคุณ'},
+    {ic:'sync', t:'ซิงก์ทุกอุปกรณ์', d:'มือถือและคอมใช้ข้อมูลชุดเดียวกัน'},
+    {ic:'shield', t:'ข้อมูลเป็นของคุณ', d:'ลบบัญชีและข้อมูลทั้งหมดได้เองทุกเมื่อ'}
+  ];
+  var brand = '<div class="lp-brand"><span class="brand-mark"></span><span>GYMBRO<b>DAILY</b></span></div>';
 
   return '<div class="lp">'+
-    /* แถบบน */
-    '<header class="lp-top"><div class="lp-wrap lp-top-in">'+
-      '<div class="appbar-brand"><span class="brand-mark"></span><span>Gymbro Daily</span></div>'+
-      '<button type="button" class="btn sm" data-act="auth-google" '+(authState.busy?'disabled':'')+'>เข้าสู่ระบบ</button>'+
+    '<header class="lp-top"><div class="lp-wrap lp-top-in">'+brand+
+      '<nav class="lp-links" aria-label="เมนูหน้าแรก"><a href="#lp-goals">เป้าหมาย</a><a href="#lp-features">ฟีเจอร์</a><a href="#lp-calc">เครื่องมือ</a><a href="#lp-faq">คำถาม</a></nav>'+
+      '<button type="button" class="btn sm lp-login" data-act="auth-google"'+busy+'>เข้าสู่ระบบ</button>'+
     '</div></header>'+
 
-    /* Hero */
+    /* Hero — โครงเดียวกับ FitMaker: ข้อความซ้าย, วงกลมเรืองแสง + badge ลอยด้านขวา
+       ใช้ภาพจำลองหน้าจอแอปแทนภาพนักกีฬา (ยังไม่มีภาพถ่ายที่มีลิขสิทธิ์ใช้ได้) */
     '<section class="lp-hero"><div class="lp-wrap lp-hero-in">'+
       '<div class="lp-hero-copy">'+
-        '<div class="eyebrow">ผู้ช่วยฝึกและดูแลสุขภาพรายวัน</div>'+
-        '<h1 class="lp-h1">ทำตามแผนทีละวัน<br><span class="lp-accent">เห็นผลจริงทุกสัปดาห์</span></h1>'+
-        '<p class="lp-lead">Gymbro Daily สร้างแผนฝึกและเป้าโภชนาการจากเป้าหมาย สถานที่ และอุปกรณ์ของคุณ แล้วบอกทุกวันว่าต้องทำอะไร พร้อมบันทึกและติดตามความคืบหน้าให้อัตโนมัติ</p>'+
+        '<div class="lp-pill"><span class="lp-dot"></span>ผู้ช่วยฟิตเนสรายวัน ภาษาไทย</div>'+
+        '<h1 class="lp-h1"><span>ทำตามแผน</span><span class="lp-h1-big">ทุกวัน</span><span>เห็นผลจริงกับ <span class="lp-accent">Gymbro</span></span></h1>'+
+        '<p class="lp-lead">แผนฝึกและเป้าโภชนาการที่สร้างจากเป้าหมาย สถานที่ และอุปกรณ์ของคุณ บอกทุกวันว่าต้องทำอะไร พร้อมบันทึกและติดตามความคืบหน้าให้อัตโนมัติ</p>'+
         err+
-        '<div class="lp-actions">'+googleBtnHTML()+'<a class="btn ghost lp-cta" href="#lp-calc">ลองคำนวณแคลอรี่</a></div>'+
-        '<p class="hint">ไม่ต้องตั้งรหัสผ่าน · ซิงก์ข้ามอุปกรณ์ · ลบบัญชีได้เองทุกเมื่อ</p>'+
+        '<div class="lp-actions">'+lpGoogleBtn('เริ่มต้นด้วย Google')+'<a class="btn lp-cta lp-outline" href="#lp-calc">ลองคำนวณแคลอรี่</a></div>'+
+        '<p class="lp-hint">ไม่ต้องตั้งรหัสผ่าน · ซิงก์ข้ามอุปกรณ์ · ลบบัญชีได้เองทุกเมื่อ</p>'+
       '</div>'+
-      /* ภาพตัวอย่างหน้าจอ สร้างจาก HTML/token จริงของแอป (ไม่ใช้ภาพสต็อก) */
-      '<div class="lp-mock" aria-hidden="true">'+
-        '<div class="lp-mock-head"><span class="eyebrow">ตัวอย่างหน้า “วันนี้”</span><span class="chip ok">3/5 เสร็จ</span></div>'+
-        '<div class="chk on"><input type="checkbox" checked tabindex="-1"><div class="cb"><div class="t">Goblet Squat</div><div class="s">3 เซ็ต × 10 ครั้ง · 16 กก.</div></div></div>'+
-        '<div class="chk on"><input type="checkbox" checked tabindex="-1"><div class="cb"><div class="t">Push-up</div><div class="s">3 เซ็ต × 12 ครั้ง</div></div></div>'+
-        '<div class="chk"><input type="checkbox" tabindex="-1"><div class="cb"><div class="t">Dumbbell Row</div><div class="s">3 เซ็ต × 10 ครั้ง · 12 กก.</div></div></div>'+
-        '<div class="lp-mock-row"><span class="sq" style="background:var(--food)"></span>โภชนาการ<span class="lp-mock-v mono">1,840 / 2,200 kcal</span></div>'+
-        '<div class="pbar"><i style="width:84%;background:var(--food)"></i></div>'+
-        '<div class="lp-mock-row"><span class="sq" style="background:var(--sleep)"></span>การนอน<span class="lp-mock-v mono">7 ชม. 20 นาที</span></div>'+
+      '<div class="lp-visual" aria-hidden="true">'+
+        '<div class="lp-orb"></div>'+
+        '<div class="lp-phone">'+
+          '<div class="lp-phone-head"><div><small>วันนี้</small><b>Full Body A</b></div><span class="lp-ring" style="--p:60"><b>3/5</b></span></div>'+
+          '<div class="lp-ph-item on"><i></i><div><b>Goblet Squat</b><small>3 × 10 · 16 กก.</small></div></div>'+
+          '<div class="lp-ph-item on"><i></i><div><b>Push-up</b><small>3 × 12</small></div></div>'+
+          '<div class="lp-ph-item"><i></i><div><b>Dumbbell Row</b><small>3 × 10 · 12 กก.</small></div></div>'+
+          '<div class="lp-ph-bar"><div><span>โภชนาการ</span><small>1,840 / 2,200 kcal</small></div><div class="pbar"><i style="width:84%"></i></div></div>'+
+          '<div class="lp-ph-bar"><div><span>การนอน</span><small>7 ชม. 20 นาที</small></div><div class="pbar"><i style="width:92%;background:var(--sleep)"></i></div></div>'+
+        '</div>'+
+        '<div class="lp-badge b1"><b>9</b><span>หมวดคำถาม<br>สร้างแผนให้คุณ</span></div>'+
+        '<div class="lp-badge b2"><b>4</b><span>ด้านที่ดูแล<br>ในแอปเดียว</span></div>'+
+        '<div class="lp-badge b3"><b>'+COACH_MAX_PER_DAY+'</b><span>คำถามถึงโค้ช<br>ต่อวัน</span></div>'+
       '</div>'+
     '</div></section>'+
 
-    /* จุดเด่น — ข้อเท็จจริงของผลิตภัณฑ์ ไม่ใช่ตัวเลขการตลาด */
-    '<section class="lp-wrap"><ul class="lp-facts">'+
-      '<li><b>ภาษาไทยทั้งแอป</b><span>ชื่อท่า คำอธิบาย และคำแนะนำ</span></li>'+
-      '<li><b>บ้าน · ยิม · กลางแจ้ง</b><span>เลือกท่าตามอุปกรณ์ที่มีจริง</span></li>'+
-      '<li><b>4 ด้านในที่เดียว</b><span>ฝึก อาหาร การนอน ความเครียด</span></li>'+
-      '<li><b>ข้อมูลเป็นของคุณ</b><span>ซิงก์ข้ามอุปกรณ์ ลบได้เองทุกเมื่อ</span></li>'+
+    /* แถบตัวเลข — ข้อเท็จจริงของผลิตภัณฑ์เท่านั้น (ไม่มีจำนวนสมาชิก/รีวิวปลอม) */
+    '<section class="lp-wrap"><ul class="lp-stats">'+
+      '<li><b>9<small>หมวด</small></b><span>แบบสอบถามที่ใช้สร้างแผน</span></li>'+
+      '<li><b>4<small>ด้าน</small></b><span>ฝึก · อาหาร · นอน · ความเครียด</span></li>'+
+      '<li><b>'+COACH_MAX_PER_DAY+'<small>คำถาม</small></b><span>ถามโค้ชได้ทุกวัน</span></li>'+
+      '<li><b>100<small>%</small></b><span>ภาษาไทยทั้งแอป</span></li>'+
     '</ul></section>'+
 
-    /* ฟีเจอร์ */
-    '<section class="lp-sec"><div class="lp-wrap">'+
-      '<div class="lp-sec-head"><div class="eyebrow">ทำอะไรได้บ้าง</div><h2 class="lp-h2">ทุกอย่างที่ต้องใช้ในแต่ละวัน</h2></div>'+
-      '<div class="lp-grid">'+features.map(function(f){
-        return '<article class="lp-card"><div class="sec-head"><span class="sq" style="background:'+f.color+'"></span><h3>'+f.t+'</h3></div><p>'+f.d+'</p></article>';
+    '<section class="lp-sec" id="lp-goals"><div class="lp-wrap">'+
+      head('เป้าหมาย', 'แผนสำหรับ', 'ทุกเป้าหมาย', 'เลือกเป้าหมายในแบบสอบถาม แล้วแอปจะจัดท่า ตาราง และเป้าโภชนาการให้ตรงกับคุณ')+
+      '<div class="lp-svc-grid">'+goals.map(function(g){
+        return '<article class="lp-svc">'+lpIcon(g.ic, 'lp-svc-bg')+
+          '<div class="lp-svc-ic">'+lpIcon(g.ic)+'</div>'+
+          '<h3 class="lp-svc-t">'+g.t+'</h3><p>'+g.d+'</p>'+
+          '<button type="button" class="lp-more" data-act="auth-google"'+busy+'>เริ่มแผนนี้ <span aria-hidden="true">→</span></button></article>';
       }).join('')+'</div>'+
     '</div></section>'+
 
-    /* ขั้นตอน */
-    '<section class="lp-sec lp-sec-alt"><div class="lp-wrap">'+
-      '<div class="lp-sec-head"><div class="eyebrow">เริ่มต้นใน 3 ขั้น</div><h2 class="lp-h2">ใช้เวลาไม่กี่นาที</h2></div>'+
+    '<section class="lp-sec lp-sec-alt" id="lp-features"><div class="lp-wrap">'+
+      head('ฟีเจอร์', 'ทุกอย่างใน', 'แอปเดียว')+
+      '<div class="lp-feat-grid">'+features.map(function(f){
+        return '<article class="lp-feat"><div class="lp-feat-ic">'+lpIcon(f.ic)+'</div><h3>'+f.t+'</h3><p>'+f.d+'</p></article>';
+      }).join('')+'</div>'+
       '<ol class="lp-steps">'+
-        '<li><span class="lp-step-n mono">1</span><div><b>เข้าสู่ระบบด้วย Google</b><p>ไม่ต้องสมัครแยก ไม่ต้องจำรหัสผ่าน</p></div></li>'+
-        '<li><span class="lp-step-n mono">2</span><div><b>ตอบแบบสอบถาม 9 หมวด</b><p>เป้าหมาย ร่างกาย สถานที่ อุปกรณ์ และไลฟ์สไตล์</p></div></li>'+
-        '<li><span class="lp-step-n mono">3</span><div><b>ทำตามเช็กลิสต์ทุกวัน</b><p>บันทึกง่าย ระบบปรับแผนจากผลจริงของคุณ</p></div></li>'+
+        '<li><span class="lp-step-n">1</span><div><b>เข้าสู่ระบบด้วย Google</b><p>ไม่ต้องสมัครแยก ไม่ต้องจำรหัสผ่าน</p></div></li>'+
+        '<li><span class="lp-step-n">2</span><div><b>ตอบแบบสอบถาม 9 หมวด</b><p>เป้าหมาย ร่างกาย สถานที่ อุปกรณ์ ไลฟ์สไตล์</p></div></li>'+
+        '<li><span class="lp-step-n">3</span><div><b>ทำตามเช็กลิสต์ทุกวัน</b><p>บันทึกง่าย ระบบปรับแผนจากผลจริงของคุณ</p></div></li>'+
       '</ol>'+
     '</div></section>'+
 
-    /* เครื่องคำนวณ — ลองได้ก่อนสมัคร ใช้สูตรเดียวกับในแอป */
     '<section class="lp-sec" id="lp-calc"><div class="lp-wrap">'+
-      '<div class="lp-sec-head"><div class="eyebrow">ลองก่อนสมัคร</div><h2 class="lp-h2">ร่างกายคุณใช้พลังงานวันละเท่าไร?</h2>'+
-        '<p class="lp-sub">ใช้สูตรเดียวกับที่แอปใช้ตั้งเป้าแคลอรี่ของคุณ ข้อมูลที่กรอกตรงนี้ไม่ถูกบันทึกหรือส่งไปที่ใด</p></div>'+
-      '<div class="card lp-calc">'+
+      head('เครื่องมือ', 'เครื่องมือ', 'ฟิตเนส', 'ลองคำนวณ BMI และพลังงานที่ร่างกายใช้ต่อวันด้วยสูตรเดียวกับในแอป ข้อมูลที่กรอกไม่ถูกบันทึกหรือส่งไปที่ใด')+
+      '<div class="lp-calc">'+
         '<div class="lp-calc-in">'+
           '<div class="lp-field"><span class="lp-field-l">เพศ</span><div class="meal-row">'+opt('sex','ชาย')+opt('sex','หญิง')+'</div></div>'+
           '<div class="lp-nums">'+num('age','อายุ','ปี',13,100)+num('height','ส่วนสูง','ซม.',100,250)+num('weight','น้ำหนัก','กก.',25,300)+'</div>'+
@@ -4757,22 +4794,33 @@ function renderLanding(){
       '</div>'+
     '</div></section>'+
 
-    /* FAQ — <details> ของเบราว์เซอร์: เปิด/ปิดได้ด้วยคีย์บอร์ดโดยไม่ต้องเขียน JS */
-    '<section class="lp-sec lp-sec-alt"><div class="lp-wrap lp-narrow">'+
-      '<div class="lp-sec-head"><div class="eyebrow">คำถามที่พบบ่อย</div><h2 class="lp-h2">FAQ</h2></div>'+
+    '<section class="lp-sec lp-sec-alt" id="lp-faq"><div class="lp-wrap lp-narrow">'+
+      head('FAQ', 'คำถามที่', 'พบบ่อย')+
       '<div class="lp-faq">'+faqs.map(function(f, i){
         return '<details'+(i===0?' open':'')+'><summary>'+f.q+'</summary><p>'+f.a+'</p></details>';
       }).join('')+'</div>'+
     '</div></section>'+
 
-    /* ปิดท้าย */
-    '<section class="lp-sec"><div class="lp-wrap"><div class="lp-final">'+
-      '<h2 class="lp-h2">พร้อมเริ่มวันแรกหรือยัง?</h2>'+
-      '<p class="lp-sub">เข้าสู่ระบบแล้วตอบแบบสอบถาม แผนของคุณจะพร้อมใช้ทันที</p>'+
-      err+googleBtnHTML()+
-    '</div></div></section>'+
+    '<section class="lp-sec"><div class="lp-wrap lp-join">'+
+      '<div>'+head('เริ่มเลย', 'เข้าร่วม', 'Gymbro Daily', 'เข้าสู่ระบบแล้วตอบแบบสอบถาม แผนของคุณจะพร้อมใช้ทันที')+
+        '<div class="lp-perks">'+perks.map(function(p){
+          return '<div class="lp-perk"><div class="lp-perk-ic">'+lpIcon(p.ic)+'</div><div><b>'+p.t+'</b><p>'+p.d+'</p></div></div>';
+        }).join('')+'</div></div>'+
+      '<div class="lp-signup">'+
+        '<h3>สมัครสมาชิก / เข้าสู่ระบบ</h3>'+
+        '<p>ใช้ปุ่มเดียวกันทั้งสมัครครั้งแรกและเข้าสู่ระบบ Google จัดการให้อัตโนมัติ</p>'+
+        err+lpGoogleBtn('ดำเนินการต่อด้วย Google', ' lp-block')+
+        '<p class="lp-hint">ไม่ต้องตั้งรหัสผ่านใหม่ และลบบัญชีได้เองทุกเมื่อ</p>'+
+      '</div>'+
+    '</div></section>'+
 
-    '<footer class="lp-foot"><div class="lp-wrap">© Gymbro Daily · ข้อมูลในแอปไม่ใช่คำแนะนำทางการแพทย์ หากมีโรคประจำตัวควรปรึกษาแพทย์ก่อนเริ่มออกกำลังกาย</div></footer>'+
+    '<footer class="lp-foot"><div class="lp-wrap">'+
+      '<div class="lp-foot-top">'+
+        '<div>'+brand+'<p>ผู้ช่วยฝึกและดูแลสุขภาพรายวัน ทำตามแผนทีละวันจนเห็นผลจริง</p></div>'+
+        '<nav class="lp-foot-links" aria-label="ลิงก์ท้ายหน้า"><b>เมนู</b><a href="#lp-goals">เป้าหมาย</a><a href="#lp-features">ฟีเจอร์</a><a href="#lp-calc">เครื่องมือ</a><a href="#lp-faq">คำถามที่พบบ่อย</a></nav>'+
+      '</div>'+
+      '<p class="lp-foot-note">© Gymbro Daily · ข้อมูลในแอปไม่ใช่คำแนะนำทางการแพทย์ หากมีโรคประจำตัวควรปรึกษาแพทย์ก่อนเริ่มออกกำลังกาย</p>'+
+    '</div></footer>'+
   '</div>';
 }
 

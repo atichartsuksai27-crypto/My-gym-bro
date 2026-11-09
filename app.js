@@ -4918,9 +4918,45 @@ function libraryPlanSessions(){
   });
   return out;
 }
+/* ---- สถานที่ฝึก: ยิม / ที่บ้าน — ผูกกับ onboarding (Q20 สถานที่, Q21 อุปกรณ์ที่บ้าน, Q22 ระดับยิม) ----
+   ใช้ equipAllowed / equipAllowedHome ตัวเดียวกับที่ตัวสร้างแผนใช้ ไม่เขียนกติกาอุปกรณ์ซ้ำ
+   ตัวเลือกอุปกรณ์ที่บ้านอ่านจาก QUESTIONS (Q21) ตรงๆ — แก้ตัวเลือกใน onboarding แล้วหน้าคลังตามเอง */
+var LIBRARY_NO_EQUIP = 'ไม่มีอุปกรณ์เลย';
+function libraryQ21Options(){
+  var q = QUESTIONS.filter(function(x){ return x.id === 'Q21'; })[0];
+  return q ? q.options.slice() : [];
+}
+function libraryHomeKit(){ return libraryQ21Options().filter(function(o){ return o !== LIBRARY_NO_EQUIP; }); }
+/* ท่าที่ต้องมีอุปกรณ์เสริมตามตัวเลือก Q21 นอกเหนือจาก equip หลักของท่า (ข้อมูลเฉพาะคลัง — ไม่แตะ EXERCISES)
+   ม้านั่ง: ท่านอน/นั่งเอนบนม้านั่ง ท่าก้าวเท้าหลังขึ้นม้านั่ง ท่าดิป  ·  เชือกกระโดด: Jump Rope (tag เป็น bodyweight) */
+var LIBRARY_HOME_NEEDS = {
+  hp3:'ม้านั่ง', hp4:'ม้านั่ง', ic3:'ม้านั่ง', ic3b:'ม้านั่ง', ic4:'ม้านั่ง', fl3:'ม้านั่ง', tc2:'ม้านั่ง', tc4:'ม้านั่ง',
+  lg3:'ม้านั่ง', gl2b:'ม้านั่ง', xhp1:'ม้านั่ง', xbc2:'ม้านั่ง', xbc3:'ม้านั่ง', xtc5:'ม้านั่ง',
+  xcd6:'เชือกกระโดด'
+};
+/* ยิม = อุปกรณ์ของยิมระดับ "ครบมาก" (เหมือนตัวสร้างแผน) + เคตเทิลเบลล์ (ท่าเสริมเฉพาะคลัง ยิมทั่วไปมี) */
+function libraryGymOk(e){ return equipAllowed('ครบมาก').indexOf(e.equip) > -1 || e.equip === 'kettlebell'; }
+/* ที่บ้าน: owned = รายการ Q21 ที่เลือก — equip ต้องผ่าน equipAllowedHome และต้องมีอุปกรณ์เสริมที่ท่านั้นต้องใช้ครบ */
+function libraryHomeOk(e, owned){
+  owned = Array.isArray(owned) ? owned : [];
+  if(equipAllowedHome(owned).indexOf(e.equip) < 0) return false;
+  var need = LIBRARY_HOME_NEEDS[e.id];
+  return !need || owned.indexOf(need) > -1;
+}
+function libraryPlacesOf(e){ return {gym:libraryGymOk(e), home:libraryHomeOk(e, libraryHomeKit())}; }
+function libraryPlaceLabel(e){
+  var p = libraryPlacesOf(e);
+  return p.gym && p.home ? 'ยิม · ที่บ้าน' : (p.home ? 'ที่บ้าน' : (p.gym ? 'ยิม' : ''));
+}
+/* ตัวเลือก Q21 นี้ "ปลดล็อก" ท่าอย่างน้อยหนึ่งท่าไหม (ยางยืด/ฮูลาฮูป/เสื่อโยคะ ยังไม่มีท่าในคลัง) */
+function libraryOptionUnlocks(opt){
+  var kit = libraryHomeKit(), rest = kit.filter(function(o){ return o !== opt; });
+  return LIBRARY_ALL.some(function(e){ return libraryHomeOk(e, kit) && !libraryHomeOk(e, rest); });
+}
 function libraryFilter(f, mine){
   return LIBRARY_ALL.filter(function(e){
-    return libraryMatches(e, f.query) && (!f.group || e.pattern === f.group) && (!f.equip || e.equip === f.equip) &&
+    var placeOk = !f.place || f.place === 'all' || (f.place === 'gym' ? libraryGymOk(e) : libraryHomeOk(e, f.homeOwned));
+    return placeOk && libraryMatches(e, f.query) && (!f.group || e.pattern === f.group) && (!f.equip || e.equip === f.equip) &&
       (!f.onlyMine || !!mine[e.id]);
   });
 }
@@ -4934,7 +4970,27 @@ function libraryGrouped(list){
 }
 
 /* ---- หน้าจอคลังท่า: สถานะชั่วคราวทั้งหมด (ไม่บันทึกลง localStorage/Supabase) ---- */
-var libUI = {open:false, query:'', group:null, equip:null, onlyMine:false, female:null, openId:null};
+var libUI = {open:false, query:'', group:null, equip:null, onlyMine:false, female:null, openId:null, place:null, homeEquip:null};
+
+/* สถานที่เริ่มต้นตาม Q20: ที่บ้าน → ที่บ้าน, ฟิตเนส-ยิม → ยิม, อื่นๆ/ยังไม่ตอบ → ทั้งหมด (ผู้ใช้สลับเองได้) */
+function libPlace(){
+  if(libUI.place) return libUI.place;
+  var q20 = state.answers && state.answers.Q20;
+  return q20 === 'ที่บ้าน' ? 'home' : (q20 === 'ฟิตเนส-ยิม' ? 'gym' : 'all');
+}
+/* อุปกรณ์ที่บ้านเริ่มต้น = ที่ตอบไว้ใน Q21 ถ้ายังไม่ตอบ = เลือกครบทุกอย่างที่ onboarding มีให้ */
+function libHomeFromOnboarding(){
+  var q = state.answers && state.answers.Q21;
+  return !libUI.homeEquip && Array.isArray(q) && q.length > 0;
+}
+function libHomeOwned(){
+  if(libUI.homeEquip) return libUI.homeEquip;
+  var q = state.answers && state.answers.Q21;
+  return (Array.isArray(q) && q.length) ? q.slice() : libraryHomeKit();
+}
+function libFilterState(){
+  return {query:libUI.query, group:libUI.group, equip:libUI.equip, onlyMine:libUI.onlyMine, place:libPlace(), homeOwned:libHomeOwned()};
+}
 
 function libFemale(){
   if(libUI.female != null) return libUI.female;
@@ -4988,7 +5044,10 @@ function libDynHTML(){
   var female = libFemale();
   var figs = female ? [BODYMAP_FIGURES.femaleFront, BODYMAP_FIGURES.femaleBack] : [BODYMAP_FIGURES.maleFront, BODYMAP_FIGURES.maleBack];
   var g = libUI.group;
-  var caption = g ? esc(LIBRARY_GROUP_LABEL[g] || g)+' · '+LIBRARY_ALL.filter(function(e){ return e.pattern === g; }).length+' ท่า'
+  var place = libPlace();
+  var fs = libFilterState();
+  var inPlace = libraryFilter({place:fs.place, homeOwned:fs.homeOwned}, mine); // นับท่าของกลุ่มตามสถานที่ที่เลือก
+  var caption = g ? esc(LIBRARY_GROUP_LABEL[g] || g)+' · '+inPlace.filter(function(e){ return e.pattern === g; }).length+' ท่า'
                   : 'แตะกล้ามเนื้อเพื่อดูท่าของมัดนั้น';
 
   var h = '<section class="card lib-map" aria-label="แผนที่กล้ามเนื้อ">'+
@@ -5000,7 +5059,27 @@ function libDynHTML(){
     '<div class="lib-figs">'+libFigureSVG(figs[0], 'ด้านหน้า')+libFigureSVG(figs[1], 'ด้านหลัง')+'</div>'+
   '</section>';
 
+  var PLACES = [['all','ทั้งหมด'], ['gym','ยิม'], ['home','ที่บ้าน']];
+  var owned = libHomeOwned();
   h += '<div class="lib-filters">'+
+    '<div class="lib-place" role="group" aria-label="สถานที่ฝึก"><span class="lib-filter-l">สถานที่ฝึก</span>'+
+      PLACES.map(function(p){
+        return '<button type="button" class="lib-chip lib-chip-place'+(place===p[0]?' on':'')+'" data-lib-place="'+p[0]+'" aria-pressed="'+(place===p[0])+'">'+p[1]+'</button>';
+      }).join('')+
+    '</div>'+
+    (place === 'home'
+      ? '<div class="lib-home" role="group" aria-label="อุปกรณ์ที่มีที่บ้าน"><span class="lib-filter-l">อุปกรณ์ที่มีที่บ้าน'+
+          '<small>'+(libHomeFromOnboarding() ? ' · ตามที่คุณตอบในแบบสอบถาม' : ' · เลือกอุปกรณ์ที่คุณมีเพื่อดูท่าที่ทำได้')+'</small></span>'+
+        '<div class="lib-chips lib-chips-sm">'+
+        libraryQ21Options().map(function(o){
+          var on = owned.indexOf(o) > -1;
+          var none = o === LIBRARY_NO_EQUIP;
+          var empty = !none && !libraryOptionUnlocks(o);
+          return '<button type="button" class="lib-chip'+(on?' on':'')+'" data-lib-home="'+esc(o)+'" aria-pressed="'+on+'">'+esc(o)+
+            (empty ? '<small class="lib-soon"> · ยังไม่มีท่า</small>' : '')+'</button>';
+        }).join('')+
+        '</div></div>'
+      : '')+
     '<div class="lib-chips" role="group" aria-label="กรองตามกลุ่มกล้ามเนื้อ">'+
       '<button type="button" class="lib-chip'+(!g && !libUI.onlyMine?' on':'')+'" data-lib-all aria-pressed="'+(!g && !libUI.onlyMine)+'">ทั้งหมด</button>'+
       (hasMine ? '<button type="button" class="lib-chip lib-chip-mine'+(libUI.onlyMine?' on':'')+'" data-lib-mine aria-pressed="'+libUI.onlyMine+'">★ ในแผนของฉัน</button>' : '')+
@@ -5009,14 +5088,17 @@ function libDynHTML(){
           '<span class="lib-dot" style="background:'+libraryGroupColor(k)+'"></span>'+esc(LIBRARY_GROUP_SHORT[k] || k)+'</button>';
       }).join('')+
     '</div>'+
-    '<div class="lib-chips lib-chips-sm" role="group" aria-label="กรองตามอุปกรณ์">'+
-      Object.keys(LIBRARY_EQUIP_LABEL).map(function(k){
-        return '<button type="button" class="lib-chip'+(libUI.equip===k?' on':'')+'" data-lib-equip="'+k+'" aria-pressed="'+(libUI.equip===k)+'">'+esc(LIBRARY_EQUIP_LABEL[k])+'</button>';
-      }).join('')+
-    '</div>'+
+    (place === 'home' ? '' :
+      '<div class="lib-chips lib-chips-sm" role="group" aria-label="กรองตามอุปกรณ์">'+
+        Object.keys(LIBRARY_EQUIP_LABEL).map(function(k){
+          return '<button type="button" class="lib-chip'+(libUI.equip===k?' on':'')+'" data-lib-equip="'+k+'" aria-pressed="'+(libUI.equip===k)+'">'+esc(LIBRARY_EQUIP_LABEL[k])+'</button>';
+        }).join('')+
+      '</div>')+
   '</div>';
 
-  var groups = libraryGrouped(libraryFilter(libUI, mine));
+  var found = libraryFilter(fs, mine);
+  var groups = libraryGrouped(found);
+  h += '<p class="lib-found" aria-live="polite">แสดง '+found.length+' จาก '+LIBRARY_ALL.length+' ท่า</p>';
   h += '<div id="lib-results" class="lib-results">';
   if(!groups.length){
     h += '<div class="lib-empty"><p><b>ไม่พบท่าที่ตรงกับตัวกรอง</b></p>'+
@@ -5032,7 +5114,8 @@ function libDynHTML(){
         libBadge(e)+
         '<span class="lib-row-main"><span class="lib-row-t">'+esc(e.th)+'</span><span class="lib-row-s">'+esc(e.sub)+'</span>'+
           '<span class="lib-row-meta">'+libTierMeter(e.tier, libraryGroupColor(e.pattern))+'<span class="sr-only">Tier '+e.tier+'</span>'+
-          '<span>'+esc(LIBRARY_EQUIP_LABEL[e.equip] || e.equip)+'</span>'+
+          '<span>'+esc(LIBRARY_EQUIP_LABEL[e.equip] || e.equip)+(LIBRARY_HOME_NEEDS[e.id] ? ' + '+esc(LIBRARY_HOME_NEEDS[e.id]) : '')+'</span>'+
+          '<span class="lib-place-tag">'+esc(libraryPlaceLabel(e))+'</span>'+
           (inPlan ? '<span class="lib-star">★ ในแผน</span>' : '')+'</span></span>'+
         libIcon('chevron', 'lib-chev')+'</button>';
     });
@@ -5103,6 +5186,8 @@ function libSheetHTML(){
       '<div class="lib-pills">'+
         '<span class="lib-pill lib-pill-group">'+esc(LIBRARY_GROUP_SHORT[e.pattern] || e.pattern)+'</span>'+
         '<span class="lib-pill">'+esc(LIBRARY_EQUIP_LABEL[e.equip] || e.equip)+'</span>'+
+        (LIBRARY_HOME_NEEDS[e.id] ? '<span class="lib-pill">ต้องมี '+esc(LIBRARY_HOME_NEEDS[e.id])+' (ที่บ้าน)</span>' : '')+
+        (libraryPlaceLabel(e) ? '<span class="lib-pill">ทำได้ที่: '+esc(libraryPlaceLabel(e))+'</span>' : '')+
         (isLibraryOnly(id) ? '<span class="lib-pill">เฉพาะคลัง</span>' : '')+
         (mine[id] ? '<span class="lib-pill lib-pill-star">★ '+esc(mine[id].join(' · '))+'</span>' : '')+
       '</div></div>';
@@ -5189,6 +5274,19 @@ document.addEventListener('click', function(ev){
     if(picking) libScrollToResults();
     return;
   }
+  if((el = t.closest('[data-lib-place]'))){ libUI.place = el.getAttribute('data-lib-place'); libUI.equip = null; libRefresh(); return; }
+  if((el = t.closest('[data-lib-home]'))){
+    var opt = el.getAttribute('data-lib-home');
+    var cur = libHomeOwned().slice();
+    if(opt === LIBRARY_NO_EQUIP) cur = [LIBRARY_NO_EQUIP];
+    else {
+      cur = cur.filter(function(x){ return x !== LIBRARY_NO_EQUIP; });
+      var at = cur.indexOf(opt);
+      if(at > -1) cur.splice(at, 1); else cur.push(opt);
+    }
+    libUI.homeEquip = cur.length ? cur : [LIBRARY_NO_EQUIP];
+    libRefresh(); return;
+  }
   if((el = t.closest('[data-lib-sex]'))){ libUI.female = el.getAttribute('data-lib-sex') === 'f'; libRefresh(); return; }
   if(t.closest('[data-lib-all]')){ libUI.group = null; libUI.onlyMine = false; libRefresh(); return; }
   if(t.closest('[data-lib-mine]')){ libUI.onlyMine = !libUI.onlyMine; libRefresh(); return; }
@@ -5201,7 +5299,7 @@ document.addEventListener('click', function(ev){
     libRefresh(); return;
   }
   if(t.closest('[data-lib-reset]')){
-    libUI.query = ''; libUI.group = null; libUI.equip = null; libUI.onlyMine = false;
+    libUI.query = ''; libUI.group = null; libUI.equip = null; libUI.onlyMine = false; libUI.place = null; libUI.homeEquip = null;
     var s2 = document.getElementById('libSearch');
     if(s2) s2.value = '';
     libRefresh(); return;

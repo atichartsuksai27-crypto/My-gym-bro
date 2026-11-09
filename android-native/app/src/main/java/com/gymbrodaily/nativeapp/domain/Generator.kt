@@ -348,7 +348,9 @@ object Generator {
         val rank = a.str("Q16")?.let { Catalog.EXP_RANK[it] } ?: 0
         return Catalog.SPLIT_DEFS.mapValues { (_, def) ->
             val eligible = n >= def.minDays
-            SplitFeasibility(eligible, eligible && rank >= def.minRank, def.minDays)
+            val want = Schedule.desiredDays(a.parseFloat("Q19"))
+            // Q19 น้อยกว่าขั้นต่ำของแบบ = ยังเลือกเองได้ แต่ระบบไม่แนะนำ (ตรงกับ splitFeasibility ใน app.js)
+            SplitFeasibility(eligible, eligible && rank >= def.minRank && (want == null || want >= def.minDays), def.minDays)
         }
     }
 
@@ -415,7 +417,10 @@ object Generator {
         val avail = a.list("Q2")
         val td = plan.trainDays
         return if (td != null) Schedule.inAvailable(td, avail)
-        else Schedule.inAvailable(Schedule.freeTrainDays(Schedule.ofSplit(effectiveSplit(a, plan)), avail), avail)
+        else {
+            val split = effectiveSplit(a, plan)
+            Schedule.inAvailable(Schedule.freeTrainDays(Schedule.ofSplit(split), avail, Schedule.targetTrainDays(split, a.parseFloat("Q19"))), avail)
+        }
     }
 
     fun planCardioDays(a: Answers, plan: PlanOverrides): List<String> = Schedule.inAvailable(plan.cardioDays, a.list("Q2"))

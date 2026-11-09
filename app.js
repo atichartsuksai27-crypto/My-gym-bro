@@ -378,7 +378,7 @@ var EXCLUSION_MAP = {
    เผื่อคนที่ฝึกน้อยวัน · "ท่า@2" = ท่าตัวเลือกที่สองของรูปแบบเดียวกัน (ไม่ซ้ำกับท่าแรก) */
 var SPLIT_DEFS = {
   fullbody: {
-    key:'fullbody', label:'Full Body', minDays:1, minRank:0,
+    key:'fullbody', label:'Full Body', minDays:1, maxDays:3, minRank:0,
     desc:'ฝึกทั้งตัวทุกครั้ง แต่หมุนเวียนท่า A/B/C ในแต่ละวันให้โดนกล้ามเนื้อครบทุกส่วนในสัปดาห์ — ปลอดภัยสุดสำหรับมือใหม่ ต้องการวันว่างน้อยสุด',
     sessions:[
       {key:'Full Body A', patterns:['squat','hpush','hpull','hinge','latraise','triceps','core']},
@@ -387,7 +387,7 @@ var SPLIT_DEFS = {
     ]
   },
   ul: {
-    key:'ul', label:'Upper / Lower', minDays:4, minRank:1,
+    key:'ul', label:'Upper / Lower', minDays:4, maxDays:4, minRank:1,
     desc:'แยกวันบนตัว (Upper) กับล่างตัว (Lower) สลับกัน แต่ละฝั่งมี 2 ชุดท่า (A/B) ครบทุกส่วนใน 4 วัน — ต้องมีวันว่างอย่างน้อย 4 วัน/สัปดาห์',
     sessions:[
       {key:'Upper A', patterns:['hpush','hpull','vpush','latraise','triceps']},
@@ -397,7 +397,7 @@ var SPLIT_DEFS = {
     ]
   },
   ppl: {
-    key:'ppl', label:'Push / Pull / Legs', minDays:3, minRank:2,
+    key:'ppl', label:'Push / Pull / Legs', minDays:3, maxDays:6, minRank:2,
     desc:'แยกวันดัน (Push) ดึง (Pull) และขา (Legs) หมุนวนกัน ชุด A ครอบคลุมเกือบครบใน 3 วัน ชุด B เปลี่ยนท่าให้หลากหลายขึ้นเมื่อฝึกเกิน 3 วัน',
     sessions:[
       {key:'Push A', patterns:['hpush','incline','vpush','latraise','triceps']},
@@ -409,7 +409,7 @@ var SPLIT_DEFS = {
     ]
   },
   bro: {
-    key:'bro', label:'Bro Split (แยกกล้ามเนื้อรายวัน)', minDays:5, minRank:3,
+    key:'bro', label:'Bro Split (แยกกล้ามเนื้อรายวัน)', minDays:5, maxDays:5, minRank:3,
     desc:'แยกกล้ามเนื้อแต่ละกลุ่มเป็นวันของตัวเอง (อก/หลัง/ไหล่/ขา/แขน) แต่ละวันมีหลายท่าครบทุกมัด โวลุ่มต่อครั้งสูงสุด แต่แต่ละกลุ่มได้ฝึก ~1 ครั้ง/สัปดาห์ — ต้องมีวันว่างอย่างน้อย 5 วัน/สัปดาห์',
     sessions:[
       {key:'อก (Chest)', patterns:['hpush','incline','chestfly','hpush@2']},
@@ -822,8 +822,9 @@ function splitFeasibility(a){
   var out = {};
   Object.keys(SPLIT_DEFS).forEach(function(key){
     var def = SPLIT_DEFS[key];
-    var eligible = n >= def.minDays;
-    out[key] = { eligible: eligible, recommended: eligible && rank >= def.minRank, minDays: def.minDays };
+    var eligible = n >= def.minDays, want = desiredDays(a);
+    /* Q19 น้อยกว่าขั้นต่ำของแบบ = ยังเลือกเองได้ แต่ระบบไม่แนะนำ (เช่นอยากฝึก 3 วัน ไม่ควรได้ Bro Split 5 วัน) */
+    out[key] = { eligible: eligible, recommended: eligible && rank >= def.minRank && (want==null || want >= def.minDays), minDays: def.minDays };
   });
   return out;
 }
@@ -905,14 +906,17 @@ function assignSessions(splitKey, days){ return bestSchedule(SPLIT_DEFS[splitKey
 function clashText(c){
   return c.groups.map(function(g){ return GROUP_LABEL[g]||g; }).join('/')+'ถูกฝึกในวันติดกัน ('+c.from+' → '+c.to+')';
 }
-/* ชุดวันฝึกที่มากที่สุดจากวันว่างที่ไม่มีวันติดกันชนกัน — เท่ากันให้เลือกแบบที่ซ้อนกลุ่มรองน้อย และเว้นระยะห่างมากกว่า */
+/* ชุดวันฝึกที่มากที่สุด (ไม่เกิน maxCount) จากวันว่างที่ไม่มีวันติดกันชนกัน — เท่ากันให้เลือกแบบที่ซ้อนกลุ่มรองน้อย และเว้นระยะห่างมากกว่า
+   maxCount ไม่ส่ง = ไม่จำกัด — เดิมไม่มีเพดานเลย: PPL/Bro ที่ว่าง 7 วันได้ฝึกครบ 7 วันโดยไม่มีวันพัก (กฎเดียวคือห้ามกลุ่มเดียวกันติดกัน) */
 var _freeCache = {};
-function freeTrainDays(sessions, avail){
-  var days = weekOrder(avail), ck = (sessions||[]).map(function(s){ return s.key; }).join('|')+'#'+days.join(',');
+function freeTrainDays(sessions, avail, maxCount){
+  var days = weekOrder(avail), cap = maxCount>0 ? maxCount : days.length;
+  var ck = (sessions||[]).map(function(s){ return s.key; }).join('|')+'#'+days.join(',')+'#'+cap;
   if(_freeCache[ck]) return _freeCache[ck];
   var best = null;
   for(var mask=1; mask < (1<<days.length); mask++){
     var pick = days.filter(function(d, i){ return mask & (1<<i); });
+    if(pick.length > cap) continue;
     var r = bestSchedule(sessions, pick);
     if(r.hard) continue;
     var sc = [pick.length, -r.soft, -adjacentPairs(pick).length];
@@ -923,7 +927,21 @@ function freeTrainDays(sessions, avail){
 /* วันว่าง (Q2) = วันที่ "เลือกได้" เท่านั้น วันฝึก/วัน cardio จริงเลือกแยกในหน้าตรวจแผน */
 function minTrainDays(splitKey, a){
   var base = splitKey==='fullbody' ? Math.min(2, (a.Q2||[]).length) : SPLIT_DEFS[splitKey].minDays;
-  return Math.min(base, freeTrainDays(SPLIT_DEFS[splitKey].sessions, a.Q2).length);
+  return Math.min(base, freeTrainDays(SPLIT_DEFS[splitKey].sessions, a.Q2, maxTrainDays(splitKey)).length);
+}
+/* เพดานวันฝึกเวท/สัปดาห์ของแต่ละแบบ (SPLIT_DEFS.maxDays) — ต้องเหลือวันพักอย่างน้อย 1 วันเสมอ และไม่ให้เซสชันวนซ้ำเกินชุดที่มี:
+   Full Body 3 (ทั้งตัวทุกครั้ง ต้องเว้นวัน), Upper/Lower 4 (A/B ของบน-ล่างครบรอบละครั้ง), PPL 6 (A/B ครบ + พัก 1 วัน), Bro 5 (กลุ่มละ 1 วัน) */
+function maxTrainDays(splitKey){ return SPLIT_DEFS[splitKey].maxDays; }
+/* Q19 = จำนวนวันที่อยากออกกำลังกาย/สัปดาห์ (ถามเฉพาะคนที่ออกกำลังกายประจำขึ้นไป) — ไม่ตอบ/ค่าผิด = null */
+function desiredDays(a){
+  var n = parseInt(a && a.Q19, 10);
+  return n>=1 && n<=7 ? n : null;
+}
+/* จำนวนวันฝึกที่ระบบเลือกให้อัตโนมัติ: เพดานของแบบ หรือ Q19 ถ้าน้อยกว่า — แต่ไม่ต่ำกว่าขั้นต่ำของแบบ
+   (เลือกแบบเองทั้งที่ Q19 น้อยกว่าขั้นต่ำ = ใช้ขั้นต่ำ ไม่ทำให้แผนสร้างไม่ได้) */
+function targetTrainDays(splitKey, a){
+  var cap = maxTrainDays(splitKey), want = desiredDays(a);
+  return want ? Math.max(SPLIT_DEFS[splitKey].minDays, Math.min(cap, want)) : cap;
 }
 function inAvailable(days, a){
   var avail = a.Q2||[];
@@ -932,7 +950,8 @@ function inAvailable(days, a){
 /* ยังไม่ได้เลือกวันเอง = ใช้ชุดวันที่มากที่สุดที่ไม่มีกล้ามเนื้อกลุ่มเดียวกันโดนในวันติดกัน */
 function planTrainDays(a){
   var td = state.plan.trainDays;
-  return td ? inAvailable(td, a) : inAvailable(freeTrainDays(SPLIT_DEFS[effectiveSplit(a)].sessions, a.Q2), a);
+  var split = effectiveSplit(a);
+  return td ? inAvailable(td, a) : inAvailable(freeTrainDays(SPLIT_DEFS[split].sessions, a.Q2, targetTrainDays(split, a)), a);
 }
 function planCardioDays(a){ return inAvailable(state.plan.cardioDays, a); }
 function weekdayAdjacencyWarning(days){
@@ -3889,16 +3908,21 @@ function setSchedLists(ctx, train, cardio){
   persist(); render();
 }
 /* เพิ่มวันนี้เป็นวันฝึกแล้วกล้ามเนื้อกลุ่มเดียวกันชนกันในวันติดกันไหม — คืนข้อความห้าม หรือ null ถ้าเพิ่มได้ */
-function trainDayBlockMsg(sessions, list, day){
+function trainDayBlockMsg(sessions, list, day, splitKey){
+  if(SPLIT_DEFS[splitKey] && list.length >= maxTrainDays(splitKey)) return maxDaysMsg(splitKey, 'เพิ่ม'+day+'เป็นวันฝึกไม่ได้')+' (ใช้วันนี้เป็นวัน cardio ได้)';
   var cur = bestSchedule(sessions, list), next = bestSchedule(sessions, list.concat([day]));
   if(!cur.hard && next.hard) return 'เลือก'+day+'เป็นวันฝึกไม่ได้ — จะทำให้'+clashText(next.clash)+' กล้ามเนื้อต้องพัก ~48 ชม. (วันนี้ใช้เป็นวันพักหรือวัน cardio ได้)';
   return null;
+}
+/* ข้อความเมื่อวันฝึกเกินเพดานของแบบ — ใช้ร่วมทุกจุดที่ตรวจ (เลือกวันเอง/เริ่มโปรแกรม/บันทึกวันฝึก) */
+function maxDaysMsg(splitKey, lead){
+  return lead+' — '+SPLIT_DEFS[splitKey].label+' ฝึกเวทได้ไม่เกิน '+maxTrainDays(splitKey)+' วัน/สัปดาห์ ต้องเหลือวันพักให้กล้ามเนื้อฟื้นตัว';
 }
 /* เลือกรูปแบบโปรแกรม (null = ให้ระบบแนะนำ) — ล้างท่าที่เลือกเอง และถ้าวันที่เลือกไว้ชนกัน/ไม่พอในแบบใหม่ กลับไปใช้ชุดวันอัตโนมัติ */
 function chooseSplit(key){
   state.plan.splitOverride = key; state.plan.manualPick = {};
   var nSplit = effectiveSplit(state.answers), nDays = state.plan.trainDays ? inAvailable(state.plan.trainDays, state.answers) : null;
-  if(nDays && (bestSchedule(SPLIT_DEFS[nSplit].sessions, nDays).hard || nDays.length < minTrainDays(nSplit, state.answers))) state.plan.trainDays = null;
+  if(nDays && (bestSchedule(SPLIT_DEFS[nSplit].sessions, nDays).hard || nDays.length < minTrainDays(nSplit, state.answers) || nDays.length > maxTrainDays(nSplit))) state.plan.trainDays = null;
 }
 /* ด่านสุดท้ายก่อนล็อกแผนจริง (C-01/C-02) — คืนข้อความที่ยังสร้างไม่ได้ หรือ null */
 function startGateError(){
@@ -3912,6 +3936,7 @@ function startGateError(){
   if(planTrainDays(state.answers).length < minTrainDays(gSplit, state.answers)){
     return 'ยังสร้างตารางไม่ได้ — '+SPLIT_DEFS[gSplit].label+' ต้องมีวันฝึกอย่างน้อย '+minTrainDays(gSplit, state.answers)+' วัน/สัปดาห์';
   }
+  if(planTrainDays(state.answers).length > maxTrainDays(gSplit)) return maxDaysMsg(gSplit, 'ยังสร้างตารางไม่ได้')+' เอาวันฝึกออกก่อน';
   var gSch = bestSchedule(SPLIT_DEFS[gSplit].sessions, planTrainDays(state.answers));
   if(gSch.hard){
     return 'ยังสร้างตารางไม่ได้ — '+clashText(gSch.clash)+' กล้ามเนื้อต้องพัก ~48 ชม. ปรับวันฝึกก่อน';
@@ -3948,6 +3973,7 @@ function schedDraftNext(p, dr){
   var avail = progAvailDays(p);
   var need = minTrainDays(p.splitKey, {Q2:avail});
   if(dr.days.length < need) return {error:'ยังบันทึกไม่ได้ — '+(p.splitLabel||'')+' ต้องมีวันฝึกอย่างน้อย '+need+' วัน/สัปดาห์'};
+  if(SPLIT_DEFS[p.splitKey] && dr.days.length > maxTrainDays(p.splitKey)) return {error:maxDaysMsg(p.splitKey, 'ยังบันทึกไม่ได้')+' เอาวันฝึกออกก่อน'};
   var sch = bestSchedule(p.sessions||[], dr.days);
   if(sch.hard) return {error:'ยังบันทึกไม่ได้ — '+clashText(sch.clash)+' กล้ามเนื้อต้องพัก ~48 ชม. เอาวันใดวันหนึ่งออกก่อน'};
   var next = {};
@@ -4497,10 +4523,11 @@ function scheduleEditorHTML(ctx, splitKey, avail, train, cardio, minByDay, sessM
   sessions = sessions || def.sessions;
   var d2s = {}, sch = bestSchedule(sessions, train);
   sch.list.forEach(function(x){ d2s[x.day]=x.session; });
-  var minTrain = minTrainDays(splitKey, {Q2:avail});
+  var minTrain = minTrainDays(splitKey, {Q2:avail}), maxTrain = maxTrainDays(splitKey);
   var cards = DAYS.map(function(d,i){
     var isAvail = avail.indexOf(d)>-1, isTrain = train.indexOf(d)>-1, isCardio = cardio.indexOf(d)>-1;
-    var blocked = isAvail && !isTrain && !sch.hard && bestSchedule(sessions, train.concat([d])).hard > 0;
+    var capped = isAvail && !isTrain && train.length >= maxTrain;
+    var blocked = capped || (isAvail && !isTrain && !sch.hard && bestSchedule(sessions, train.concat([d])).hard > 0);
     var sKey = isTrain ? d2s[d] : null;
     var seDef = sKey ? sessions.filter(function(s){return s.key===sKey;})[0] : null;
     var chips = seDef ? sessionMuscles(seDef).map(function(p){ return '<span class="chip">'+esc(PATTERN_SHORT[p]||p)+'</span>'; }).join('') : '';
@@ -4509,19 +4536,19 @@ function scheduleEditorHTML(ctx, splitKey, avail, train, cardio, minByDay, sessM
     var body = isAvail
       ? '<div class="sched-btns">'+
           '<button type="button" class="opt'+(isTrain?' sel':'')+(blocked?' blocked':'')+'" data-act="train-day" data-ctx="'+ctx+'" data-day="'+esc(d)+'" aria-pressed="'+isTrain+'"'+
-            (blocked?' title="ติดกับวันฝึกที่ใช้กล้ามเนื้อกลุ่มเดียวกัน"':'')+'>ฝึก</button>'+
+            (blocked?' title="'+(capped?'ครบเพดานวันฝึกแล้ว':'ติดกับวันฝึกที่ใช้กล้ามเนื้อกลุ่มเดียวกัน')+'"':'')+'>ฝึก</button>'+
           '<button type="button" class="opt'+(isCardio?' sel':'')+'" data-act="cardio-day" data-ctx="'+ctx+'" data-day="'+esc(d)+'" aria-pressed="'+isCardio+'">Cardio</button>'+
         '</div>'+
         (isCardio ? '<div class="sched-row"><label>Cardio วันนี้</label><input type="number" inputmode="numeric" min="5" max="300" data-act="cardio-day-min" data-ctx="'+ctx+'" data-day="'+esc(d)+'" data-fkey="cmin-'+ctx+'-'+esc(d)+'" value="'+mins+'"> นาที</div>' : '')
       : '<div class="wk-sub">ไม่ได้เลือกเป็นวันว่างในแบบสอบถาม</div>';
-    if(blocked) body += '<div class="wk-sub sched-block">ฝึกไม่ได้ — ติดกับวันฝึกกล้ามเนื้อกลุ่มเดียวกัน (พักได้ หรือทำ cardio)</div>';
+    if(blocked) body += '<div class="wk-sub sched-block">'+(capped ? 'วันพัก — ครบ '+maxTrain+' วันฝึกแล้ว (ทำ cardio ได้)' : 'ฝึกไม่ได้ — ติดกับวันฝึกกล้ามเนื้อกลุ่มเดียวกัน (พักได้ หรือทำ cardio)')+'</div>';
     return '<div class="wk-card'+(isTrain||isCardio?'':' rest')+(isAvail?'':' unavail')+'"><div class="wk-top"><span class="wk-day mono">'+esc(DAYS_SHORT[i])+'</span>'+
       (isTrain&&sessMinutes?'<span class="chip">'+esc(sessMinutes)+'</span>':'')+'</div>'+
       '<div class="wk-name">'+esc(name)+'</div>'+
       (chips?'<div class="wk-sub">'+chips+'</div>':'')+body+'</div>';
   }).join('');
   var note = train.length >= minTrain
-    ? '<div class="split-auto-line">เลือกวันฝึกไว้ '+train.length+' วัน (ขั้นต่ำของ '+esc(def.label)+' คือ '+minTrain+' วัน) · Cardio '+cardio.length+' วัน — เลือกได้เฉพาะวันที่ว่าง ไม่ต้องใช้ครบทุกวัน cardio อยู่วันเดียวกับวันฝึกหรือคนละวันก็ได้ และตั้งนาทีแยกแต่ละวันได้</div>'
+    ? '<div class="split-auto-line">เลือกวันฝึกไว้ '+train.length+' วัน ('+esc(def.label)+' ฝึกได้ '+minTrain+'–'+maxTrain+' วัน ต้องมีวันพัก) · Cardio '+cardio.length+' วัน — เลือกได้เฉพาะวันที่ว่าง ไม่ต้องใช้ครบทุกวัน cardio อยู่วันเดียวกับวันฝึกหรือคนละวันก็ได้ และตั้งนาทีแยกแต่ละวันได้</div>'
     : '<div class="banner warn"><div class="ic">⚠️</div><div>'+esc(def.label)+' ต้องมีวันฝึกอย่างน้อย <b>'+minTrain+' วัน/สัปดาห์</b> ตอนนี้เลือกไว้ '+train.length+' วัน — กด “ฝึก” เพิ่มในวันที่ว่าง</div></div>';
   var rule = '<div class="split-auto-line">'+(splitKey==='fullbody'
       ? 'Full Body ฝึกทั้งตัวทุกครั้ง จึงต้อง<b>เว้นอย่างน้อย 1 วันระหว่างวันฝึก</b> (นับอาทิตย์ → จันทร์ด้วย) ให้กล้ามเนื้อได้พัก ~48 ชม.'
@@ -6201,7 +6228,7 @@ document.addEventListener("click", function(ev){
     track.schedMsg = '';
     if(act==='train-day' && at===-1){
       var tsess = sctx==='prog' ? (track.program.sessions||[]) : SPLIT_DEFS[effectiveSplit(state.answers)].sessions;
-      var tmsg = trainDayBlockMsg(tsess, list, dday);
+      var tmsg = trainDayBlockMsg(tsess, list, dday, sctx==='prog' ? track.program.splitKey : effectiveSplit(state.answers));
       if(tmsg){ track.schedMsg = tmsg; render(); return; }
     }
     if(at>-1) list.splice(at,1); else list.push(dday);

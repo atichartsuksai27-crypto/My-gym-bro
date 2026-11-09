@@ -25,6 +25,8 @@ data class SplitDef(
     val minRank: Int,
     val desc: String,
     val sessions: List<SessionDef>,
+    /** เพดานวันฝึกเวท/สัปดาห์ — ตรงกับ SPLIT_DEFS.maxDays ใน app.js (ต้องเหลือวันพักเสมอ) */
+    val maxDays: Int,
 )
 
 object Catalog {
@@ -212,6 +214,7 @@ object Catalog {
                 SessionDef("Full Body B", listOf("lunge", "incline", "vpull", "glute", "reardelt", "biceps", "oblique")),
                 SessionDef("Full Body C", listOf("squat@2", "vpush", "vpull@2", "legcurl", "chestfly", "calf", "core@2")),
             ),
+            maxDays = 3,
         ),
         "ul" to SplitDef(
             "ul", "Upper / Lower", 4, 1,
@@ -222,6 +225,7 @@ object Catalog {
                 SessionDef("Upper B", listOf("incline", "vpull", "chestfly", "reardelt", "biceps")),
                 SessionDef("Lower B", listOf("lunge", "glute", "legcurl", "oblique")),
             ),
+            maxDays = 4,
         ),
         "ppl" to SplitDef(
             "ppl", "Push / Pull / Legs", 3, 2,
@@ -234,6 +238,7 @@ object Catalog {
                 SessionDef("Pull B", listOf("hpull@2", "vpull@2", "reardelt", "biceps@2")),
                 SessionDef("Legs B", listOf("squat@2", "hinge@2", "glute", "legcurl", "calf", "oblique")),
             ),
+            maxDays = 6,
         ),
         "bro" to SplitDef(
             "bro", "Bro Split (แยกกล้ามเนื้อรายวัน)", 5, 3,
@@ -245,6 +250,7 @@ object Catalog {
                 SessionDef("ขา (Legs)", listOf("squat", "hinge", "lunge", "glute", "legcurl", "calf")),
                 SessionDef("แขน (Arms)", listOf("biceps", "triceps", "biceps@2", "triceps@2", "core", "oblique")),
             ),
+            maxDays = 5,
         ),
     )
 

@@ -415,7 +415,7 @@ private fun ResultsPage(onb: Onboarding, store: TrackStore, hasProgram: Boolean,
     ScheduleEditor(
         split, avail, trainDays, cardioDays, plan.cardioMinByDay, a.str("Q3") ?: "", splitSessions, schedMsg,
         onTrain = { d ->
-            val blockMsg = if (d !in trainDays) PlanEditing.trainDayBlockMsg(splitSessions, trainDays, d) else null
+            val blockMsg = if (d !in trainDays) PlanEditing.trainDayBlockMsg(splitSessions, trainDays, d, split) else null
             schedMsg = blockMsg
             if (blockMsg == null) {
                 val next = if (d in trainDays) trainDays - d else trainDays + d

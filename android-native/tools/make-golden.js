@@ -304,6 +304,10 @@ for(var t = 0; t < TRACKING_CASES; t++){
   if(rnd() < 0.9) ta.Q2 = subset(DAYS, 0.5);
   setState({plan: randomPlan(), answers: ta});
   var program = plain(A.buildPlanSnapshot(ta));
+  /* หลังสร้างโปรแกรมแล้ว ใช้แผนเริ่มต้น (แบบ PlanOverrides() ของ native) — targetsOf ของโปรแกรมที่ไม่มี targets
+     เรียก computeTargets(state.answers) ซึ่งอ่าน state.plan; ปล่อย randomPlan ค้างไว้ = ค่าคาดหวังขึ้นกับแผนสุ่มที่ไม่ได้บันทึกลงเคส
+     (เห็นชัดตอนวันฝึกมีเพดานต่อแบบ: splitOverride สุ่มเปลี่ยนจำนวนวันฝึก → แคลฝึก → เป้าแคล) */
+  setState({plan: plain(ev('freshState')().plan), answers: ta});
   var today = pick(TODAYS);
   ctx.__today = today;
   var todayD = new RealDate(today + 'T12:00:00');
@@ -692,7 +696,7 @@ var planEditCases = [];
     for(var bi = 0; bi < 6; bi++){
       var lst = DAYS.filter(function(){ return rnd() < 0.4; }), dd = pick(DAYS);
       if(lst.indexOf(dd) > -1) continue;
-      out.block.push({list: lst, day: dd, msg: PE.trainDayBlockMsg(p.sessions, lst, dd), msgSplit: PE.trainDayBlockMsg(PE.SPLIT_DEFS[out.split].sessions, lst, dd)});
+      out.block.push({list: lst, day: dd, msg: PE.trainDayBlockMsg(p.sessions, lst, dd, p.splitKey), msgSplit: PE.trainDayBlockMsg(PE.SPLIT_DEFS[out.split].sessions, lst, dd, out.split)});
     }
     // กด "แก้ไขแผน" ในโปรแกรมนี้
     p.cardioMinByDay = p.cardioMinByDay || {};

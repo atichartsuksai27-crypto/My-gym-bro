@@ -85,8 +85,8 @@ class PlanEditParityTest {
                         blocks++
                         buildJsonObject {
                             put("list", bo["list"]!!); put("day", d)
-                            put("msg", PlanEditing.trainDayBlockMsg(p.sessions.map { Schedule.of(it) }, lst, d))
-                            put("msgSplit", PlanEditing.trainDayBlockMsg(Schedule.ofSplit(split), lst, d))
+                            put("msg", PlanEditing.trainDayBlockMsg(p.sessions.map { Schedule.of(it) }, lst, d, p.splitKey))
+                            put("msgSplit", PlanEditing.trainDayBlockMsg(Schedule.ofSplit(split), lst, d, split))
                         }
                     }))
                     val sp = PlanEditing.seedPlanFromProgram(plan, p)

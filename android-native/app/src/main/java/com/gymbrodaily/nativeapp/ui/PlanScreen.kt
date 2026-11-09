@@ -111,7 +111,7 @@ fun PlanScreen(
                 ScheduleEditor(
                     p.splitKey, PlanEditing.progAvailDays(p, t.answers), dr.days, dr.cardioDays, dr.cardioMinByDay, p.minutesEstimate ?: "", progSessions, draftMsg,
                     onTrain = { d ->
-                        val blockMsg = if (d !in dr.days) PlanEditing.trainDayBlockMsg(progSessions, dr.days, d) else null
+                        val blockMsg = if (d !in dr.days) PlanEditing.trainDayBlockMsg(progSessions, dr.days, d, p.splitKey) else null
                         draftMsg = blockMsg
                         if (blockMsg == null) draft = dr.copy(days = byWeek(if (d in dr.days) dr.days - d else dr.days + d))
                     },

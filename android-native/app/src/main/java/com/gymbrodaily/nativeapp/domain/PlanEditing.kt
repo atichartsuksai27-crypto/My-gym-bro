@@ -83,6 +83,7 @@ object PlanEditing {
         val days = Generator.planTrainDays(a, plan)
         val need = Schedule.minTrainDays(split, a.list("Q2"))
         if (days.size < need) return "ยังสร้างตารางไม่ได้ — ${Catalog.SPLIT_DEFS.getValue(split).label} ต้องมีวันฝึกอย่างน้อย $need วัน/สัปดาห์"
+        if (days.size > Schedule.maxTrainDays(split)) return maxDaysMsg(split, "ยังสร้างตารางไม่ได้") + " เอาวันฝึกออกก่อน"
         val sch = Schedule.bestSchedule(Schedule.ofSplit(split), days)
         if (sch.hard != 0) return "ยังสร้างตารางไม่ได้ — ${sch.clash?.let { Schedule.clashText(it) } ?: ""} กล้ามเนื้อต้องพัก ~48 ชม. ปรับวันฝึกก่อน"
         return null
@@ -97,7 +98,7 @@ object PlanEditing {
         val split = Generator.effectiveSplit(a, p1)
         val avail = a.list("Q2")
         val nDays = p1.trainDays?.let { Schedule.inAvailable(it, avail) }
-        val reset = nDays != null && (Schedule.bestSchedule(Schedule.ofSplit(split), nDays).hard != 0 || nDays.size < Schedule.minTrainDays(split, avail))
+        val reset = nDays != null && (Schedule.bestSchedule(Schedule.ofSplit(split), nDays).hard != 0 || nDays.size < Schedule.minTrainDays(split, avail) || nDays.size > Schedule.maxTrainDays(split))
         return if (reset) p1.copy(trainDays = null) else p1
     }
 
@@ -122,8 +123,15 @@ object PlanEditing {
         return plan.copy(trainDays = p.days, cardioDays = p.cardioDays, cardioMinByDay = mins, intensity = intensity)
     }
 
-    /** เพิ่มวันนี้เป็นวันฝึกแล้วกล้ามเนื้อกลุ่มเดียวกันชนกันในวันติดกันไหม — คืนข้อความห้าม หรือ null ถ้าเพิ่มได้ */
-    fun trainDayBlockMsg(sessions: List<SchedSession>, list: List<String>, day: String): String? {
+    /** ข้อความเมื่อวันฝึกเกินเพดานของแบบ — ตรงกับ maxDaysMsg ใน app.js */
+    fun maxDaysMsg(splitKey: String, lead: String): String =
+        "$lead — ${Catalog.SPLIT_DEFS.getValue(splitKey).label} ฝึกเวทได้ไม่เกิน ${Schedule.maxTrainDays(splitKey)} วัน/สัปดาห์ ต้องเหลือวันพักให้กล้ามเนื้อฟื้นตัว"
+
+    /** เพิ่มวันนี้เป็นวันฝึกได้ไหม (เกินเพดานของแบบ / กล้ามเนื้อกลุ่มเดียวกันชนกันในวันติดกัน) — คืนข้อความห้าม หรือ null ถ้าเพิ่มได้ */
+    fun trainDayBlockMsg(sessions: List<SchedSession>, list: List<String>, day: String, splitKey: String?): String? {
+        if (splitKey != null && splitKey in Catalog.SPLIT_DEFS && list.size >= Schedule.maxTrainDays(splitKey)) {
+            return maxDaysMsg(splitKey, "เพิ่ม${day}เป็นวันฝึกไม่ได้") + " (ใช้วันนี้เป็นวัน cardio ได้)"
+        }
         val cur = Schedule.bestSchedule(sessions, list)
         val next = Schedule.bestSchedule(sessions, list + day)
         if (cur.hard == 0 && next.hard != 0) {
@@ -139,6 +147,9 @@ object PlanEditing {
         val avail = progAvailDays(p, a)
         val need = Schedule.minTrainDays(p.splitKey, avail)
         if (dr.days.size < need) return SchedDraftResult(error = "ยังบันทึกไม่ได้ — ${p.splitLabel} ต้องมีวันฝึกอย่างน้อย $need วัน/สัปดาห์")
+        if (p.splitKey in Catalog.SPLIT_DEFS && dr.days.size > Schedule.maxTrainDays(p.splitKey)) {
+            return SchedDraftResult(error = maxDaysMsg(p.splitKey, "ยังบันทึกไม่ได้") + " เอาวันฝึกออกก่อน")
+        }
         val sch = Schedule.bestSchedule(p.sessions.map { Schedule.of(it) }, dr.days)
         if (sch.hard != 0) {
             return SchedDraftResult(error = "ยังบันทึกไม่ได้ — ${sch.clash?.let { Schedule.clashText(it) } ?: ""} กล้ามเนื้อต้องพัก ~48 ชม. เอาวันใดวันหนึ่งออกก่อน")

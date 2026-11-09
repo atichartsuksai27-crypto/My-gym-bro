@@ -118,14 +118,19 @@ object Schedule {
 
     private val freeCache = HashMap<String, List<String>>()
 
-    /** ชุดวันฝึกที่มากที่สุดจากวันว่างที่ไม่มีวันติดกันชนกัน — เท่ากันให้เลือกแบบที่ซ้อนกลุ่มรองน้อย และเว้นระยะห่างมากกว่า */
-    fun freeTrainDays(sessions: List<SchedSession>, avail: List<String>?): List<String> {
+    /**
+     * ชุดวันฝึกที่มากที่สุด (ไม่เกิน maxCount) จากวันว่างที่ไม่มีวันติดกันชนกัน — เท่ากันให้เลือกแบบที่ซ้อนกลุ่มรองน้อย และเว้นระยะห่างมากกว่า
+     * maxCount ≤ 0 = ไม่จำกัด — เดิมไม่มีเพดาน: PPL/Bro ที่ว่าง 7 วันได้ฝึกครบ 7 วันโดยไม่มีวันพัก
+     */
+    fun freeTrainDays(sessions: List<SchedSession>, avail: List<String>?, maxCount: Int = 0): List<String> {
         val days = weekOrder(avail)
-        val ck = sessions.joinToString("|") { it.key } + "#" + days.joinToString(",")
+        val cap = if (maxCount > 0) maxCount else days.size
+        val ck = sessions.joinToString("|") { it.key } + "#" + days.joinToString(",") + "#" + cap
         freeCache[ck]?.let { return it }
         var best: Pair<List<Int>, List<String>>? = null
         for (mask in 1 until (1 shl days.size)) {
             val pick = days.filterIndexed { i, _ -> mask and (1 shl i) != 0 }
+            if (pick.size > cap) continue
             val r = bestSchedule(sessions, pick)
             if (r.hard != 0) continue
             val sc = listOf(pick.size, -r.soft, -adjacentPairs(pick).size)
@@ -138,7 +143,23 @@ object Schedule {
     /** วันว่าง (Q2) = วันที่ "เลือกได้" เท่านั้น วันฝึก/วัน cardio จริงเลือกแยกในหน้าตรวจแผน */
     fun minTrainDays(splitKey: String, avail: List<String>): Int {
         val base = if (splitKey == "fullbody") min(2, avail.size) else Catalog.SPLIT_DEFS.getValue(splitKey).minDays
-        return min(base, freeTrainDays(ofSplit(splitKey), avail).size)
+        return min(base, freeTrainDays(ofSplit(splitKey), avail, maxTrainDays(splitKey)).size)
+    }
+
+    /**
+     * เพดานวันฝึกเวท/สัปดาห์ของแต่ละแบบ (SplitDef.maxDays) — ต้องเหลือวันพักเสมอ และไม่ให้เซสชันวนซ้ำเกินชุดที่มี:
+     * Full Body 3, Upper/Lower 4, PPL 6, Bro 5 (ตรงกับ maxTrainDays ใน app.js)
+     */
+    fun maxTrainDays(splitKey: String): Int = Catalog.SPLIT_DEFS.getValue(splitKey).maxDays
+
+    /** Q19 = จำนวนวันที่อยากออกกำลังกาย/สัปดาห์ (ค่าจาก Answers.parseFloat) — ไม่ตอบ/ค่าผิด = null; ตัดทศนิยมแบบ parseInt ใน desiredDays ของ app.js */
+    fun desiredDays(q19: Double): Int? = if (q19.isNaN() || q19.isInfinite()) null else q19.toInt().takeIf { it in 1..7 }
+
+    /** จำนวนวันฝึกที่เลือกให้อัตโนมัติ: เพดานของแบบ หรือ Q19 ถ้าน้อยกว่า — ไม่ต่ำกว่าขั้นต่ำของแบบ */
+    fun targetTrainDays(splitKey: String, q19: Double): Int {
+        val cap = maxTrainDays(splitKey)
+        val want = desiredDays(q19) ?: return cap
+        return max(Catalog.SPLIT_DEFS.getValue(splitKey).minDays, min(cap, want))
     }
 
     fun inAvailable(days: List<String>?, avail: List<String>): List<String> =

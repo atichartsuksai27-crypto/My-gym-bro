@@ -56,7 +56,7 @@ class GoldenParityTest {
             put("SPLIT_DEFS", buildJsonObject {
                 Catalog.SPLIT_DEFS.forEach { (k, d) ->
                     put(k, buildJsonObject {
-                        put("key", d.key); put("label", d.label); put("minDays", d.minDays); put("minRank", d.minRank)
+                        put("key", d.key); put("label", d.label); put("minDays", d.minDays); put("maxDays", d.maxDays); put("minRank", d.minRank)
                         put("desc", d.desc)
                         put("sessions", JsonArray(d.sessions.map { s ->
                             buildJsonObject {

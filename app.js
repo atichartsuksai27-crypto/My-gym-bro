@@ -2313,11 +2313,81 @@ function prevExerciseLog(exId, iso){
   }
   return null;
 }
+/* ---- อ่านจำนวนครั้งต่อเซ็ตเทียบช่วงเป้า แล้วเชื่อมกับปุ่ม "แรงเหลือหลังเล่น" ----
+   ใช้เซ็ตแรกที่ใช้น้ำหนักสูงสุดเป็นตัวชี้วัดหลัก (ยังไม่ล้า สะท้อนว่าน้ำหนักพอดีหรือไม่) เทียบกับช่วงเป้าของท่า
+   (เช่น 4-8 ในโหมดเข้มข้น, 8-12 ปกติ):
+     ต่ำกว่าช่วงล่าง (เช่น 3 ครั้งจาก 4-8) → น้ำหนักหนักไป → ครั้งหน้า "ลด" (ขาดน้อยลดน้อย ขาดมากลดมาก)
+     เกินช่วงบน (เช่น 10 ครั้งจาก 4-8)    → น้ำหนักเบาไป → ครั้งหน้า "เพิ่ม" แม้เลือกว่า "พอดี"
+     อยู่ในช่วง                            → พอดี → ให้ความรู้สึกหลังเล่นตัดสินเหมือนเดิม
+   ถ้าจำนวนครั้งขัดกับความรู้สึก (เช่น ทำได้ 3 ครั้งแต่เลือก "ยกเพิ่มได้อีก") ระบบเชื่อจำนวนครั้งและบอกผู้ใช้
+   ใช้เฉพาะท่าที่ใส่น้ำหนัก — ท่าน้ำหนักตัว/จับเวลาใช้กติกาเดิม
+   Android: Progression ใน Kotlin ยังไม่มีกติกานี้ — ต้องพอร์ตและทำ golden ใหม่ทีหลัง */
+function setVerdict(reps, rr){
+  if(reps==null || isNaN(reps)) return null;
+  return reps < rr.lo ? 'low' : (reps > rr.hi ? 'high' : 'in');
+}
+var SET_VERDICT_LABEL = {low:'ต่ำกว่าช่วง', in:'ในช่วง', high:'เกินช่วง'};
+var SET_VERDICT_ICON = {low:'↓', in:'✓', high:'↑'};
+/* ป้ายท้ายช่องกรอกเซ็ต: บอกว่าเซ็ตนี้ต่ำกว่า/อยู่ใน/เกินช่วงเป้า (ข้อความกำกับเสมอ ไม่ใช้สีอย่างเดียว) */
+function setVerdictTag(reps, rr){
+  var v = setVerdict(Number(reps), rr);
+  if(!v) return '';
+  return '<span class="set-verdict v-'+v+'" title="ช่วงเป้า '+rr.lo+'–'+rr.hi+' ครั้ง">'+SET_VERDICT_ICON[v]+' '+SET_VERDICT_LABEL[v]+'</span>';
+}
+function repsSignal(ex, base){
+  if(exKind(ex, base) !== 'weight') return null;
+  var rr = repRange(ex.setsReps), top = topWeight(base), ref = -1;
+  for(var i=0; i<base.length; i++){ if(base[i].weight === top){ ref = i; break; } }
+  if(ref < 0 || base[ref].reps == null) return null;
+  var first = base[ref].reps, v = setVerdict(first, rr);
+  var last = base[base.length-1].reps;
+  return {
+    range: rr, first: first, refIndex: ref,
+    verdict: v==='low' ? 'heavy' : (v==='high' ? 'light' : 'ok'),
+    shortfall: v==='low' ? rr.lo - first : 0,
+    fatigue: v==='in' && last!=null && base.length>1 && last < rr.lo, // เซ็ตแรกอยู่ในช่วง แต่เซ็ตท้ายตกต่ำกว่าช่วง = ล้าเร็ว (แจ้งเฉยๆ ไม่ปรับน้ำหนัก)
+    lastReps: last
+  };
+}
+/* น้ำหนักหนักไป → ลดตามที่ขาด: ขาด 1 ครั้ง ~5% · ขาด 2 ครั้ง ~10% · ขาด 3+ ครั้ง ~15% ปัดเป็นขั้นอุปกรณ์ (อย่างน้อย 1 ขั้น ไม่เกิน ~20%)
+   ถ้าเพิ่งขึ้นน้ำหนักจากครั้งก่อนและน้ำหนักเดิมต่ำกว่า ให้กลับไปน้ำหนักเดิม (ค่าที่เคยทำได้) */
+function heavyPlan(ex, base, sets, sig, feel, prog, out){
+  var top = topWeight(base), step = equipStep(ex, top), rr = sig.range;
+  var pct = sig.shortfall >= 3 ? 0.15 : (sig.shortfall === 2 ? 0.10 : 0.05);
+  var dec = Math.max(step, Math.round(top*pct/step)*step);
+  dec = Math.min(dec, Math.max(step, Math.floor(top*0.2/step)*step));
+  var target = r2(top - dec), viaBack = false;
+  if(prog && prog.kind==='weight' && !prog.reverted && prog.from>0 && prog.from < top && prog.from < target){ target = prog.from; viaBack = true; }
+  if(!(target > 0) || target >= top) return null; // ลดต่อไม่ได้ (น้ำหนักต่ำกว่าขั้นของอุปกรณ์) — ใช้กติกาเดิม
+  var d = r2(top - target);
+  sets.forEach(function(s){
+    if(s.weight>0) s.weight = r2(Math.max(0, s.weight - d));
+    if(s.reps!=null) s.reps = Math.min(rr.hi, Math.max(rr.lo, s.reps));
+  });
+  out.change = {kind:'down', from:top, to:target, dec:d};
+  out.note = 'เซ็ตแรกทำได้ '+sig.first+' ครั้ง ต่ำกว่าช่วงเป้า '+rr.lo+'–'+rr.hi+' (น้ำหนักหนักไป) → ลด '+d+' กก.'+
+    (viaBack ? ' กลับไปน้ำหนักที่เคยทำได้' : (sig.shortfall >= 2 ? ' (ขาดมาก จึงลดมากหน่อย)' : ' (ขาดนิดเดียว ลดเล็กน้อย)'))+
+    (feel==='more' ? ' · จำนวนครั้งขัดกับความรู้สึก “ยกเพิ่มได้อีก” — ระบบเชื่อจำนวนครั้ง' : '');
+  return out;
+}
 /* แผนจากเซ็ตฐาน + ความรู้สึก (ใช้ได้ทั้งคำนวณวันนี้จากครั้งก่อน และพรีวิว "ครั้งหน้า" จากวันนี้) */
 function planFrom(ex, base, feel, prog, symptom){
   var rr = repRange(ex.setsReps), kind = exKind(ex, base), sets = fitSets(base, setCountFor(ex.setsReps));
   var top = topWeight(base), out = {kind:kind, sets:sets, base:fitSets(base, setCountFor(ex.setsReps)), change:null, note:''};
   var lvl = symptom && symptom.level;
+  var sig = repsSignal(ex, base), lightSignal = false;
+  out.signal = sig;
+  if(sig && sig.verdict==='heavy'){
+    var dn = heavyPlan(ex, base, sets, sig, feel, prog, out);
+    if(dn) return dn;
+  } else if(sig && sig.verdict==='light'){
+    if(feel==='hard'){
+      out.change = {kind:'hold'};
+      out.note = 'เซ็ตแรกทำได้ '+sig.first+' ครั้ง เกินช่วงเป้า '+rr.lo+'–'+rr.hi+' แต่เลือกว่า “หนักไป” — ขัดกัน ยังไม่เพิ่ม ลองดูรอบหน้า';
+      return out;
+    }
+    lightSignal = true; feel = 'more'; // น้ำหนักเบาไป → ใช้เส้นทางเพิ่มน้ำหนักเดิม (ผ่านด่านอาการบาดเจ็บ/เซ็ตท้ายต่ำกว่าช่วง ตามเดิม)
+  }
   if(feel==='more'){
     if(lvl==='caution' || lvl==='injury' || lvl==='emergency'){
       out.change = {kind:'hold'}; out.note = 'ครั้งก่อนบันทึกอาการ “'+symptom.text+'” — ยังไม่เพิ่ม รอให้หายก่อน'; return out;
@@ -2334,7 +2404,7 @@ function planFrom(ex, base, feel, prog, symptom){
         out.change = {kind:'weight', from:top, to:r2(top + inc), inc:inc};
         out.note = tierNote(tier, step, top)+' → เพิ่ม +'+inc+' กก.'+(inc > step ? ' ('+(inc/step)+' ขั้น)' : '')+
           (cautious ? ' · ขึ้นแค่ 1 ขั้น เพราะครั้งก่อนกลับไปน้ำหนักเดิม' : '');
-      } else if(base.every(function(s){ return (s.reps||0) >= rr.hi; })){
+      } else if(lightSignal || base.every(function(s){ return (s.reps||0) >= rr.hi; })){
         sets.forEach(function(s){ if(s.weight>0) s.weight = r2(s.weight + step); s.reps = rr.lo; });
         out.change = {kind:'weight', from:top, to:r2(top + step), inc:step};
         out.note = tierNote(tier, step, top)+' · ทำครบ '+rr.hi+' ครั้งทุกเซ็ตแล้ว → ขึ้น +'+step+' กก. และเริ่มใหม่ที่ '+rr.lo+' ครั้ง';
@@ -2364,6 +2434,7 @@ function planFrom(ex, base, feel, prog, symptom){
   } else {
     out.note = feel==='ok' ? 'พอดี → ใช้ค่าเดิม' : '';
   }
+  if(lightSignal && out.change && out.change.kind!=='hold') out.note = 'เซ็ตแรกทำได้ '+sig.first+' ครั้ง เกินช่วงเป้า '+rr.lo+'–'+rr.hi+' (น้ำหนักเบาไป) · '+out.note;
   return out;
 }
 /* แผนของวันนี้จากครั้งล่าสุดที่เล่นท่านี้ — null ถ้ายังไม่เคยบันทึก */
@@ -2407,7 +2478,8 @@ function loadLineHTML(ex, iso, e, plan){
     txt = 'วันนี้: <b>'+esc(setsText(plan.sets, plan.kind))+'</b>';
     var c = plan.change;
     badge = isUpChange(plan) ? '<span class="load-badge up">↑ '+(c.kind==='weight' ? '+'+c.inc+' กก.' : (c.kind==='time' ? '+5 วิ' : '+1 ครั้ง'))+'</span>'
-      : (c && c.kind==='back' ? '<span class="load-badge back">↓ กลับ '+c.to+' กก.</span>' : '<span class="load-badge">= เท่าครั้งก่อน</span>');
+      : (c && c.kind==='back' ? '<span class="load-badge back">↓ กลับ '+c.to+' กก.</span>'
+        : (c && c.kind==='down' ? '<span class="load-badge back">↓ ลด '+c.dec+' กก.</span>' : '<span class="load-badge">= เท่าครั้งก่อน</span>'));
     if(isUpChange(plan)) btn = '<button type="button" class="btn sm" data-act="prog-revert" data-date="'+iso+'" data-ex="'+esc(ex.id)+'">ไม่ไหว — ใช้ค่าเดิม ('+esc(setsText(plan.base, plan.kind))+')</button>';
   }
   var note = plan && !logged ? '<div class="load-note">ตั้งให้จากครั้งก่อน ('+esc(shortDateTH(plan.prevDate))+')'+(plan.note ? ' · '+esc(plan.note) : '')+' — ติ๊กว่าทำแล้วระบบบันทึกค่านี้ให้</div>' : '';
@@ -2433,14 +2505,32 @@ function feelHTML(ex, iso, e, plan){
     return '<button type="button" class="feel-btn f-'+o.k+(cur===o.k ? ' on' : '')+'" data-act="feel" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" data-k="'+o.k+'" title="'+esc(o.tip)+'" aria-pressed="'+(cur===o.k)+'">'+o.icon+' '+esc(o.label)+'</button>';
   }).join('');
   var next = '';
-  var base = hasSets(e) ? cleanSets(e.sets) : (plan ? plan.sets : null);
-  if(cur && base && base.length){
-    var nx = planFrom(ex, base, cur, hasSets(e) ? e.prog : progRecord(plan), e.symptom);
+  var logged = hasSets(e);
+  var base = logged ? cleanSets(e.sets) : (plan ? plan.sets : null);
+  var sig = logged ? repsSignal(ex, base) : null; // อ่านจากเซ็ตที่บันทึกจริงวันนี้เท่านั้น (ไม่ใช่ค่าที่ระบบตั้งให้)
+  if((cur || (sig && sig.verdict!=='ok')) && base && base.length){
+    var nx = planFrom(ex, base, cur, logged ? e.prog : progRecord(plan), e.symptom);
     next = '<div class="next-line">ครั้งหน้า: <b>'+esc(setsText(nx.sets, nx.kind))+'</b>'+(nx.note ? ' — '+esc(nx.note) : '')+'</div>';
   } else if(!cur){
-    next = '<div class="next-line hint">เล่นเสร็จแล้วเลือกว่ายังมีแรงเหลือไหม — ระบบใช้ปรับน้ำหนักครั้งหน้าให้อย่างปลอดภัย</div>';
+    next = '<div class="next-line hint">เล่นเสร็จแล้วเลือกว่ายังมีแรงเหลือไหม — ระบบใช้จำนวนครั้งที่ทำได้ร่วมกับความรู้สึกนี้ปรับน้ำหนักครั้งหน้าให้อย่างปลอดภัย</div>';
   }
-  return '<div class="feel-row"><span class="feel-label">แรงเหลือหลังเล่น:</span>'+btns+'</div>'+next;
+  return sigLineHTML(sig, cur)+'<div class="feel-row"><span class="feel-label">แรงเหลือหลังเล่น:</span>'+btns+'</div>'+next;
+}
+/* สรุปว่าเซ็ตแรกเทียบช่วงเป้าเป็นอย่างไร (มีข้อความกำกับเสมอ ไม่ใช้สีอย่างเดียว) */
+function sigLineHTML(sig, feel){
+  if(!sig) return '';
+  var rr = sig.range, cls, msg;
+  if(sig.verdict==='heavy'){
+    cls = 'sig-low'; msg = '↓ เซ็ตแรก '+sig.first+' ครั้ง ต่ำกว่าช่วงเป้า '+rr.lo+'–'+rr.hi+' → น้ำหนักหนักไป';
+  } else if(sig.verdict==='light'){
+    cls = 'sig-high'; msg = '↑ เซ็ตแรก '+sig.first+' ครั้ง เกินช่วงเป้า '+rr.lo+'–'+rr.hi+' → น้ำหนักเบาไป เพิ่มได้';
+  } else {
+    cls = 'sig-in'; msg = '✓ เซ็ตแรก '+sig.first+' ครั้ง อยู่ในช่วงเป้า '+rr.lo+'–'+rr.hi+' → น้ำหนักพอดี';
+  }
+  if(sig.fatigue) msg += ' · เซ็ตท้ายตกเหลือ '+sig.lastReps+' ครั้ง (ล้าเร็ว) ถ้ายังไหวคงน้ำหนักเดิม';
+  if(sig.verdict==='heavy' && feel==='more') msg += ' · ขัดกับ “ยกเพิ่มได้อีก” ระบบเชื่อจำนวนครั้ง';
+  if(sig.verdict==='light' && feel==='hard') msg += ' · ขัดกับ “หนักไป” ยังไม่เพิ่ม';
+  return '<div class="sig-line '+cls+'" role="status">'+esc(msg)+'</div>';
 }
 
 /* 4-8 ครั้งจนหมดแรง ≈ 79-88% ของ 1RM (Epley) — แนะนำจาก e1RM ของครั้งก่อนถ้ามี */
@@ -2603,6 +2693,7 @@ function sectionWorkout(iso){
       setRows += '<div class="set-row"><span class="sr-label">เซ็ต '+(i+1)+'</span>'+
         (isBW?'':'<input type="number" inputmode="decimal" placeholder="'+(ex.timeBased?'วินาที':'น.น.(กก.)')+'" data-act="set" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" data-field="weight" data-idx="'+i+'" data-fkey="set-'+iso+'-'+ex.id+'-w'+i+'" value="'+num(sv.weight)+'">')+
         (ex.timeBased?'':'<input type="number" inputmode="numeric" placeholder="ครั้ง" data-act="set" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" data-field="reps" data-idx="'+i+'" data-fkey="set-'+iso+'-'+ex.id+'-r'+i+'" value="'+num(sv.reps)+'">')+
+        (ex.timeBased || usePlan || !(sv.reps>0) ? '' : setVerdictTag(sv.reps, repRange(ex.setsReps)))+
         '</div>';
     }
     if(!isBW && !ex.timeBased && WARMUP_WEIGHTED.indexOf(ex.equip)>-1){

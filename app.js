@@ -3084,6 +3084,93 @@ function dayPanelBody(iso){
 }
 
 /* ---------- หน้า: วันนี้ ---------- */
+/* ---------- แผงสรุปของหน้า "วันนี้" (น้ำหนักรวม / เซ็ต / สัปดาห์นี้) ----------
+   คำนวณสดจาก log ที่มีอยู่ทุกครั้ง ไม่เก็บค่าแยก (แหล่งความจริงเดียว = track.logs)
+     volume  = ผลรวม น้ำหนัก×ครั้ง ของเซ็ตที่บันทึกวันนี้  เทียบกับครั้งล่าสุดที่เล่นท่าเดียวกัน (ไม่มีครั้งก่อน = ไม่มีเป้า)
+     sets    = เซ็ตที่บันทึกวันนี้ (แต่ละท่านับไม่เกินจำนวนเซ็ตตามแผน) เทียบกับเซ็ตตามแผนของวันนี้
+     consist = วันฝึกที่บันทึกครบในสัปดาห์นี้ (จันทร์–อาทิตย์) เทียบกับจำนวนวันฝึกต่อสัปดาห์ของแผน
+     groups  = เซ็ตแยกตามท่า [{n: เซ็ตตามแผน, done: เซ็ตที่บันทึก}] — วาดเป็นบล็อกทีละเซ็ต
+     week    = 7 วันของสัปดาห์ [{planned, done, missed, today}]
+   target เป็น null = ไม่มีเป้าให้เทียบ (วันพัก / ยังไม่เคยเล่น) แต่ยังแสดงตัวเลขจริง */
+function setsVolume(sets){
+  return cleanSets(sets).reduce(function(v, s){ return v + (s.weight && s.reps ? s.weight*s.reps : 0); }, 0);
+}
+function todayStats(program, iso){
+  var sess = sessionDefFor(program, sessionKeyFor(program, iso));
+  var exLog = (logFor(iso)||{}).exercises || {};
+  var vol = 0, volTarget = 0, sets = 0, setsTarget = 0, groups = [];
+  (sess ? sess.exercises : []).forEach(function(ex){
+    var n = setCountFor(ex.setsReps), e = exLog[ex.id];
+    var did = Math.min(cleanSets((e||{}).sets).length, n);
+    setsTarget += n; sets += did;
+    groups.push({n:n, done:did});
+    vol += setsVolume((e||{}).sets);
+    var prev = prevExerciseLog(ex.id, iso);
+    if(prev) volTarget += setsVolume(prev.e.sets);
+  });
+  var wk = startOfWeek(parseISO(iso)), done = 0, week = [];
+  for(var i=0; i<7; i++){
+    var d = fmtDateISO(addDays(wk, i)), lg = logFor(d);
+    var planned = !!sessionKeyFor(program, d), ok = planned && !!(lg && lg.completed);
+    if(ok) done++;
+    week.push({planned:planned, done:ok, missed: planned && !ok && d < iso, today: d===iso});
+  }
+  function pct(v, t){ return t ? Math.min(1, v/t) : 0; }
+  var daysN = (program.days||[]).length;
+  return {
+    volume:{value: Math.round(vol), target: volTarget ? Math.round(volTarget) : null, pct: pct(vol, volTarget)},
+    sets:{value: sets, target: setsTarget || null, pct: pct(sets, setsTarget)},
+    consist:{value: done, target: daysN || null, pct: pct(done, daysN)},
+    groups: groups, week: week
+  };
+}
+var WEEK_LETTERS = ['จ','อ','พ','พฤ','ศ','ส','อา'];
+var statPrevFill = 0; // ความยาวแถบน้ำหนักรวมที่วาดครั้งก่อน — ให้แถบขยับต่อจากจุดเดิมตอน render ซ้ำ
+function fmtN(n){ return n.toLocaleString('en-US'); }
+function todayStatsHTML(st){
+  var v = st.volume, s = st.sets, c = st.consist;
+  /* น้ำหนักรวม: แถบเต็ม = ค่าที่มากกว่าระหว่างวันนี้กับครั้งก่อน ขีดตั้ง = ครั้งก่อน — ยกเกินครั้งก่อนแถบจะเลยขีดไป */
+  var volBody, volNote;
+  if(v.target!=null){
+    var max = Math.max(v.target, v.value), fill = v.value/max, mark = v.target/max, diff = Math.round((v.value/v.target-1)*100);
+    volNote = v.value>v.target ? '<b class="ts-up">+'+diff+'% จากครั้งก่อน</b>' : 'ครั้งก่อน '+fmtN(v.target)+' กก.';
+    volBody = '<div class="ts-bar"><i data-fill="'+fill+'" style="width:'+(statPrevFill*100).toFixed(1)+'%"></i>'+
+      '<span class="ts-mark" style="left:'+(mark*100).toFixed(1)+'%"></span></div>';
+  } else {
+    volNote = s.target!=null ? 'ยังไม่มีครั้งก่อนให้เทียบ' : 'วันพัก';
+    volBody = '';
+  }
+  /* เซ็ต: หนึ่งบล็อก = หนึ่งเซ็ตตามแผน เว้นช่องระหว่างท่า */
+  var blocks = st.groups.map(function(g){
+    var h = '';
+    for(var i=0; i<g.n; i++) h += '<i'+(i<g.done ? ' class="on"' : '')+'></i>';
+    return '<span class="ts-grp">'+h+'</span>';
+  }).join('');
+  var days = st.week.map(function(d, i){
+    var cls = d.done ? 'done' : (d.missed ? 'missed' : (d.planned ? 'plan' : 'rest'));
+    return '<span class="ts-day '+cls+(d.today ? ' today' : '')+'"><i></i>'+WEEK_LETTERS[i]+'</span>';
+  }).join('');
+  var label = 'น้ำหนักรวม '+v.value+' กก.'+(v.target!=null ? ' ครั้งก่อน '+v.target+' กก.' : '')+', เซ็ต '+s.value+(s.target!=null ? ' จาก '+s.target : '')+
+    ', สัปดาห์นี้ฝึกครบ '+c.value+(c.target!=null ? ' จาก '+c.target : '')+' วัน';
+  return '<section class="tstats" aria-label="'+esc(label)+'">'+
+    '<div class="ts-row"><div class="ts-head"><span class="ts-l">น้ำหนักรวมวันนี้</span><span class="ts-note">'+volNote+'</span></div>'+
+      '<div class="ts-v ts-hero">'+fmtN(v.value)+'<small>กก.</small></div>'+volBody+'</div>'+
+    '<div class="ts-row"><div class="ts-head"><span class="ts-l">เซ็ต</span><span class="ts-note">'+(s.target!=null ? 'เหลือ '+(s.target-s.value)+' เซ็ต' : 'วันพัก')+'</span></div>'+
+      '<div class="ts-v">'+s.value+(s.target!=null ? '<small>/ '+s.target+'</small>' : '')+'</div>'+
+      (blocks ? '<div class="ts-blocks" aria-hidden="true">'+blocks+'</div>' : '')+'</div>'+
+    '<div class="ts-row"><div class="ts-head"><span class="ts-l">สัปดาห์นี้</span><span class="ts-note">ฝึกครบ '+c.value+(c.target!=null ? ' / '+c.target : '')+' วัน</span></div>'+
+      '<div class="ts-week" aria-hidden="true">'+days+'</div></div>'+
+    '</section>';
+}
+function animateStats(){
+  var el = document.querySelector('.ts-bar > i');
+  if(!el){ statPrevFill = 0; return; }
+  requestAnimationFrame(function(){
+    var f = Number(el.getAttribute('data-fill')) || 0;
+    el.style.width = (f*100).toFixed(1)+'%';
+    statPrevFill = f;
+  });
+}
 function renderToday(){
   var p = track.program, iso = todayISO();
   var counts = dayCounts(p, iso);
@@ -3103,6 +3190,7 @@ function renderToday(){
     '</div></div>';
 
   html += oldScheduleBanner(p) + scheduleClashBanner(p) + planUpdateBanner(p) + calorieTargetBanner(p) + fatAlertHTML(p) + pgAlertHTML(p);
+  html += todayStatsHTML(todayStats(p, iso));
   html += '<div class="today-grid"><div class="stack">'+dayEditor(iso)+'</div>'+
     '<aside class="rail">'+
       '<div class="prog-card"><div class="prog-top"><h3>ความคืบหน้าวันนี้</h3><span class="n mono">'+counts.done+'/'+counts.total+'</span></div>'+
@@ -3118,6 +3206,7 @@ function renderToday(){
     '</aside></div>';
 
   document.getElementById("page").innerHTML = html;
+  animateStats();
 }
 
 /* ---------- หน้า: ตารางฝึก (รายสัปดาห์ / รายเดือน) ---------- */

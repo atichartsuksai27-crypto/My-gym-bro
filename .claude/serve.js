@@ -75,7 +75,10 @@ http.createServer((req, res) => {
     if (err) { res.writeHead(404); res.end('Not found: ' + urlPath); return; }
     const ext = path.extname(filePath).toLowerCase();
     if (ext === '.html') {
-      const html = data.toString('utf8').replace('</body>', LIVERELOAD_SCRIPT + '</body>');
+      let html = data.toString('utf8').replace('</body>', LIVERELOAD_SCRIPT + '</body>');
+      // โหมดดูหน้าในแอปโดยไม่ล็อกอิน: เปิด http://127.0.0.1:8934/?offline — ตัด script ของ Supabase ออก
+      // แอปจึงทำงานแบบ local-only (ไม่อ่าน/เขียนข้อมูลจริงเลย) ใช้ 127.0.0.1 เพื่อให้ localStorage แยกจาก localhost
+      if (/[?&]offline/.test(req.url)) html = html.replace(/<script src="[^"]*supabase[^"]*"><\/script>\s*/g, '');
       res.writeHead(200, { 'Content-Type': MIME[ext] });
       res.end(html);
       return;

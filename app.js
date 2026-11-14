@@ -1027,6 +1027,7 @@ var track = {
   weights: lsGet("gymbro_weights", {}),
   viewMonth:null, weekStart:null,
   openDate:null, openSets:{}, saveStatus:'', openSwap:null,
+  todayTab:null, openEx:{}, pageTab:{}, planSess:undefined, reviewSess:undefined, // หน้า "วันนี้": แท็บที่เปิดอยู่ / ท่าที่กางรายละเอียด (สถานะหน้าจอล้วน ไม่บันทึก ไม่ sync)
   schedTab:'week', editing:false, progressEx:null, openBench:{}, sleepHoursError:{},
   demoExercise:null, // โมดัลภาพเคลื่อนไหวท่าในหน้าตรวจแผน (null = ปิด)
   histOpen:null, histDays:14, finalizedThrough:null, schedDraft:null, fatOpen:false,
@@ -2705,6 +2706,11 @@ function sectionWorkout(iso){
   var exData = log.exercises || {};
   var doneN = sess.exercises.filter(function(ex){ return (exData[ex.id]||{}).done; }).length;
   var wuSteps = warmupStepsFor(sess);
+  /* กางรายละเอียดทีละท่า: ยังไม่เคยเลือก = ท่าแรกที่ยังไม่ติ๊ก แล้วจำไว้ (ติ๊กเสร็จยังกางอยู่ให้เลือก "แรงเหลือหลังเล่น" ต่อได้) */
+  if(track.openEx[iso]===undefined){
+    var firstTodo = sess.exercises.filter(function(x){ return !(exData[x.id]||{}).done; })[0];
+    track.openEx[iso] = firstTodo ? firstTodo.id : null;
+  }
   var rows = sess.exercises.map(function(ex, exIdx){
     var e = exData[ex.id] || {};
     var rest = restFor(ex), intense = isIntense(ex);
@@ -2735,10 +2741,17 @@ function sectionWorkout(iso){
       // ระดับเทียบกับน้ำหนักที่ใช้คำนวณขั้นถัดไป: ยังไม่บันทึกวันนี้ = ครั้งก่อน (ตรงกับข้อความของแผน), บันทึกแล้ว = วันนี้
       setRows += stepPickerHTML(ex, (usePlan ? topWeight(plan.base) : topWeight(cleanSets(sets))) || (prev && prev.weight) || 0);
     }
-    return '<div class="chk'+(e.done?' on':'')+'">'+
+    var exOpen = track.openEx[iso]===ex.id;
+    var sumTxt = hasSets(e) ? setsText(e.sets, exKind(ex, cleanSets(e.sets))) : (plan ? setsText(plan.sets, plan.kind) : '');
+    return '<div class="chk ex-card'+(e.done?' on':'')+(exOpen?' is-open':'')+'">'+
       '<input type="checkbox" data-act="ex-done" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" '+(e.done?'checked':'')+' aria-label="ทำท่า '+esc(ex.th)+' แล้ว">'+
-      '<div class="cb"><div class="t">'+esc(ex.th)+(intense?' <span class="chip miss">เข้มข้น</span>':'')+'</div>'+
-        '<div class="s">'+esc(ex.setsReps)+(intense?' (จนหมดแรง)':'')+' · '+esc(PATTERN_SHORT[ex.pattern]||ex.pattern)+' · '+esc(prevTxt)+'</div>'+
+      '<div class="cb"><button type="button" class="ex-head" data-act="ex-toggle" data-date="'+iso+'" data-ex="'+esc(ex.id)+'" aria-expanded="'+exOpen+'">'+
+          '<span class="ex-head-main"><span class="t">'+esc(ex.th)+(intense?' <span class="chip miss">เข้มข้น</span>':'')+'</span>'+
+          '<span class="s">'+esc(ex.setsReps)+(intense?' (จนหมดแรง)':'')+' · '+esc(PATTERN_SHORT[ex.pattern]||ex.pattern)+'</span></span>'+
+          (sumTxt ? '<span class="ex-sum">'+esc(sumTxt)+'</span>' : '')+
+          '<span class="ex-caret" aria-hidden="true"></span></button>'+
+        '<div class="ex-more">'+
+        '<div class="s">'+esc(prevTxt)+'</div>'+
         restLine+
         (intense ? intenseNoteHTML(ex, prev) : '')+
         warmupHTML(ex, iso, e, wuSteps[ex.id]||[], prev, usePlan && plan.kind==='weight' ? topWeight(plan.sets) : 0)+
@@ -2747,7 +2760,7 @@ function sectionWorkout(iso){
         feelHTML(ex, iso, e, plan)+
         symptomHTML(ex, iso, e)+
         perfBlockFor(ex, iso, e, isBW)+
-      '</div></div>';
+      '</div></div></div>';
   }).join('');
   return '<div class="sec-card">'+
     '<div class="sec-head"><span class="sq" style="background:var(--accent)"></span><h2>ออกกำลังกาย</h2>'+
@@ -3171,6 +3184,34 @@ function animateStats(){
     statPrevFill = f;
   });
 }
+/* แท็บของหน้า "วันนี้" — จัดกลุ่มส่วนเดิมของ dayEditor ใหม่เท่านั้น ไม่เปลี่ยนสิ่งที่บันทึก
+   ทุกส่วน render ลง DOM ครบทุกครั้ง (แท็บที่ไม่ได้เลือกใส่ hidden) → ตัวอ่านค่าจาก DOM/โฟกัสทำงานเหมือนเดิม */
+/* แท็บภายในหน้า (ความคืบหน้า / แผน): ทุก pane ถูก render ครบ pane ที่ไม่ได้เลือกใส่ hidden — จำแท็บไว้ใน track.pageTab (ไม่บันทึก ไม่ sync) */
+function pageTabs(key, defs){
+  var cur = track.pageTab[key];
+  if(!defs.filter(function(d){ return d.k===cur; }).length) cur = defs[0].k;
+  var bar = '<div class="tday-tabs" role="tablist">'+defs.map(function(d){
+    return '<button type="button" role="tab" aria-selected="'+(d.k===cur)+'" class="'+(d.k===cur?'on':'')+'" data-act="page-tab" data-key="'+key+'" data-tab="'+d.k+'">'+esc(d.label)+'</button>';
+  }).join('')+'</div>';
+  return {bar:bar, close:'</div>', open:function(k){ return '<div class="pg-pane" role="tabpanel"'+(k===cur?'':' hidden')+'>'; }};
+}
+var TODAY_TABS = [
+  {k:'train', label:'ฝึก', groups:['workout','cardio'], html:function(iso){ return sectionWorkout(iso) + sectionCardio(iso); }},
+  {k:'eat', label:'กิน', groups:['food'], html:function(iso){ return sectionFood(iso); }},
+  {k:'body', label:'ร่างกาย', groups:['body','sleep'], html:function(iso){ return sectionBody(iso) + sectionSleep(iso) + sectionStress(iso); }}
+];
+function todayPanes(iso){
+  var items = dayItems(track.program, iso), cur = track.todayTab || 'train';
+  var tabs = '', panes = '';
+  TODAY_TABS.forEach(function(t){
+    var mine = items.filter(function(x){ return t.groups.indexOf(x.group)>-1; });
+    var done = mine.filter(function(x){ return x.done; }).length, on = t.k===cur;
+    tabs += '<button type="button" role="tab" id="tday-tab-'+t.k+'" aria-selected="'+on+'" aria-controls="tday-pane-'+t.k+'" class="'+(on?'on':'')+(mine.length && done>=mine.length?' full':'')+'" data-act="today-tab" data-tab="'+t.k+'">'+
+      t.label+'<span class="tt-n">'+done+'/'+mine.length+'</span></button>';
+    panes += '<div class="tday-pane" role="tabpanel" id="tday-pane-'+t.k+'" aria-labelledby="tday-tab-'+t.k+'"'+(on?'':' hidden')+'>'+t.html(iso)+'</div>';
+  });
+  return '<div class="tday-tabs" role="tablist" aria-label="เช็คลิสต์ของวันนี้">'+tabs+'</div>'+panes;
+}
 function renderToday(){
   var p = track.program, iso = todayISO();
   var counts = dayCounts(p, iso);
@@ -3183,15 +3224,12 @@ function renderToday(){
   var html = '<div class="page-head"><div>'+
       '<div class="eyebrow">'+esc(longDateTH(iso))+'</div>'+
       '<h1>วันนี้: '+dayLabelHTML(p, iso, 'พัก')+'</h1>'+
-      '<div class="sub">'+(sKey||cardioPlannedFor(p, iso)? 'ตามตารางที่ผูกกับวันที่จริง — ติ๊กทีละข้อระหว่างวันได้เลย ข้อมูลบันทึกทันทีที่กด' : 'วันพักตามตาราง — ถ้าทำ cardio เพิ่มก็บันทึกได้ เช็คลิสต์ที่เหลือคือโภชนาการ การนอน และน้ำหนักตัว')+'</div>'+
-    '</div><div class="head-actions">'+
-      '<button type="button" class="btn" data-act="nav" data-view="schedule">ดูตารางทั้งสัปดาห์</button>'+
-      '<button type="button" class="btn" data-act="nav" data-view="progress">ความคืบหน้า</button>'+
+      '<div class="sub">'+(sKey ? '~'+esc(p.minutesEstimate||'45-60 นาที')+' · '+esc(p.trainTime||'') : 'วันพักตามตาราง')+'</div>'+
     '</div></div>';
 
   html += oldScheduleBanner(p) + scheduleClashBanner(p) + planUpdateBanner(p) + calorieTargetBanner(p) + fatAlertHTML(p) + pgAlertHTML(p);
   html += todayStatsHTML(todayStats(p, iso));
-  html += '<div class="today-grid"><div class="stack">'+dayEditor(iso)+'</div>'+
+  html += '<div class="today-grid"><div class="stack">'+todayPanes(iso)+'</div>'+
     '<aside class="rail">'+
       '<div class="prog-card"><div class="prog-top"><h3>ความคืบหน้าวันนี้</h3><span class="n mono">'+counts.done+'/'+counts.total+'</span></div>'+
         '<div class="pbar'+(pct>=100?' full':'')+'"><i style="width:'+pct+'%"></i></div>'+
@@ -3318,7 +3356,7 @@ function renderSchedule(){
   var tab = track.schedTab==='month' ? 'month' : 'week';
   var html = '<div class="page-head"><div><div class="eyebrow">'+esc(p.splitLabel)+' · '+(p.days||[]).length+' วัน/สัปดาห์</div>'+
       '<h1>ตารางฝึก</h1>'+
-      '<div class="sub">ตารางเดียวกันดูได้ 2 มุม: รายสัปดาห์ไว้ดูว่าวันนี้-พรุ่งนี้ต้องทำอะไร รายเดือนไว้ดูภาพรวมทั้งเดือนและย้อนกลับไปบันทึกวันที่ตกหล่น</div></div>'+
+      '</div>'+
       '<div class="head-actions"><div class="tabs">'+
         '<button type="button" class="'+(tab==='week'?'on':'')+'" data-act="tab" data-tab="week">รายสัปดาห์</button>'+
         '<button type="button" class="'+(tab==='month'?'on':'')+'" data-act="tab" data-tab="month">รายเดือน</button>'+
@@ -3810,10 +3848,10 @@ function renderProgress(){
 
   var html = '<div class="page-head"><div><div class="eyebrow">ตั้งแต่ '+esc(shortDateTH(p.startDate))+' · '+Math.max(0,daysBetween(p.startDate, todayISO()))+' วัน</div>'+
     '<h1>ความคืบหน้า</h1>'+
-    '<div class="sub">ทุกตัวเลขในหน้านี้คำนวณจากสิ่งที่คุณบันทึกไว้จริงเท่านั้น ไม่มีค่าตัวอย่างผสม — ช่องไหนยังว่างแปลว่ายังไม่มีข้อมูลพอ</div></div>'+
-    '<div class="head-actions"><button type="button" class="btn" data-act="nav" data-view="today">กลับไปเช็คลิสต์วันนี้</button></div></div>';
+    '</div></div>';
 
-  html += fatAlertHTML(p) + pgSectionHTML(p) + fatBarHTML(p) + historyHTML(p);
+  var pgTabs = pageTabs('progress', [{k:'overview', label:'ภาพรวม'}, {k:'lifts', label:'รายท่า'}, {k:'history', label:'ประวัติ'}]);
+  html += fatAlertHTML(p) + pgTabs.bar + pgTabs.open('overview') + pgSectionHTML(p) + fatBarHTML(p);
 
   var deltaFirst = (last && startW!=null) ? (last.kg - startW) : null;
   var remain = (last && t.goalWeight!=null) ? (last.kg - t.goalWeight) : null;
@@ -3857,6 +3895,7 @@ function renderProgress(){
   }
   html += '</div>';
 
+  var htmlOverview = html; html = ''; // ส่วนรายท่าเก็บแยกไว้ใส่ในแท็บ "รายท่า" — Milestone ด้านล่างยังต่อท้ายแท็บภาพรวม
   var allEx = [];
   (p.sessions||[]).forEach(function(s){ s.exercises.forEach(function(e){ if(!allEx.filter(function(x){return x.id===e.id;}).length) allEx.push(e); }); });
   var cur = track.progressEx && allEx.filter(function(e){return e.id===track.progressEx;}).length ? track.progressEx : (allEx[0]? allEx[0].id : null);
@@ -3888,6 +3927,7 @@ function renderProgress(){
     }
   }
   html += '</div>';
+  var htmlLifts = html; html = htmlOverview;
 
   html += '<div class="section-title">Milestone</div><div class="card">'+
     '<div class="ms-grid">'+milestonesOf(p).map(function(m){
@@ -3896,7 +3936,10 @@ function renderProgress(){
     }).join('')+'</div>'+
     '<p class="hint" style="margin-top:12px">เงื่อนไขทุกข้อผูกกับข้อมูลจริงในระบบ ไม่มีการปลดล็อกให้ล่วงหน้า</p></div>';
 
+  html += pgTabs.close + pgTabs.open('lifts') + htmlLifts + pgTabs.close + pgTabs.open('history') + historyHTML(p) + pgTabs.close;
   document.getElementById("page").innerHTML = html;
+  var pkOn = document.querySelector('.picker .on'); // แถวเลือกท่าเลื่อนแนวนอน — เลื่อนให้ท่าที่เลือกอยู่ในจอหลัง render ซ้ำ
+  if(pkOn) pkOn.parentNode.scrollLeft = pkOn.offsetLeft - pkOn.parentNode.offsetLeft - 16;
 }
 
 /* ---------- หน้า: ถามโค้ช (เรียก /api/coach — Cloudflare Pages Function) ----------
@@ -3920,15 +3963,18 @@ function isNativeApp(){
 function apiUrl(path){ return (isNativeApp() ? API_ORIGIN : '') + path; }
 
 var coachState = {messages:[], busy:false, error:null};
+/* คำถามตัวอย่างในหน้าว่าง — กดแล้วใส่ลงช่องพิมพ์ให้เท่านั้น ผู้ใช้กด "ถาม" เอง (ไม่ส่งอัตโนมัติ เพราะทุกคำถามนับโควตารายวัน) */
+var COACH_SUGGESTIONS = ['ทำไมปุ่มเริ่มโปรแกรมกดไม่ได้', 'ทำไมท่าออกกำลังกายบางท่าเป็นชื่อภาษาอังกฤษ'];
 var COACH_MAX_PER_DAY = 20; // ต้องตรงกับ MAX_QUESTIONS_PER_DAY ใน functions/api/coach.js เสมอ — แค่ไว้โชว์ผู้ใช้
 
 function renderCoach(){
   var html = '<div class="page-head"><div><div class="eyebrow">ถามได้ทุกเรื่องเกี่ยวกับ Gymbro Daily</div><h1>ถามโค้ช</h1>'+
-    '<div class="sub">โค้ชตอบจากข้อมูลที่แอปมีจริงเท่านั้น ไม่ใช่คำแนะนำทางการแพทย์ — จำกัด '+COACH_MAX_PER_DAY+' คำถาม/วัน</div></div></div>';
+    '</div></div>';
 
   html += '<div class="card coach-log">';
   if(!coachState.messages.length){
-    html += '<p class="hint">ลองถามเช่น "ทำไมปุ่มเริ่มโปรแกรมกดไม่ได้" หรือ "ทำไมท่าออกกำลังกายบางท่าเป็นชื่อภาษาอังกฤษ"</p>';
+    html += '<div class="coach-empty"><p class="coach-empty-t">ลองถามเรื่องเหล่านี้</p>'+
+      COACH_SUGGESTIONS.map(function(q){ return '<button type="button" class="coach-sug" data-act="coach-suggest">'+esc(q)+'</button>'; }).join('')+'</div>';
   }
   coachState.messages.forEach(function(m){
     html += '<div class="coach-msg '+esc(m.role)+'"><div class="coach-bubble">'+esc(m.text)+'</div></div>';
@@ -3945,7 +3991,8 @@ function renderCoach(){
   html += '<div class="coach-input-row">'+
     '<input type="text" id="coachInput" placeholder="พิมพ์คำถาม..." maxlength="500" '+(coachState.busy?'disabled':'')+'>'+
     '<button type="button" class="btn primary" data-act="coach-ask" '+(coachState.busy?'disabled':'')+'>ถาม</button>'+
-  '</div>';
+  '</div>'+
+  '<p class="coach-note">ตอบจากข้อมูลที่แอปมีจริงเท่านั้น ไม่ใช่คำแนะนำทางการแพทย์ · จำกัด '+COACH_MAX_PER_DAY+' คำถาม/วัน</p>';
 
   document.getElementById("page").innerHTML = html;
   var input = document.getElementById('coachInput');
@@ -4130,11 +4177,6 @@ function renderPlan(){
   var pPct = Math.round(pKcal/tot*100), fPct = Math.round(fKcal/tot*100), cPct = 100-pPct-fPct;
 
   var html = '<div class="page-head"><div><div class="eyebrow">โปรแกรมที่กำลังติดตาม</div><h1>แผนของฉัน</h1>'+
-    '<div class="sub">แผนนี้ถูกล็อกไว้ตั้งแต่วันที่กด “เริ่มโปรแกรม” เพื่อไม่ให้ประวัติที่บันทึกไปแล้วเปลี่ยนความหมายย้อนหลัง — แก้ได้โดยกดปุ่มด้านขวา</div></div>'+
-    '<div class="head-actions">'+
-      '<button type="button" class="btn" data-act="sched-edit">ปรับวันฝึก / วัน cardio</button>'+
-      '<button type="button" class="btn" data-act="edit-plan">แก้ไขแผน / ทำแบบสอบถามใหม่</button>'+
-      '<button type="button" class="btn" data-act="edit-start">ตั้งวันเริ่มใหม่</button>'+
     '</div></div>';
   html += oldScheduleBanner(p) + scheduleClashBanner(p) + planUpdateBanner(p) + calorieTargetBanner(p) + schedEditorPanelHTML();
   if(!track.schedDraft && track.saveStatus==='บันทึกวันฝึกแล้ว ✓') html += '<div class="banner info"><div class="ic">✓</div><div>บันทึกวันฝึกแล้ว</div></div>';
@@ -4143,6 +4185,8 @@ function renderPlan(){
     html += renderStartSetup();
   }
 
+  var plTabs = pageTabs('plan', [{k:'overview', label:'ภาพรวม'}, {k:'sessions', label:'ท่าในแผน'}, {k:'manage', label:'จัดการแผน'}]);
+  html += plTabs.bar + plTabs.open('overview');
   html += '<div class="card"><div class="stat-grid">'+
     '<div class="stat-tile"><div class="l">รูปแบบโปรแกรม</div><div class="v" style="font-size:17px">'+esc(p.splitLabel)+'</div><span class="pill">'+(p.days||[]).length+' วัน/สัปดาห์</span></div>'+
     '<div class="stat-tile"><div class="l">วันเริ่มโปรแกรม</div><div class="v" style="font-size:17px">'+esc(shortDateTH(p.startDate))+'</div><span class="pill">'+Math.max(0,daysBetween(p.startDate, todayISO()))+' วันที่ผ่านมา</span></div>'+
@@ -4159,10 +4203,16 @@ function renderPlan(){
       '<div class="opt-note" style="margin-top:8px">น้ำ '+fmt1(t.waterL)+' ลิตร/วัน · '+t.meals+' มื้อ/วัน · นอน '+fmtHours(t.sleepH)+'/คืน</div>'+
     '</div></div>';
 
-  html += '<div class="section-title">เซสชันในแผน</div>' + coverageHTML(programCoverage(p), '');
+  html += plTabs.close + plTabs.open('sessions') + coverageHTML(programCoverage(p), '');
+  /* เซสชันพับได้ กางทีละเซสชัน: ยังไม่เคยเลือก = เซสชันของวันนี้ ถ้าวันนี้วันพัก = เซสชันแรก */
+  if(track.planSess===undefined) track.planSess = sessionKeyFor(p, todayISO()) || ((p.sessions||[])[0]||{}).key || null;
   html += (p.sessions||[]).map(function(se){
+    var seOpen = track.planSess===se.key;
     var daysFor = (p.days||[]).filter(function(d){ return p.dayToSession[d]===se.key; });
-    return '<div class="session-heading">เซสชัน “'+esc(se.key)+'” <span class="sh-sub">'+daysFor.length+'x/สัปดาห์ — '+esc(daysFor.join(', ')||'—')+' · ~'+esc(p.minutesEstimate)+'</span></div>'+
+    return '<div class="sess-block'+(seOpen?' is-open':'')+'"><button type="button" class="sess-head" data-act="plan-sess" data-key="'+esc(se.key)+'" aria-expanded="'+seOpen+'">'+
+        '<span class="sess-head-main"><span class="sess-name">'+esc(se.key)+'</span>'+
+        '<span class="sh-sub">'+daysFor.length+'x/สัปดาห์ — '+esc(daysFor.join(', ')||'—')+' · ~'+esc(p.minutesEstimate)+'</span></span>'+
+        '<span class="sess-n">'+se.exercises.length+' ท่า</span><span class="ex-caret" aria-hidden="true"></span></button>'+
       '<div class="exercise-list">'+se.exercises.map(function(ex){
         return '<div class="ex-row"><div class="ex-row-top"><div>'+
           '<div class="ex-pattern">'+esc(PATTERN_LABEL[ex.pattern]||ex.pattern)+'</div>'+
@@ -4171,13 +4221,19 @@ function renderPlan(){
           '<div class="rest-line">พักระหว่างเซ็ต '+restFor(ex).set+' · ก่อนเปลี่ยนท่า '+restFor(ex).next+'</div>'+
           (isIntense(ex) ? '<div class="int-warn">⚠️ '+esc(INTENSE_WARNING)+'</div>' : '')+'</div>'+
           '<div class="ex-meta"><span class="ex-sets mono">'+esc(ex.setsReps)+'</span></div></div></div>';
-      }).join('')+'</div>';
+      }).join('')+'</div></div>';
   }).join('');
   if((p.cardioDays||[]).length){
     html += '<div class="session-heading">Cardio <span class="sh-sub">'+p.cardioDays.length+'x/สัปดาห์ — '+
       esc(p.cardioDays.map(function(d){ return d+' '+cardioMinFor(p, d)+' นาที'; }).join(', '))+'</span></div>';
   }
 
+  html += plTabs.close + plTabs.open('manage') +
+    '<div class="manage-list">'+
+      '<button type="button" class="manage-row" data-act="sched-edit"><span><b>ปรับวันฝึก / วัน cardio</b><small>เปลี่ยนวันในสัปดาห์โดยไม่ต้องทำแบบสอบถามใหม่</small></span><span class="manage-go" aria-hidden="true">→</span></button>'+
+      '<button type="button" class="manage-row" data-act="edit-plan"><span><b>แก้ไขแผน / ทำแบบสอบถามใหม่</b><small>เปลี่ยนเป้าหมาย อุปกรณ์ หรือท่าในแผน</small></span><span class="manage-go" aria-hidden="true">→</span></button>'+
+      '<button type="button" class="manage-row" data-act="edit-start"><span><b>ตั้งวันเริ่มใหม่</b><small>แผนถูกล็อกตั้งแต่วันเริ่มโปรแกรม เพื่อให้ประวัติที่บันทึกไว้ยังเทียบกันได้</small></span><span class="manage-go" aria-hidden="true">→</span></button>'+
+    '</div>';
   html += '<div class="disclaimer-block"><h3>สิ่งที่ต้องรู้ก่อนใช้จริง</h3><ul>'+
     '<li>ตัวเลข sets/reps, tier ของท่า และเกณฑ์แคลอรี่/มาโคร/น้ำ/การนอนทั้งหมดเป็น <b>placeholder</b> ที่ยังไม่ผ่านการ review จากเทรนเนอร์/นักโภชนาการตัวจริง</li>'+
     '<li>ฐานข้อมูลท่าออกกำลังกายเป็นชุดตัวอย่างอ้างอิงแนวคิดจาก wger.de ยังไม่ใช่ exercise database ระดับ production</li>'+
@@ -4186,7 +4242,7 @@ function renderPlan(){
     '<li>ข้อมูลทั้งหมดเก็บไว้ใน localStorage ของเบราว์เซอร์เครื่องนี้เท่านั้น — ล้างแคช/เปลี่ยนเครื่อง/เปิดโหมดไม่ระบุตัวตนจะไม่เห็นข้อมูลเดิม และยังไม่มีระบบซิงก์ข้ามอุปกรณ์หรือบัญชีผู้ใช้</li>'+
     '<li>รองรับหน่วย kg/cm เท่านั้น และรองรับ 4 เป้าหมาย (ลดไขมัน / เพิ่มกล้ามเนื้อ / Recomposition / รักษาสุขภาพทั่วไป) เฉพาะสถานที่ "ฟิตเนส-ยิม" หรือ "ที่บ้าน"</li>'+
     '<li>นี่คือต้นแบบสาธิต ไม่ใช่คำแนะนำทางการแพทย์หรือโภชนาการ หากมีอาการผิดปกติระหว่างออกกำลังกาย ควรหยุดและปรึกษาแพทย์ทันที</li>'+
-  '</ul></div>';
+  '</ul></div>' + plTabs.close;
 
   document.getElementById("page").innerHTML = html;
 }
@@ -4759,10 +4815,18 @@ function resultsHTML(){
     ? '<div class="banner warn"><div class="ic">⚠️</div><div><b>คุณเลือกแบบเข้มข้นไว้</b> — '+INTENSE_WARNING+
         (a.Q16==='มือใหม่' ? ' · คุณระบุว่าเป็นมือใหม่ แนะนำให้เริ่มจากแบบทั่วไปจนฟอร์มนิ่งก่อน' : '')+'</div></div>'
     : '';
+  /* เซสชันพับได้ กางทีละเซสชัน (ยังไม่เคยเลือก/เซสชันที่จำไว้ไม่อยู่ในรูปแบบนี้แล้ว = เซสชันแรก) — แถวท่ายังอยู่ใน DOM ครบ ซ่อนด้วย CSS */
+  if(track.reviewSess===undefined || (track.reviewSess!==null && !splitDef.sessions.filter(function(x){ return x.key===track.reviewSess; }).length)){
+    track.reviewSess = (splitDef.sessions[0]||{}).key || null;
+  }
   var sessionBlocks = splitDef.sessions.map(function(se){
     var daysForThis = assignment.filter(function(x){return x.session===se.key;}).map(function(x){return x.day;});
-    return '<div class="session-heading">เซสชัน "'+se.key+'" <span class="sh-sub">('+daysForThis.length+'x/สัปดาห์ — '+(daysForThis.join(', ')||'—')+' · ~'+(a.Q3||'45-60 นาที')+' รวมวอร์มอัพ)</span></div>'+
-      '<div class="exercise-list">'+se.patterns.map(buildExRow).join('')+'</div>';
+    var seOpen = track.reviewSess===se.key;
+    return '<div class="sess-block sess-review'+(seOpen?' is-open':'')+'"><button type="button" class="sess-head" data-act="review-sess" data-key="'+esc(se.key)+'" aria-expanded="'+seOpen+'">'+
+        '<span class="sess-head-main"><span class="sess-name">'+esc(se.key)+'</span>'+
+        '<span class="sh-sub">'+daysForThis.length+'x/สัปดาห์ — '+esc(daysForThis.join(', ')||'—')+' · ~'+esc(a.Q3||'45-60 นาที')+' รวมวอร์มอัพ</span></span>'+
+        '<span class="sess-n">'+se.patterns.length+' ท่า</span><span class="ex-caret" aria-hidden="true"></span></button>'+
+      '<div class="exercise-list">'+se.patterns.map(buildExRow).join('')+'</div></div>';
   }).join('');
 
   var reasoning = (function(){
@@ -5338,7 +5402,8 @@ function libraryGrouped(list){
 }
 
 /* ---- หน้าจอคลังท่า: สถานะชั่วคราวทั้งหมด (ไม่บันทึกลง localStorage/Supabase) ---- */
-var libUI = {open:false, query:'', group:null, equip:null, onlyMine:false, female:null, openId:null, place:null, homeEquip:null};
+var libUI = {open:false, query:'', group:null, equip:null, onlyMine:false, female:null, openId:null, place:null, homeEquip:null,
+  unfold:{}}; // unfold: กลุ่มกล้ามเนื้อที่กางรายการท่าอยู่ (สถานะหน้าจอล้วน)
 
 /* สถานที่เริ่มต้นตาม Q20: ที่บ้าน → ที่บ้าน, ฟิตเนส-ยิม → ยิม, อื่นๆ/ยังไม่ตอบ → ทั้งหมด (ผู้ใช้สลับเองได้) */
 function libPlace(){
@@ -5472,10 +5537,16 @@ function libDynHTML(){
     h += '<div class="lib-empty"><p><b>ไม่พบท่าที่ตรงกับตัวกรอง</b></p>'+
       '<button type="button" class="linkbtn" data-lib-reset>ล้างตัวกรองทั้งหมด</button></div>';
   }
+  /* กลุ่มพับได้: เปิดคลังครั้งแรกเห็นแค่หัวกลุ่ม (เดิมเป็นรายการยาว 200+ ท่า) — กำลังค้นหา/เลือกกลุ่ม/ดูเฉพาะในแผน/เหลือกลุ่มเดียว = กางให้เลย
+     แถวท่ายังอยู่ใน DOM ครบ ซ่อนด้วย CSS เท่านั้น */
+  var unfoldAll = !!libUI.query || !!libUI.group || libUI.onlyMine || groups.length === 1;
   groups.forEach(function(x){
     var color = libraryGroupColor(x.g);
-    h += '<section class="lib-group" aria-label="'+esc(LIBRARY_GROUP_LABEL[x.g] || x.g)+'">'+
-      '<h2 class="lib-group-h" style="--gc:'+color+'"><span>'+esc(LIBRARY_GROUP_LABEL[x.g] || x.g)+'</span><span class="lib-count">'+x.items.length+'</span></h2>';
+    var gOpen = unfoldAll || !!libUI.unfold[x.g];
+    h += '<section class="lib-group'+(gOpen?' is-open':'')+'" aria-label="'+esc(LIBRARY_GROUP_LABEL[x.g] || x.g)+'">'+
+      '<h2 class="lib-group-h" style="--gc:'+color+'"><button type="button" class="lib-fold" data-lib-fold="'+esc(x.g)+'" aria-expanded="'+gOpen+'"'+(unfoldAll?' disabled':'')+'>'+
+        '<span>'+esc(LIBRARY_GROUP_LABEL[x.g] || x.g)+'</span><span class="lib-count">'+x.items.length+'</span>'+
+        (unfoldAll ? '' : '<span class="ex-caret" aria-hidden="true"></span>')+'</button></h2>';
     x.items.forEach(function(e){
       var inPlan = !!mine[e.id];
       h += '<button type="button" class="lib-row" data-lib-open="'+esc(e.id)+'">'+
@@ -5642,6 +5713,7 @@ document.addEventListener('click', function(ev){
     if(picking) libScrollToResults();
     return;
   }
+  if((el = t.closest('[data-lib-fold]'))){ var fg = el.getAttribute('data-lib-fold'); libUI.unfold[fg] = !libUI.unfold[fg]; libRefresh(); return; }
   if((el = t.closest('[data-lib-place]'))){ libUI.place = el.getAttribute('data-lib-place'); libUI.equip = null; libRefresh(); return; }
   if((el = t.closest('[data-lib-home]'))){
     var opt = el.getAttribute('data-lib-home');
@@ -6146,7 +6218,14 @@ document.addEventListener("click", function(ev){
     return;
   }
   if(act==='coach-ask'){ coachAsk(); return; }
+  if(act==='coach-suggest'){ var ci = document.getElementById('coachInput'); if(ci){ ci.value = el.textContent; ci.focus(); } return; }
   if(act==='nav'){ if(el.disabled) return; goto(el.getAttribute('data-view')); return; }
+  if(el.classList && el.classList.contains('manage-row')) window.scrollTo({top:0, behavior:'auto'});
+  if(act==='page-tab'){ track.pageTab[el.getAttribute('data-key')] = el.getAttribute('data-tab'); render(); return; }
+  if(act==='review-sess'){ var rk = el.getAttribute('data-key'); track.reviewSess = track.reviewSess===rk ? null : rk; render(); return; }
+  if(act==='plan-sess'){ var sk = el.getAttribute('data-key'); track.planSess = track.planSess===sk ? null : sk; render(); return; }
+  if(act==='today-tab'){ track.todayTab = el.getAttribute('data-tab'); render(); return; }
+  if(act==='ex-toggle'){ var xd = el.getAttribute('data-date'), xid = el.getAttribute('data-ex'); track.openEx[xd] = track.openEx[xd]===xid ? null : xid; render(); return; }
   if(act==='tab'){ track.schedTab = el.getAttribute('data-tab'); track.openDate=null; render(); return; }
   if(act==='week-prev'){ track.weekStart = fmtDateISO(addDays(parseISO(track.weekStart), -7)); render(); return; }
   if(act==='week-next'){ track.weekStart = fmtDateISO(addDays(parseISO(track.weekStart), 7)); render(); return; }
